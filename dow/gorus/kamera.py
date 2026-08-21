@@ -17,9 +17,27 @@ KALİBRASYON YÖNTEMİ
 
 ÖLÇÜLEN DEĞERLER
   TILT = 26.50°   f = 540.4 px   -> HFOV 121.2°, VFOV 90.0°  @1920x1080
+
+BELİRSİZLİK (soruldu: "26.5 kesin değer mi?")
+  Artık eğrisi KESKİN bir çukur yapıyor (n=635 iç küme):
+     TILT 25.00 -> artık 5.10 px      (README'nin değeri)
+     TILT 26.00 -> artık 3.10 px
+     TILT 26.50 -> artık 2.56 px      <- EN İYİ
+     TILT 27.00 -> artık 2.80 px
+     TILT 28.00 -> artık 5.14 px
+  BOOTSTRAP (60 yeniden örnekleme): 26.57° ± 0.11°, %5-95: 26.50-26.75
+  => 25° KESİN OLARAK ELENİR: orada artık İKİ KATINA çıkıyor.
+
+  Kalan pay SİSTEMATİK: f ile TILT fitte birbirine bağlı (eğride ikisi
+  birlikte artıyor). Ölçüm paketinin bağımsız f=531.4 değeri dayatılırsa
+  TILT ~26.2 çıkar. Gerçek değer 26.2-26.6 bandında; her hâlükârda 25 değil.
+  SEÇİM: 26.50 (kendi kurulumumuzda, kendi ölçümümüzle).
+
   KIYAS: ölçüm paketi f=531.4/HFOV 122.07/VFOV 90.93/tilt 22.9
          README        HFOV 125 / tilt 25
-  Üç kaynak %1-2 içinde uyuşuyor.
+  ⚠ Ölçüm paketi kendi kurulumunda "1536x864 mantıksal uzay, 1.25 Windows DPI
+    ölçeği" notu düşmüş. Proton altında DPI zinciri FARKLI; bu yüzden onların
+    f'i bize doğrudan taşınmaz. Kendi ölçümümüz esastır.
 
 MENZİL SABİTİ (ayrı ölçüm, n=59 gerçek tespit)
   C = kutu_genisligi x menzil = 997 px·m  (%25-75: 855-1060)

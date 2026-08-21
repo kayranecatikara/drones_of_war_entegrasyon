@@ -35,29 +35,69 @@ GÜVEN EŞİĞİ (1920'de tarandı):
 import numpy as np
 
 MODEL_YOLU = "modeller/talon_v3.pt"
-IMGSZ      = 1920      # ÖLÇÜLDÜ: 960 kullanmak 40-60 m'de tespiti %55 -> %6 düşürür
+IMGSZ_UZAK = 1920      # ÖLÇÜLDÜ: 960 kullanmak 40-60 m'de tespiti %56 -> %7 düşürür
+IMGSZ_YAKIN = 960      # yakında hız kazanmak için (24 ms vs 60 ms)
 CONF_MIN   = 0.40      # ÖLÇÜLDÜ: argmax'ı yanlış-pozitiften korur
 DEVIR_MENZIL_M = 50.0  # bu menzilin ötesinde görsel devir YAPILMAZ
 
+# UYARLANABİLİR ÇÖZÜNÜRLÜK EŞİĞİ — bir ÖNCEKİ karenin kutu genişliğine bakar.
+# Kutu bu değerden BÜYÜKSE hedef zaten iri demektir; 960 yeterli olur ve
+# döngü 10.8 -> 17.5 FPS'e çıkar.
+#
+# ⚠ EŞİK ÖLÇÜMLE BELİRLENİR — tahmin DEĞİL. Ölçülen (n=1086 kare):
+#     kutu 15-20 px : 960 %1  | 1920 %28
+#     kutu 20-25 px : 960 %12 | 1920 %80
+#     kutu 25-32 px : 960 %39 | 1920 %74
+#     kutu >32 px   : n=8, YETERSİZ  <- eşik burada olmalı ama ölçülmedi
+# Yani ölçtüğümüz HER bantta 1920 kazanıyor. 960'ın yeterli olacağı bant
+# (kutu > ~40 px, menzil < ~25 m) HENÜZ ÖLÇÜLMEDİ.
+# Bu yüzden eşik ŞİMDİLİK yüksek/temkinli tutuldu; yakın menzil ölçümü
+# yapılınca ölçülen değerle DEĞİŞTİRİLECEK.
+YAKIN_ESIK_PX = 45.0   # ⚠ GEÇİCİ — ölçülmeyi bekliyor
+
 
 class Dedektor:
-    def __init__(self, yol=MODEL_YOLU, imgsz=IMGSZ, conf=CONF_MIN):
+    """Uyarlanabilir çözünürlüklü dedektör.
+    Önceki karenin kutu boyutuna bakarak bu karenin imgsz'sini seçer:
+    büyük kutu (yakın hedef) -> 960 (hızlı), küçük kutu (uzak) -> 1920 (duyarlı).
+    Kutu yoksa DAİMA 1920 (hedefi kaybetmişken duyarlılık şart)."""
+
+    def __init__(self, yol=MODEL_YOLU, conf=CONF_MIN, uyarlanabilir=True,
+                 yakin_esik_px=YAKIN_ESIK_PX):
         from ultralytics import YOLO
-        self.m = YOLO(yol); self.imgsz=imgsz; self.conf=conf
+        self.m = YOLO(yol); self.conf=conf
+        self.uyarlanabilir = uyarlanabilir
+        self.yakin_esik = yakin_esik_px
+        self._son_w = 0.0
         self._isindi = False
+        self.son_imgsz = IMGSZ_UZAK      # teşhis: hangi kolda çalıştık
 
     def isit(self, img):
-        for _ in range(3):
-            self.m.predict(img, imgsz=self.imgsz, conf=self.conf, verbose=False)
+        for iz in (IMGSZ_YAKIN, IMGSZ_UZAK):
+            for _ in range(2):
+                self.m.predict(img, imgsz=iz, conf=self.conf, verbose=False)
         self._isindi = True
+
+    def _imgsz_sec(self):
+        if not self.uyarlanabilir: return IMGSZ_UZAK
+        # kutu yoksa (son_w=0) DAİMA duyarlı kol
+        return IMGSZ_YAKIN if self._son_w >= self.yakin_esik else IMGSZ_UZAK
 
     def bul(self, img):
         """En yüksek güvenli kutuyu döner: (cx, cy, w, h, conf) ya da None.
         ⚠ Menzil BİLİNMEZ -> boyut/konum kapısı UYGULANMAZ; argmax'a mecburuz.
           Bu yüzden CONF_MIN yüksek tutulur (ölçümle seçildi)."""
         if not self._isindi: self.isit(img)
-        r = self.m.predict(img, imgsz=self.imgsz, conf=self.conf, verbose=False)[0]
-        if not len(r.boxes): return None
+        iz = self._imgsz_sec(); self.son_imgsz = iz
+        r = self.m.predict(img, imgsz=iz, conf=self.conf, verbose=False)[0]
+        if not len(r.boxes):
+            self._son_w = 0.0            # kayıpta duyarlı kola DÖN
+            return None
         b = max(r.boxes, key=lambda x: float(x.conf))
         x1,y1,x2,y2 = b.xyxy[0].tolist()
-        return ((x1+x2)/2.0, (y1+y2)/2.0, x2-x1, y2-y1, float(b.conf))
+        w = x2-x1
+        self._son_w = w
+        return ((x1+x2)/2.0, (y1+y2)/2.0, w, y2-y1, float(b.conf))
+
+    def sifirla(self):
+        self._son_w = 0.0
