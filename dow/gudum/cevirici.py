@@ -154,7 +154,12 @@ class HizCubukCevirici:
         -5 -> -4.78 | -6.5 -> -6.26  (hata %4-6)."""
         c = self.cfg
         if abs(vz) < c.TUT_BANDI:
-            return 0.0                      # oyunun İRTİFA-TUTMA kipi
+            # ⛔ BURADA 0.0 DÖNDÜRÜYORDUM — YANLIŞTI.
+            # Oyunun "irtifa tut" kipi (thr=0) aslında +0.88 m/s TIRMANIYOR.
+            # Koşular arasında öyle bırakınca drone 180 m'den 5821 m'ye çıktı
+            # ve iki ölçüm koşusu boşa gitti. Doğru denge: HOVER_THR (-0.586),
+            # orada ölçülen vz = -0.235 m/s (hafif alçalma = güvenli taraf).
+            return c.HOVER_THR
         if vz > 0.0:
             return _kirp((vz - c.POZ_KESIM) / c.POZ_EGIM, 0.0, 1.0)
         # alçalma: negatif kol. ⛔ Sonuç ASLA (HOVER_THR, 0) zehirli bandına

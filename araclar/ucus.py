@@ -9,9 +9,18 @@ import drone_sdk as d
 
 def wrap(a): return (a+180)%360-180
 
+HOVER_THR = -0.586   # ÖLÇÜLDÜ: vz=0 veren throttle. SIFIR DEĞİL!
+
 def guvenli_komut():
-    """Nötr + irtifa tut. Çıkışta HER ZAMAN çağrılır."""
-    try: d.set_control_surfaces(0.0, 0.0, 0.0, 0.0, True)
+    """Nötr + GERÇEK hover. Çıkışta HER ZAMAN çağrılır.
+
+    ⛔ DERS (2026-08-21): burada throttle=0 kullanıyordum. Ölçüm gösterdi ki
+    throttle 0, oyunun "irtifa tut" kipi OLMASINA RAĞMEN +0.88 m/s TIRMANIYOR.
+    Koşular arasında dakikalarca öyle kalınca drone 180 m'den 5821 m'ye
+    çıktı ve iki ölçüm koşusu boşa gitti (hedef 5.7 km altta kaldı).
+    Doğru denge noktası -0.586 (orada ölçülen vz = -0.235 m/s, yani hafif
+    alçalma -> güvenli taraf)."""
+    try: d.set_control_surfaces(HOVER_THR, 0.0, 0.0, 0.0, True)
     except Exception: pass
 
 atexit.register(guvenli_komut)
@@ -27,10 +36,11 @@ def ofs(R):
     return min(25.0, 0.466*R)
 
 def dur(sn=4.0):
-    """Yatay hızı sıfırla — koşu başında askıda kalmış komutu temizler."""
+    """Yatay hızı sıfırla — koşu başında askıda kalmış komutu temizler.
+    Dikeyde GERÇEK hover (0 değil; yukarıdaki nota bak)."""
     t=time.time()
     while time.time()-t<sn:
-        d.set_control_surfaces(0.0,0.0,0.0,0.0,True); time.sleep(0.03)
+        d.set_control_surfaces(HOVER_THR,0.0,0.0,0.0,True); time.sleep(0.03)
 
 def yaklas(cev, hedef_menzil=60.0, azami_sure=180.0, pitch=0.55, log=None):
     """Hedefe hedef_menzil'e kadar yaklaş. İrtifa ofseti menzille ölçeklenir."""

@@ -44,16 +44,21 @@ DEVIR_MENZIL_M = 50.0  # bu menzilin ötesinde görsel devir YAPILMAZ
 # Kutu bu değerden BÜYÜKSE hedef zaten iri demektir; 960 yeterli olur ve
 # döngü 10.8 -> 17.5 FPS'e çıkar.
 #
-# ⚠ EŞİK ÖLÇÜMLE BELİRLENİR — tahmin DEĞİL. Ölçülen (n=1086 kare):
-#     kutu 15-20 px : 960 %1  | 1920 %28
-#     kutu 20-25 px : 960 %12 | 1920 %80
-#     kutu 25-32 px : 960 %39 | 1920 %74
-#     kutu >32 px   : n=8, YETERSİZ  <- eşik burada olmalı ama ölçülmedi
-# Yani ölçtüğümüz HER bantta 1920 kazanıyor. 960'ın yeterli olacağı bant
-# (kutu > ~40 px, menzil < ~25 m) HENÜZ ÖLÇÜLMEDİ.
-# Bu yüzden eşik ŞİMDİLİK yüksek/temkinli tutuldu; yakın menzil ölçümü
-# yapılınca ölçülen değerle DEĞİŞTİRİLECEK.
-YAKIN_ESIK_PX = 45.0   # ⚠ GEÇİCİ — ölçülmeyi bekliyor
+# EŞİK ÖLÇÜLDÜ — tahmin DEĞİL. Yakın menzil koşusu, n=788 kare, EŞLEŞTİRİLMİŞ
+# (aynı karede iki çözünürlük de koşuldu):
+#
+#     kutu px   menzil    n     960    1920   kazanan
+#     15- 22     54 m    227     %6     %87    1920
+#     22- 30     38 m    284    %39     %69    1920
+#     30- 40     28 m    107    %67     %89    1920
+#     40- 55     21 m    126    %59     %78    1920
+#     55- 75     15 m     39    %92     %90    960   <- GEÇİŞ NOKTASI
+#     75-110     11 m      5    %40     %40    (n yetersiz)
+#
+# 55 px'in ALTINDA 1920 açık ara kazanıyor (54 m'de %6 -> %87, 14 kat).
+# 55 px'in ÜSTÜNDE ikisi eşitleniyor (%92 vs %90) ama 960 1.6 KAT HIZLI
+# -> terminal fazda (menzil <18 m, kapanma hızlı) tepki süresi kazanılır.
+YAKIN_ESIK_PX = 55.0   # ÖLÇÜLDÜ (≈18 m menzil)
 
 
 class Dedektor:
