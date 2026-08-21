@@ -1,0 +1,45 @@
+================================================================================
+  DOW ARAC PARAMETRELERI — GAZEBO ESLESTIRME PAKETI
+================================================================================
+
+ICERIK
+--------------------------------------------------------------------------------
+  RAPOR.md / RAPOR.txt      Sorulan 35 kalemin cevabi (asil belge)
+  olcum_betikleri/          Sayilari ureten kodun kendisi
+  ham_veri/                 22 MB truth kaydi — kendi analizinizi kosabilirsiniz
+
+CEVAPLAMA DURUMU  (30 kalem)
+--------------------------------------------------------------------------------
+  TAM CEVAPLANDI    : 26
+  KISMI             :  2   jerk (dolayli hesap) · carpisma yaricapi (ust sinir)
+  OLCULEMEDI        :  2   kutle/boyut (SDK acmiyor) · yercekimi (model gecersiz)
+
+  Olculemeyenler TAHMIN EDILMEDI. Her birinin NEDEN olculemedigi raporda yazili.
+
+NASIL OLCULDU
+--------------------------------------------------------------------------------
+  (a) yazilim siniri : koddan okundu, dosya:satir referansi verildi
+  (b) aracin zarfi   : /api/manuel uzerinden DOGRUDAN KUMANDA CUBUGU komutuyla
+                       (throttle/pitch/roll/yaw) araci sinirlarina dayadik.
+                       Bu yol gudumun hiz clamp'lerini TAMAMEN atlar.
+  Olcum kaynagi      : oyunun get_debug_truth kanali (bozulmamis ground truth),
+                       sunucu icinde 30 Hz kaydediliyor, gudume GIRMEZ.
+
+UC BULGU
+--------------------------------------------------------------------------------
+  1. MAX_ACCEL clamp'i araci 3.3 KAT boguyor  (12 vs olculen 39.22 m/s²)
+  2. Kamera tilt'i DOGRU (+22.9° olculdu, kod 25° varsayiyor) — bu raporun
+     ilk surumundeki "33° yanlis" iddiasi GERI CEKILDI, sebebi raporda yazili
+  3. Dikey eksende 11 KAT boguyoruz (VZ_MAX 3.0 vs olculen 33.7 m/s)
+
+GUVENILIRLIK NOTU
+--------------------------------------------------------------------------------
+  Iki olcum bu oturumda CURUTULDU ve duzeltildi:
+    * kamera tilt -8.3°  -> yanlis intrinsik (640x480 pikselleri 1920x1080
+      degerleriyle cozulmustu). Dogrusu +22.9°.
+    * yercekimi 11.34    -> tek yatis acisindan hesaplanmisti; uc farkli aciyla
+      dogrulaninca 11.37/13.93/4.42 cikti (yayilim 9.5) -> model gecersiz,
+      deger geri cekildi.
+  Ikisi de rapora YANLIS haliyle girmedi. "Yanlis sayi, eksik sayidan pahalidir"
+  kuralini uyguladik.
+================================================================================

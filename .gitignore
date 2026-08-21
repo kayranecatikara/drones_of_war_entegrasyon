@@ -1,0 +1,25 @@
+# --- oyun ve indirilen büyük dosyalar (depoya girmez) ---
+oyun/
+indirilen/
+calistirma/
+referans/DOW_PARAMETRE_PAKETI/ham_veri/
+*.zip
+*.tar
+*.tar.gz
+*.pt
+*.exe
+*.pak
+*.ucas
+*.utoc
+
+# --- koşu çıktıları ---
+logs/
+veri/
+*.mp4
+__pycache__/
+*.pyc
+
+# --- SIR: parola/anahtar asla depoya girmez ---
+*.secret
+.env
+gizli*
