@@ -46,7 +46,12 @@ class Ayar:
     # ================= İSTASYON (GPS fazının HEDEFİ) =================
     # Gazebo'daki çözülmüş tasarım: hedefin KUYRUĞUNDA, biraz ALTINDA dur.
     # Kamera 26.5° YUKARI baktığı için "altında" olmak hedefi kadraja sokar.
-    ISTASYON_MENZIL_M = _f("DOW_IST_MENZIL", 35.0)  # hedefin kaç m ARKASINDA
+    # ⭐ ÖLÇÜLDÜ (GA03 taraması + GA04 n=4 doğrulaması): 15 m EN İYİ NOKTA.
+    #   35 m -> ist_hata 6.28 m, tespit %48, kutu 20 px
+    #   25 m -> ist_hata 5.63 m, tespit %77, kutu 29 px
+    #   15 m -> ist_hata 5.28 m, tespit %90, kutu 46 px   <- SEÇİLDİ
+    #    8 m -> ist_hata 4.81 m, tespit %79 (hedef kadraja SIĞMIYOR)
+    ISTASYON_MENZIL_M = _f("DOW_IST_MENZIL", 15.0)  # hedefin kaç m ARKASINDA
     ISTASYON_ALT_M    = _f("DOW_IST_ALT", 15.0)     # kaç m ALTINDA (oran 0 ise)
     # Alt ofseti menzile ORANTILI tut: h = R * ORAN. tan(26.5°)=0.499 ->
     # 0.45 seçildi (hedef kadraj merkezinin hafif ÜSTÜNDE dursun; gökyüzü
