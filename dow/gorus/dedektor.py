@@ -61,6 +61,57 @@ DEVIR_MENZIL_M = 50.0  # bu menzilin ötesinde görsel devir YAPILMAZ
 YAKIN_ESIK_PX = 55.0   # ÖLÇÜLDÜ (≈18 m menzil)
 
 
+class TakipliDedektor:
+    """Dedektör + HybridSORT. Kullanıcının Gazebo deposundaki
+    `vision/tracker.py` AYNEN taşındı (md5 birebir).
+
+    NEDEN: tespit oranı %35 demek, karelerin 2/3'ünde kutu YOK demek.
+    Takipçi bu boşlukları Kalman ÖNGÖRÜSÜYLE doldurur (coast) ve kimliği
+    (ID) sürdürür — kare kare argmax'ın yapamadığı şey.
+
+    ⛔ YARIŞMA KURALI: girdi YALNIZ görüntü. Takipçi de GPS görmez.
+    """
+
+    def __init__(self, yol=None, conf=None, uyarlanabilir=True,
+                 max_coast=20):
+        self.det = Dedektor(yol or MODEL_YOLU, conf or CONF_MIN, uyarlanabilir)
+        from dow.gorus.tracker import TalonTracker
+        self.trk = TalonTracker()
+        self.max_coast = max_coast
+        self.son_tespit = None      # ham dedektör çıktısı (teşhis)
+        self.son_iz = None          # (cx,cy,w,h,id,coast)
+        self.son_imgsz = 0
+
+    def isit(self, img): self.det.isit(img)
+
+    def sifirla(self):
+        self.det.sifirla(); self.trk.reset()
+        self.son_tespit = self.son_iz = None
+
+    def bul(self, img):
+        """Döner: (cx, cy, w, h, conf) — TAKİP kutusundan. Tespit yoksa
+        takipçinin öngörüsü döner (coast>0), böylece güdüm kör kalmaz."""
+        import numpy as _np
+        d = self.det.bul(img)
+        self.son_tespit = d
+        self.son_imgsz = self.det.son_imgsz
+        if d:
+            cx, cy, w, h, cf = d
+            dets = _np.array([[cx-w/2, cy-h/2, cx+w/2, cy+h/2, cf, 0]], _np.float32)
+        else:
+            dets = _np.empty((0, 6), _np.float32)
+        self.trk.update(dets, img[:, :, ::-1])
+        akt = self.trk.active_boxes(max_coast=self.max_coast)
+        if not akt:
+            self.son_iz = None
+            return None
+        a = min(akt, key=lambda x: x["coast"])
+        x1, y1, x2, y2 = a["bbox"]
+        self.son_iz = ((x1+x2)/2, (y1+y2)/2, x2-x1, y2-y1, a["id"], a["coast"])
+        return ((x1+x2)/2, (y1+y2)/2, x2-x1, y2-y1,
+                float(a["conf"]) if a["conf"] > 0 else (d[4] if d else 0.5))
+
+
 class Dedektor:
     """Uyarlanabilir çözünürlüklü dedektör.
     Önceki karenin kutu boyutuna bakarak bu karenin imgsz'sini seçer:

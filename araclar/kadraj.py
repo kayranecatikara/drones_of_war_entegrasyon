@@ -30,7 +30,9 @@ def oyun_mu(img):
       Sol alt, drone'un varlığını durumdan BAĞIMSIZ ayırıyor."""
     b = img[850:1060, 80:320].mean(axis=2)
     parlak = float((b > 190).mean())
-    renk_std = float(img.reshape(-1,3).std(axis=0).mean())
+    # ⚡ ALT-ÖRNEKLEME: tam kare std'si 6.2 milyon piksel = ~90 ms ve panel
+    #   FPS'ini 10'a düşürüyordu. 1/64 örnek aynı kararı verir, ~1.4 ms.
+    renk_std = float(img[::8, ::8].reshape(-1, 3).std(axis=0).mean())
     return (parlak > 0.05) and (renk_std > 15), parlak, renk_std
 
 def kapi(sct, dene=3):

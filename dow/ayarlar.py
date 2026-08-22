@@ -37,6 +37,11 @@ class Ayar:
     #   koşmaz -> döngü 10 FPS yerine ~50 Hz olur, testler ÇOK hızlanır.
     GORSEL_AKTIF = _b("DOW_GORSEL", False)
 
+    # HybridSORT takipçisi (kullanıcının Gazebo deposundan AYNEN taşındı).
+    # Tespit oranı ~%35 -> karelerin 2/3'ünde kutu yok; takipçi boşlukları
+    # Kalman öngörüsüyle doldurur. Kill-switch: ölçümle karara bağlanacak.
+    TAKIP_AKTIF  = _b("DOW_TAKIP", True)
+
     # DEDEKTÖRÜ SADECE GÖSTER — güdüme GİRMEZ.
     # Kullanıcı panelde hedefin nasıl algılandığını görmek istiyor ama
     # güdüm GPS'te kalmalı. Bu anahtar dedektörü yalnız PANEL için koşturur;

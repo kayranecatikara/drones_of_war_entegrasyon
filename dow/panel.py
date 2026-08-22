@@ -1,264 +1,316 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-DoW PANELİ — canlı kamera + tespit kutusu + telemetri + CANLI AYAR
+DoW PANELİ — YÜKSEK FPS, ANALİZ ODAKLI
 ================================================================================
-Gazebo'daki gcs_server panelinin DoW karşılığı (CLAUDE.md §6).
-Bağımlılık YOK: stdlib http.server. Tarayıcıdan  http://127.0.0.1:8800
+Kullanıcı isteği (2026-08-22):
+  "panel çok düşük FPS ile çalışıyor... detection modelinin tam performansını
+   görmek istiyorum... o slidebarları kaldır, ayarları değiştirme işi sende...
+   arayüzü benim uçuşu analiz edebileceğim hale getir."
 
-  /                 arayüz
-  /video            MJPEG akışı (dedektör kutusu ÇİZİLİ)
-  /telem            JSON telemetri
-  /ayar   (POST)    canlı ayar değişikliği  {"ad": "...", "deger": ...}
+TASARIM
+  * Kaydırıcı YOK. Ayar paneli YOK. Ayarları yapay zekâ değiştirir.
+  * Kamera ve dedektör KENDİ hızlarında basılır; UI onları yavaşlatmaz.
+  * Üç ayrı FPS sayacı: YAKALAMA / DEDEKTÖR / EKRAN — hangisinin darboğaz
+    olduğu tek bakışta görünsün.
+  * TESPİT ŞERİDİ: son ~20 s'nin kare kare tespit/kayıp haritası. Dedektörün
+    sürekliliğini (asıl mesele bu) gözle değerlendirmek için.
+  * Takip (HybridSORT) kutusu ayrı renkte: yeşil = bu karede TESPİT,
+    turuncu = takipçinin ÖNGÖRÜSÜ (coast), yani dedektör bulamadı ama iz sürüyor.
 
-⚠ Panel güdüm döngüsünü BLOKLAMAZ: son kareyi ve son telemetriyi paylaşımlı
-  bir kutudan okur (latest-wins). Kare üretmek panelin işi değildir.
+HIZ MİMARİSİ
+  Üretici (yakalama+çıkarım) döngüsü panele YALNIZ son kareyi bırakır
+  (latest-wins). MJPEG akışı yeni kare geldikçe basar; bekleme yok.
 ================================================================================
 """
 import json
 import threading
 import time
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import cv2
 import numpy as np
 
-from dow.ayarlar import Ayar, CANLI
-
-_kutu = {"jpg": None, "zoom": None, "telem": {}, "t": 0.0}
+_K = {"jpg": None, "zoom": None, "telem": {}, "sayac": 0}
 _kilit = threading.Lock()
-# Son tespiti KISA SÜRE saklarız: dedektör 2 Hz koşuyor ve tespit oranı
-# ~%45, yani kutu sürekli kaybolup görünüyor. Kullanıcı "hedefi algıladığını
-# göremedim" dedi — kalıcılık olmadan göz yakalayamıyor.
-_son_det = {"d": None, "t": 0.0}
-DET_OMUR_S = 1.5
+_serit = deque(maxlen=400)      # (t, durum) 0=kayıp 1=tespit 2=takip öngörüsü
+_fps = {"yakala": deque(maxlen=40), "dedektor": deque(maxlen=40),
+        "ekran": deque(maxlen=40)}
 
 
-def kare_koy(img_rgb, tespit=None, telem=None, kalite=70, olcek=0.5):
-    """Güdüm döngüsü her karede çağırır. tespit: (cx,cy,w,h,conf) ya da None."""
+def _hz(d):
+    if len(d) < 2:
+        return 0.0
+    dt = d[-1] - d[0]
+    return (len(d) - 1) / dt if dt > 1e-6 else 0.0
+
+
+def fps_isaretle(ad):
+    _fps[ad].append(time.time())
+
+
+def kare_koy(img_rgb, tespit=None, iz=None, telem=None, kalite=62, olcek=0.5):
+    """iz: (cx,cy,w,h,id,coast) — HybridSORT izi (tespit yoksa da gelir)."""
     try:
-        simdi = time.time()
-        if tespit:
-            _son_det["d"] = tespit; _son_det["t"] = simdi
-        d = _son_det["d"]
-        yas = simdi - _son_det["t"]
-        taze = d is not None and yas <= DET_OMUR_S
-
-        im = img_rgb[:, :, ::-1].copy()          # RGB -> BGR
+        # ⚡ ÖNCE küçült, SONRA çevir+çiz: tüm çizim 1/4 piksel üzerinde
+        #   olur, JPEG kodlama da ucuzlar. Ölçülen:
+        #     img[:,:,::-1].copy() 8.62 ms  vs  cvtColor 0.15 ms (57 kat)
+        #     resize+cvtColor birlikte 0.20 ms
+        #   Çizim koordinatları TAM ÇÖZÜNÜRLÜKTEN gelir -> `o` ile ölçeklenir.
+        o = olcek
+        kck = cv2.resize(img_rgb, None, fx=o, fy=o,
+                         interpolation=cv2.INTER_LINEAR) if o != 1.0 else img_rgb
+        im = cv2.cvtColor(kck, cv2.COLOR_RGB2BGR)
         hh, ww = im.shape[:2]
         zoom = None
-        if taze:
-            cx, cy, w, h, conf = d
+        odak = None
+
+        # --- TAKİP kutusu (öngörü dahil) ---
+        if iz is not None:
+            cx, cy, w, h, tid, coast = iz
+            cx, cy, w, h = cx*o, cy*o, w*o, h*o
+            canli = coast == 0
+            renk = (60, 255, 60) if canli else (0, 170, 255)
             x1, y1 = int(cx - w / 2), int(cy - h / 2)
             x2, y2 = int(cx + w / 2), int(cy + h / 2)
-            canli = tespit is not None
-            renk = (0, 255, 0) if canli else (0, 190, 255)   # taze / bayat
-            cv2.rectangle(im, (x1, y1), (x2, y2), renk, 3)
-            # KILAVUZ ÇEMBER: kutu 20 px olunca gözle bulunamıyor; etrafına
-            # büyük bir halka çizip bakışı oraya çekiyoruz.
-            cv2.circle(im, (int(cx), int(cy)), max(45, int(1.9*max(w, h))), renk, 2)
-            et = f"talon {conf:.2f}  {max(w,h):.0f}px"
-            if not canli: et += f"  ({yas:.1f}s)"
-            cv2.putText(im, et, (max(5, x1 - 40), max(24, y1 - 26)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, renk, 2)
-            # YAKINLAŞTIRILMIŞ KESİT — 21 px'lik hedef yarı ölçekli panelde
-            # nokta kadar; ayrı bir pencerede 5x büyütülür.
-            k = 110
+            cv2.rectangle(im, (x1, y1), (x2, y2), renk, 2)
+            # köşe işaretleri (küçük kutuyu gözle bulmayı kolaylaştırır)
+            L = max(10, int(0.6 * max(w, h)))
+            for (px, py, dx, dy) in ((x1, y1, 1, 1), (x2, y1, -1, 1),
+                                     (x1, y2, 1, -1), (x2, y2, -1, -1)):
+                cv2.line(im, (px, py), (px + dx * L, py), renk, 3)
+                cv2.line(im, (px, py), (px, py + dy * L), renk, 3)
+            et = f"#{int(tid)}"
+            if not canli:
+                et += f"  ONGORU +{int(coast)}"
+            cv2.putText(im, et, (x1, max(18, y1 - 8)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, renk, 2)
+            odak = (cx, cy, renk)
+            _serit.append((time.time(), 1 if canli else 2))
+        else:
+            _serit.append((time.time(), 0))
+
+        # --- ham TESPİT (takipten farklıysa ayrı göster) ---
+        if tespit is not None:
+            cx, cy, w, h = [v*o for v in tespit[:4]]; conf = tespit[4]
+            cv2.putText(im, f"{conf:.2f}", (int(cx + w / 2) + 6, int(cy)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (60, 255, 60), 2)
+            if odak is None:
+                odak = (cx, cy, (60, 255, 60))
+
+        # --- kadraj merkezi ---
+        cv2.line(im, (ww // 2 - 14, hh // 2), (ww // 2 + 14, hh // 2), (255, 170, 0), 1)
+        cv2.line(im, (ww // 2, hh // 2 - 14), (ww // 2, hh // 2 + 14), (255, 170, 0), 1)
+
+        # --- yakın kesit ---
+        if odak is not None and (_K["sayac"] % 2 == 0):
+            cx, cy, renk = odak
+            k = int(100 * o)
             zx1, zy1 = max(0, int(cx) - k), max(0, int(cy) - k)
             zx2, zy2 = min(ww, int(cx) + k), min(hh, int(cy) + k)
-            if zx2 - zx1 > 20 and zy2 - zy1 > 20:
-                z = im[zy1:zy2, zx1:zx2]
-                z = cv2.resize(z, (440, 440), interpolation=cv2.INTER_NEAREST)
-                cv2.rectangle(z, (0, 0), (439, 439), renk, 3)
-                ok2, zb = cv2.imencode(".jpg", z,
-                                       [int(cv2.IMWRITE_JPEG_QUALITY), 85])
-                if ok2: zoom = zb.tobytes()
-        cv2.drawMarker(im, (ww // 2, hh // 2), (255, 160, 0),
-                       cv2.MARKER_CROSS, 30, 1)
-        if olcek != 1.0:
-            im = cv2.resize(im, None, fx=olcek, fy=olcek,
-                            interpolation=cv2.INTER_AREA)
+            if zx2 - zx1 > 24 and zy2 - zy1 > 24:
+                z = cv2.resize(im[zy1:zy2, zx1:zx2], (400, 400),
+                               interpolation=cv2.INTER_NEAREST)
+                cv2.rectangle(z, (0, 0), (399, 399), renk, 2)
+                ok2, zb = cv2.imencode(".jpg", z, [int(cv2.IMWRITE_JPEG_QUALITY), 86])
+                if ok2:
+                    zoom = zb.tobytes()
+
+        # ⚡ INTER_LINEAR: INTER_AREA 3.07 ms, LINEAR 0.47 ms (6 kat hızlı;
+        #   yalnız gösterim için, ölçüm buradan yapılmıyor)
         ok, buf = cv2.imencode(".jpg", im, [int(cv2.IMWRITE_JPEG_QUALITY), kalite])
         if not ok:
             return
         with _kilit:
-            _kutu["jpg"] = buf.tobytes()
-            if zoom is not None: _kutu["zoom"] = zoom
+            _K["jpg"] = buf.tobytes()
+            if zoom is not None:
+                _K["zoom"] = zoom
             if telem is not None:
-                telem = dict(telem)
-                telem["tespit"] = "VAR" if tespit else ("bayat %.1fs" % yas
-                                                        if taze else "yok")
-                if taze:
-                    telem["vis_conf"] = round(d[4], 2)
-                    telem["vis_kutu_px"] = round(max(d[2], d[3]), 1)
-                _kutu["telem"] = telem
-            _kutu["t"] = time.time()
+                _K["telem"] = telem
+            _K["sayac"] += 1
     except Exception:
         pass
 
 
-def telem_koy(telem):
-    with _kilit:
-        _kutu["telem"] = telem
-        _kutu["t"] = time.time()
+def _serit_ozet(pencere=20.0):
+    simdi = time.time()
+    son = [(t, d) for t, d in _serit if simdi - t <= pencere]
+    if not son:
+        return [], 0.0, 0.0
+    n = len(son)
+    tesp = sum(1 for _, d in son if d == 1)
+    izli = sum(1 for _, d in son if d >= 1)
+    return [d for _, d in son][-140:], 100.0 * tesp / n, 100.0 * izli / n
 
 
-_HTML = """<!doctype html><meta charset=utf-8><title>DoW Panel</title>
+_HTML = """<!doctype html><meta charset=utf-8><title>DoW — Görüş Analizi</title>
 <style>
- body{background:#0d0f12;color:#dfe3e8;font:14px system-ui,sans-serif;margin:0}
- .w{display:flex;gap:14px;padding:14px;flex-wrap:wrap}
- .k{background:#161a1f;border:1px solid #262c34;border-radius:10px;padding:12px}
- img{width:min(900px,60vw);border-radius:8px;display:block;background:#000}
- table{border-collapse:collapse;font-variant-numeric:tabular-nums}
- td{padding:2px 10px 2px 0;white-space:nowrap}
- td.v{color:#7fd1ff;text-align:right;font-weight:600}
- h3{margin:0 0 8px;font-size:13px;letter-spacing:.06em;color:#8b96a3;text-transform:uppercase}
- .faz{display:inline-block;padding:3px 10px;border-radius:6px;background:#1d4ed8;font-weight:700}
- .kotu{background:#b91c1c}.iyi{background:#15803d}
- input[type=range]{width:190px;vertical-align:middle}
- .a{margin:7px 0}.a label{display:inline-block;width:190px;color:#a8b3c0}
- .n{color:#7fd1ff;display:inline-block;width:64px;text-align:right}
- button{background:#1f2937;color:#dfe3e8;border:1px solid #374151;border-radius:6px;
-        padding:4px 10px;cursor:pointer}
+:root{--bg:#0a0c10;--k:#141922;--ç:#222c3a;--y:#e6edf5;--s:#8b98a8;--v:#4ade80;--t:#fb923c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--y);
+     font:13px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+.üst{display:flex;align-items:center;gap:18px;padding:10px 16px;
+     background:var(--k);border-bottom:1px solid var(--ç)}
+.üst h1{margin:0;font-size:14px;letter-spacing:.14em;text-transform:uppercase;color:var(--s)}
+.fps{display:flex;gap:16px;margin-left:auto}
+.fps div{text-align:right}
+.fps b{display:block;font-size:19px;font-variant-numeric:tabular-nums;color:var(--v)}
+.fps span{font-size:10px;letter-spacing:.1em;color:var(--s);text-transform:uppercase}
+.gövde{display:grid;grid-template-columns:1fr 330px;gap:14px;padding:14px}
+.kart{background:var(--k);border:1px solid var(--ç);border-radius:10px;overflow:hidden}
+.kart h2{margin:0;padding:8px 12px;font-size:11px;letter-spacing:.12em;color:var(--s);
+         text-transform:uppercase;border-bottom:1px solid var(--ç)}
+#v{display:block;width:100%;background:#000}
+#z{display:block;width:100%;image-rendering:pixelated;background:#000}
+.satır{display:flex;justify-content:space-between;padding:5px 12px;
+       border-bottom:1px solid #1a212c;font-variant-numeric:tabular-nums}
+.satır:last-child{border:0}
+.satır i{font-style:normal;color:var(--s)}
+.satır b{font-weight:600}
+#şerit{display:flex;gap:1px;height:34px;padding:8px 12px;align-items:stretch}
+#şerit i{flex:1;border-radius:1px;background:#25303f}
+#şerit i.d{background:var(--v)}
+#şerit i.t{background:var(--t)}
+.açk{display:flex;gap:14px;padding:6px 12px 10px;font-size:11px;color:var(--s)}
+.açk s{text-decoration:none;display:inline-block;width:10px;height:10px;
+       border-radius:2px;margin-right:5px;vertical-align:-1px}
+.büyük{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;
+       padding:6px 12px 12px}
 </style>
-<div class=w>
- <div class=k><h3>FPV + tespit</h3><img id=v src="/video"></div>
- <div class=k><h3>Hedef — 5× yakın</h3>
-   <img id=z src="/zoom" style="width:340px;image-rendering:pixelated"></div>
- <div class=k style="min-width:330px">
-   <h3>Durum</h3><div id=faz class=faz>—</div>
-   <table id=t></table>
- </div>
- <div class=k style="min-width:430px"><h3>Canlı ayar</h3><div id=a></div></div>
+<div class=üst>
+  <h1>DoW · Görüş Analizi</h1>
+  <div class=fps>
+    <div><b id=f1>—</b><span>yakalama</span></div>
+    <div><b id=f2>—</b><span>dedektör</span></div>
+    <div><b id=f3>—</b><span>ekran</span></div>
+  </div>
+</div>
+<div class=gövde>
+  <div>
+    <div class=kart><h2>FPV — tespit + HybridSORT izi</h2><img id=v src="/video"></div>
+    <div class=kart style="margin-top:14px">
+      <h2>Tespit sürekliliği — son 20 saniye</h2>
+      <div id=şerit></div>
+      <div class=açk>
+        <span><s style="background:#4ade80"></s>dedektör buldu</span>
+        <span><s style="background:#fb923c"></s>takip öngörüsü (dedektör bulamadı)</span>
+        <span><s style="background:#25303f"></s>iz yok</span>
+      </div>
+      <div class=büyük><span id=or1 style="color:#4ade80">—</span>
+        <span style="font-size:13px;color:#8b98a8"> ham tespit</span>
+        &nbsp; <span id=or2 style="color:#fb923c">—</span>
+        <span style="font-size:13px;color:#8b98a8"> takiple birlikte</span></div>
+    </div>
+  </div>
+  <div>
+    <div class=kart><h2>Hedef — 4× yakın</h2><img id=z src="/zoom"></div>
+    <div class=kart style="margin-top:14px"><h2>Durum</h2><div id=t></div></div>
+  </div>
 </div>
 <script>
-const AL=["durum","tespit","vis_conf","vis_kutu_px","ist_hata_m","ist_hata_yatay","ist_hata_dikey","hedef_menzil_m",
- "hedef_hiz","hedef_yon","yaw_hata","v_istek","yukseklik","drone_hiz",
- "vis_conf","vis_menzil","bekci"];
+const AL=[["durum","faz"],["iz_id","iz #"],["iz_coast","öngörü kare"],
+  ["vis_conf","güven"],["vis_kutu_px","kutu px"],["vis_menzil","menzil (kutu)"],
+  ["imgsz","çıkarım boyu"],["gercek_menzil","GERÇEK menzil"],
+  ["ist_hata_m","istasyon hata"],["drone_hiz","hız m/s"],["bekci","bekçi"]];
+let son=0;
 async function tik(){
- try{const r=await fetch('/telem'),d=await r.json();
-  const f=document.getElementById('faz');
-  f.textContent=d.durum||'—';
-  f.className='faz'+(d.durum==='ISTASYON'?' iyi':(d.bekci&&d.bekci!=='sağlıklı'?' kotu':''));
+ try{
+  const d=await (await fetch('/telem')).json();
+  document.getElementById('f1').textContent=(d._fps_yakala||0).toFixed(1);
+  document.getElementById('f2').textContent=(d._fps_dedektor||0).toFixed(1);
+  document.getElementById('f3').textContent=(d._fps_ekran||0).toFixed(1);
   let h='';
-  for(const k of AL){ if(d[k]===undefined||k==='durum')continue;
-    let v=d[k]; if(typeof v==='number')v=v.toFixed(2);
-    h+=`<tr><td>${k}</td><td class=v>${v}</td></tr>`;}
+  for(const [k,ad] of AL){ if(d[k]===undefined)continue;
+    let v=d[k]; if(typeof v==='number')v=Math.abs(v)<1000?v.toFixed(2):v.toFixed(0);
+    h+=`<div class=satır><i>${ad}</i><b>${v}</b></div>`;}
   document.getElementById('t').innerHTML=h;
+  const s=d._serit||[];
+  document.getElementById('şerit').innerHTML=
+    s.map(x=>`<i class="${x===1?'d':(x===2?'t':'')}"></i>`).join('');
+  document.getElementById('or1').textContent='%'+(d._oran_tespit||0).toFixed(0);
+  document.getElementById('or2').textContent='%'+(d._oran_iz||0).toFixed(0);
  }catch(e){}
 }
-async function ayarlar(){
- const r=await fetch('/ayar'),d=await r.json();let h='';
- for(const [ad,o] of Object.entries(d)){
-  if(o.tip==='b'){h+=`<div class=a><label>${o.etiket}</label>
-    <button onclick="set('${ad}',${o.deger?0:1})">${o.deger?'AÇIK':'kapalı'}</button></div>`;}
-  else if(o.tip==='f'){h+=`<div class=a><label>${o.etiket}</label>
-    <input type=range min=${o.min} max=${o.max} step=0.01 value=${o.deger}
-     oninput="document.getElementById('n_${ad}').textContent=this.value"
-     onchange="set('${ad}',parseFloat(this.value))">
-    <span class=n id=n_${ad}>${o.deger}</span></div>`;}
-  else {h+=`<div class=a><label>${o.etiket}</label><span class=n>${o.deger}</span></div>`;}
- }
- document.getElementById('a').innerHTML=h;
-}
-async function set(ad,deger){
- await fetch('/ayar',{method:'POST',body:JSON.stringify({ad,deger})});
- ayarlar();
-}
-ayarlar();setInterval(tik,300);
-setInterval(()=>{document.getElementById('z').src='/zoom?'+Date.now()},400);
+setInterval(tik,220);
+setInterval(()=>{document.getElementById('z').src='/zoom?'+(son++)},120);
 </script>"""
 
 
 class _H(BaseHTTPRequestHandler):
-    def log_message(self, *a):  pass
+    protocol_version = "HTTP/1.1"
 
-    def _json(self, obj, kod=200):
-        b = json.dumps(obj).encode()
+    def log_message(self, *a):
+        pass
+
+    def _gonder(self, gövde, tip, kod=200):
         self.send_response(kod)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(b)))
-        self.end_headers(); self.wfile.write(b)
+        self.send_header("Content-Type", tip)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(gövde)))
+        self.end_headers()
+        self.wfile.write(gövde)
 
     def do_GET(self):
-        if self.path == "/":
-            b = _HTML.encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(b)))
-            self.end_headers(); self.wfile.write(b); return
-        if self.path == "/zoom":
-            with _kilit: z = _kutu["zoom"]
+        yol = self.path.split("?")[0]
+        if yol == "/":
+            return self._gonder(_HTML.encode(), "text/html; charset=utf-8")
+        if yol == "/telem":
+            serit, o1, o2 = _serit_ozet()
+            with _kilit:
+                t = dict(_K["telem"])
+            t.update({"_serit": serit, "_oran_tespit": o1, "_oran_iz": o2,
+                      "_fps_yakala": _hz(_fps["yakala"]),
+                      "_fps_dedektor": _hz(_fps["dedektor"]),
+                      "_fps_ekran": _hz(_fps["ekran"])})
+            return self._gonder(json.dumps(t).encode(), "application/json")
+        if yol == "/zoom":
+            with _kilit:
+                z = _K["zoom"]
             if not z:
-                self.send_response(404); self.end_headers(); return
+                self.send_response(404); self.send_header("Content-Length","0")
+                self.end_headers(); return
+            return self._gonder(z, "image/jpeg")
+        if yol == "/video":
             self.send_response(200)
-            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=k")
             self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(z)))
-            self.end_headers(); self.wfile.write(z); return
-        if self.path == "/telem":
-            with _kilit: t = dict(_kutu["telem"])
-            self._json(t); return
-        if self.path == "/ayar":
-            d = {}
-            for ad, (tip, etiket, mn, mx) in CANLI.items():
-                d[ad] = {"tip": tip, "etiket": etiket, "min": mn, "max": mx,
-                         "deger": getattr(Ayar, ad)}
-            self._json(d); return
-        if self.path == "/video":
-            self.send_response(200)
-            self.send_header("Content-Type",
-                             "multipart/x-mixed-replace; boundary=k")
             self.end_headers()
-            son = 0.0
+            son = -1
             try:
                 while True:
                     with _kilit:
-                        jpg, t = _kutu["jpg"], _kutu["t"]
-                    if jpg and t != son:
-                        son = t
+                        jpg, c = _K["jpg"], _K["sayac"]
+                    if jpg is not None and c != son:
+                        son = c
+                        fps_isaretle("ekran")
                         self.wfile.write(b"--k\r\nContent-Type: image/jpeg\r\n"
-                                         b"Content-Length: " +
-                                         str(len(jpg)).encode() + b"\r\n\r\n" +
-                                         jpg + b"\r\n")
+                                         b"Content-Length: " + str(len(jpg)).encode() +
+                                         b"\r\n\r\n" + jpg + b"\r\n")
                     else:
-                        time.sleep(0.02)
+                        time.sleep(0.004)      # yeni kareyi HIZLI yakala
             except Exception:
                 return
-        self.send_response(404); self.end_headers()
+        self.send_response(404); self.send_header("Content-Length","0"); self.end_headers()
 
     def do_POST(self):
-        if self.path == "/telem":
-            # Kampanya süreci güdüm telemetrisini BURAYA basar; böylece
-            # izleyici (kamera+tespit) ile güdüm sayıları TEK panelde birleşir.
-            n = int(self.headers.get("Content-Length", 0))
-            try:
-                d = json.loads(self.rfile.read(n) or b"{}")
-                with _kilit:
-                    t = dict(_kutu["telem"]); t.update(d); _kutu["telem"] = t
-                self._json({"ok": True})
-            except Exception as e:
-                self._json({"ok": False, "hata": str(e)}, 400)
-            return
-        if self.path != "/ayar":
-            self.send_response(404); self.end_headers(); return
+        if self.path != "/telem":
+            self.send_response(404); self.send_header("Content-Length","0")
+            self.end_headers(); return
         n = int(self.headers.get("Content-Length", 0))
         try:
             d = json.loads(self.rfile.read(n) or b"{}")
-            ad = d["ad"]
-            if ad not in CANLI:
-                raise KeyError(ad)
-            tip = CANLI[ad][0]
-            v = d["deger"]
-            setattr(Ayar, ad, bool(v) if tip == "b" else
-                    (float(v) if tip == "f" else str(v)))
-            self._json({"ok": True, ad: getattr(Ayar, ad)})
+            with _kilit:
+                t = dict(_K["telem"]); t.update(d); _K["telem"] = t
+            self._gonder(b'{"ok":true}', "application/json")
         except Exception as e:
-            self._json({"ok": False, "hata": str(e)}, 400)
+            self._gonder(json.dumps({"ok": False, "hata": str(e)}).encode(),
+                         "application/json", 400)
 
 
-def baslat(port=8800):
+def baslat(port=8801):
     s = ThreadingHTTPServer(("127.0.0.1", port), _H)
+    s.daemon_threads = True
     threading.Thread(target=s.serve_forever, daemon=True).start()
     print(f"[panel] http://127.0.0.1:{port}", flush=True)
     return s

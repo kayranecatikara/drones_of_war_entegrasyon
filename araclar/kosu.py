@@ -259,10 +259,10 @@ def main():
 
     det = None
     if Ayar.GORSEL_AKTIF or Ayar.DEDEKTOR_GOSTER:
-        from dow.gorus.dedektor import Dedektor
-        det = Dedektor()
-        print(f"dedektör: {'GÜDÜMDE' if Ayar.GORSEL_AKTIF else 'yalnız PANELDE'}",
-              flush=True)
+        from dow.gorus.dedektor import Dedektor, TakipliDedektor
+        det = TakipliDedektor() if Ayar.TAKIP_AKTIF else Dedektor()
+        print(f"dedektör: {'GÜDÜMDE' if Ayar.GORSEL_AKTIF else 'yalnız PANELDE'}"
+              f" | takip: {'HybridSORT' if Ayar.TAKIP_AKTIF else 'YOK'}", flush=True)
 
     sct = mss.mss()
     ok, img0 = hazirla(sct)
