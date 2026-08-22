@@ -41,6 +41,26 @@ DoW'DA ÖLÇÜLEN SABİTLER (Gazebo değeri -> DoW değeri, neden)
    TIRMANMAKTIR — bol yetkimiz olan yön. Gazebo'daki "alttan vuruş"
    tasarımı DoW aracına tesadüfen değil, doğal olarak oturuyor.
 ================================================================================
+⛔⛔ 2026-08-22 — ÜÇ EKLEMEM GERİ ALINDI. DÜRÜST KAYIT:
+
+Görsel fazda hedefi vuramayınca üst üste "iyileştirme" ekledim ve HER BİRİ
+işi KÖTÜLEŞTİRDİ. Ölçülen en yakın menzil medyanı:
+
+  GV02  dikey kadraj regülasyonu (yalnız)   12.05 m   ISABET 1/4  <- EN İYİ
+  GV03  + lead                              13.75 m   isabet 0/3
+  GV04  + merkez freni                      13.00 m   isabet 0/3
+  GV06  + sakin kamera                      16.08 m   isabet 0/3
+  GV07  + tam yaw bandı + lead 0.5         ~19    m   isabet 0/2
+
+HATAM: her kararı n=3 koşuyla verdim. CLAUDE.md §5.4 tam bunu yasaklıyor
+("n<4 iken hüküm cümlesi kurulmaz") ve üç kez yaşandığı yazılı. Sakin
+kameranın tespit kazancı (+5.7 puan) gerçek olabilir ama İSABETE
+dönüşmedi; kalan ikisi için elimde kazanç gösteren hiçbir veri yok.
+
+GERİ DÖNÜŞ: GV02 yapılandırması (yalnız dikey kadraj regülasyonu) TABAN
+kabul edilir; n>=6 ile doğrulanır; sonra her ekleme AYRI ve DÖNÜŞÜMLÜ
+A/B ile, n>=4/kol sınanır. Kod duruyor, anahtarlar KAPALI.
+================================================================================
 """
 import math
 from dow.gorus import kamera as KAM
@@ -81,13 +101,23 @@ class IbvsCfg:
     #    ceviriyordu)."
     # ÇARE: hızı LOS yönünde değil, ARACIN KENDİ BURNU yönünde komut et.
     #   Burnu hedefe yaw çevirir; roll ~0 kalır, kamera sabitlenir.
-    SAKIN_KAMERA  = True    # kill-switch; False = eski (LOS yönünde) davranış
-    YAW_KAZANC    = 1.5     # yaw hatası -> yaw hızı (eskiden 3.0, çok sert)
-    YAW_HIZ_TAVAN = 60.0    # °/s görsel fazda (eskiden 120)
+    SAKIN_KAMERA  = False   # ⛔ GERİ ALINDI (aşağıdaki nota bak)
+    #                        kill-switch; False = eski (LOS yönünde) davranış
+    # ⚠ YAW BANT GENİŞLİĞİ GERİ AÇILDI (GV06 dersi):
+    #   Ölçümde suçlu üç büyüklüktü: roll (2.1x), throttle (2.2x), yaw (1.9x).
+    #   SAKIN_KAMERA roll'u YAPISAL olarak sıfırladı; artık yaw'ı kısmaya
+    #   gerek yok. Kısmanın BEDELİ ölçüldü: hedef 21.7 °/s dönüyor, kazanç
+    #   1.5 ile kalıcı nişan hatası 21.7/1.5 = 14.5° kalıyor -> sürekli
+    #   YANDAN uçuyoruz, menzil kapanmıyor (GV05: 18.9 -> 37.4 m geri açıldı).
+    YAW_KAZANC    = 3.0
+    YAW_HIZ_TAVAN = 120.0   # °/s
     VZ_TAVAN_GORSEL = 4.0   # m/s; dikey de kamerayı sallıyor -> kıs
 
     # --- lead (öngörü) ---
-    LEAD_SURE     = 0.4     # s (Gazebo'dan AYNEN)
+    # LEAD: kalıcı izleme gecikmesini kapatır. Gecikme = w_hedef / KAZANC.
+    #   21.7 °/s ve kazanç 3.0 -> 7.2° kalıcı hata. lead = LEAD_SURE * w
+    #   bunu kapatmalı: LEAD_SURE ~ 1/KAZANC = 0.33 s. Pay bırakıp 0.5.
+    LEAD_SURE     = 0.0     # ⛔ GERİ ALINDI (aşağıdaki nota bak)
     LEAD_MENZIL_M = 6.4     # m; bu menzilin altında lead söner
     LEAD_MAX_DEG  = 25.0    # °; lead açısı tavanı
 
@@ -125,7 +155,7 @@ class IbvsCfg:
     # tespit %90'dan %22'ye düştü.
     # r = merkeze normalize sapma (0 = tam ortada, 1 = kadraj kenarı)
     # v *= max(FREN_TABAN, 1 - MERKEZ_FREN * r)
-    MERKEZ_FREN  = 1.2     # 0 = kapalı (eski davranış)
+    MERKEZ_FREN  = 0.0     # ⛔ GERİ ALINDI (aşağıdaki nota bak)
     FREN_TABAN   = 0.35    # asla tam durma; biraz kapanış kalsın
 
     # --- geçerlilik ---
