@@ -32,6 +32,8 @@ class Kayit:
         "hedef_x", "hedef_y", "hedef_z", "hedef_hiz", "hedef_yon",
         "ist_x", "ist_y", "ist_z", "ist_hata_m", "ist_hata_yatay", "ist_hata_dikey",
         "hedef_menzil_m", "yaw_hata", "v_istek",
+        # ⚠ ÖLÇÜM-ONLY (truth): gudume ASLA girmez, yalnız analiz için.
+        "gercek_menzil", "gercek_dz", "gercek_elev",
         "thr", "pitch", "roll", "yaw",
         "vis_conf", "vis_cx", "vis_cy", "vis_w", "vis_h", "vis_menzil",
     ]

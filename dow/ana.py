@@ -203,9 +203,13 @@ class Beyin:
                 los_hiz_deg_s=los_h)
             self.tani["los_hiz"] = los_h
             self.tani.update(ti)
+            # SAKİN KAMERA: yaw döngüsü de yumuşatıldı (ölçüm: sert yaw
+            # tespiti öldürüyor — |yaw| 0.103 VAR / 0.194 YOK)
             e = (yaw_hedef - own_yaw + 180.0) % 360.0 - 180.0
-            yaw_rate = max(-self.cfg.YAW_RATE_MAX,
-                           min(self.cfg.YAW_RATE_MAX, 3.0 * e))
+            _kz = ibvs.IbvsCfg.YAW_KAZANC if ibvs.IbvsCfg.SAKIN_KAMERA else 3.0
+            _tv = ibvs.IbvsCfg.YAW_HIZ_TAVAN if ibvs.IbvsCfg.SAKIN_KAMERA \
+                  else self.cfg.YAW_RATE_MAX
+            yaw_rate = max(-_tv, min(_tv, _kz * e))
             thr, pitch, roll, yaw = self.cev.cevir(
                 (vx, vy, vz_ned), v_olculen, math.radians(own_yaw), yaw_rate)
             self.b.komut(thr, pitch, roll, yaw, True)

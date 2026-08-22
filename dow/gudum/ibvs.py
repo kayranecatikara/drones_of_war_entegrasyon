@@ -67,6 +67,25 @@ class IbvsCfg:
                             # görüntüyü bulandırıp dedektörü kırar -> KORUNDU.
     YAW_OLU_BAND  = 1.0     # °; altında yaw komutu güncellenmez
 
+    # --- ⭐ SAKİN KAMERA (ÖLÇÜMLE BULUNDU, n=416 görsel kare) ---
+    # Tespit kaybının sebebi HIZ DEĞİL, KONTROL EFORU:
+    #      büyüklük     tespit VAR   tespit YOK
+    #   |yaw komutu|        0.103        0.194   (1.9x)
+    #   |roll|              0.095        0.200   (2.1x)
+    #   |throttle|          0.300        0.669   (2.2x)
+    #   |pitch|             0.249        0.258   (fark YOK)
+    #   hız                 21.1         19.9    (fark YOK)
+    # Kamera GÖVDEYE SABİT: araç yattıkça/döndükçe görüntü sallanıyor ve
+    # 46 pikselik hedef bulanıklaşıyor. ana_kontrol.py'de de yazıyor:
+    #   "Roll HEP 0 (bank yok — bank hedefi kadrajdan atıp kamerayı yere
+    #    ceviriyordu)."
+    # ÇARE: hızı LOS yönünde değil, ARACIN KENDİ BURNU yönünde komut et.
+    #   Burnu hedefe yaw çevirir; roll ~0 kalır, kamera sabitlenir.
+    SAKIN_KAMERA  = True    # kill-switch; False = eski (LOS yönünde) davranış
+    YAW_KAZANC    = 1.5     # yaw hatası -> yaw hızı (eskiden 3.0, çok sert)
+    YAW_HIZ_TAVAN = 60.0    # °/s görsel fazda (eskiden 120)
+    VZ_TAVAN_GORSEL = 4.0   # m/s; dikey de kamerayı sallıyor -> kıs
+
     # --- lead (öngörü) ---
     LEAD_SURE     = 0.4     # s (Gazebo'dan AYNEN)
     LEAD_MENZIL_M = 6.4     # m; bu menzilin altında lead söner
@@ -188,8 +207,11 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     tani["ibvs_sapma"] = r
     tani["ibvs_fren"] = fren
 
-    # --- 6) YATAY: hız LOS yönünde (yalnız AZİMUT; dikey ayrı kanal) ---
-    yon = math.radians(yaw_hedef)
+    # --- 6) YATAY: SAKİN KAMERA -> hız BURUN yönünde ---
+    # LOS yönünde komut vermek, burun henüz dönmemişken YANAL hız ister;
+    # çevirici bunu ROLL'a çevirir ve kamera yatar (tespit ölür).
+    # Burun yönünde komut verince yanal talep ~0 -> roll ~0.
+    yon = math.radians(own_yaw_deg if cfg.SAKIN_KAMERA else yaw_hedef)
     vx = v * math.cos(yon)
     vy = v * math.sin(yon)
 
@@ -197,6 +219,8 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     # Yakınlaştıkça nişan merkeze kayar: uzakta altta kal, yakında vur.
     e_cy = cy - cy_ref                      # + = hedef kadrajda AŞAĞIDA
     vz_yukari = -cfg.K_CY * e_cy            # aşağıdaysa ALÇAL
+    if cfg.SAKIN_KAMERA:
+        vz_yukari = _kirp(vz_yukari, -cfg.VZ_TAVAN_GORSEL, cfg.VZ_TAVAN_GORSEL)
     vz_yukari = _kirp(vz_yukari, -cfg.VZ_MAX_ALCAL, cfg.VZ_MAX_TIRMAN)
     vz_ned = -vz_yukari            # NED: pozitif = AŞAĞI
     tani["ibvs_vz_yukari"] = vz_yukari

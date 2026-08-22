@@ -119,8 +119,13 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
 
         # ---- ÖLÇÜM-ONLY: gerçek menzil / isabet ----
         _tr = beyin.b.truth()
+        _gdz = _gelev = float("nan"); _R = float("nan")
         if _tr:
-            _R = math.dist(dp, _tr["hedef_m"])
+            _hp = _tr["hedef_m"]
+            _R = math.dist(dp, _hp)
+            _gdz = _hp[2] - dp[2]
+            _gyat = math.hypot(_hp[0]-dp[0], _hp[1]-dp[1])
+            _gelev = math.degrees(math.atan2(_gdz, max(_gyat, 1e-6)))
             if _R > 0.05:
                 if _R < en_yakin: en_yakin = _R
                 if _R < 4.0: isabet = 1
@@ -166,6 +171,11 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
             if hp:
                 sat.update({"hedef_x": round(hp[0], 2), "hedef_y": round(hp[1], 2),
                             "hedef_z": round(hp[2], 2)})
+            # ÖLÇÜM-ONLY: gerçek geometri (analiz için; güdüme girmez)
+            if _tr:
+                sat.update({"gercek_menzil": round(_R, 2),
+                            "gercek_dz": round(_gdz, 2),
+                            "gercek_elev": round(_gelev, 2)})
             for k in ("hedef_hiz", "hedef_yon", "ist_x", "ist_y", "ist_z",
                       "ist_hata_m", "ist_hata_yatay", "ist_hata_dikey",
                       "hedef_menzil_m", "yaw_hata", "v_istek"):
