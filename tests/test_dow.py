@@ -242,6 +242,30 @@ def test_B17_yanal_eksen_isareti():
     assert sag < 0, "yanal işaret uygulanmamış"
 
 
+def test_B21_isabet_gecersizlik_sayilmaz():
+    """OLCUM HATASI: hedefi vurunca drone da yok oluyor -> bekci
+    drone_yok diyor ve kosuyu GECERSIZ sayiyordu. Basari, basarisizlik
+    gibi isaretleniyordu; istatistik tam da istedigimiz sonucun ALEYHINE
+    sistematik saptiriyordu."""
+    import inspect
+    from araclar import kosu
+    k = inspect.getsource(kosu.kosu_yap)
+    assert "if isabet and ihlal in" in k, \
+        "isabet sonrasi despawn hala gecersizlik sayiliyor"
+
+
+def test_B22_gorev_seviyesi_yeniden_kurulum():
+    """OLCULDU (GV08): hedefi VURUNCA drone yok oluyor ve oyun gorev-sonu
+    ekranina dusebiliyor; orada E hicbir sey yapmiyor. Ilk kosu ISABETLE
+    bitti, kalan 5 kosu gorev baslatilamadi ve kampanya bosa gitti.
+    Kosum araci son care olarak GOREVI BASTAN kurmali."""
+    import inspect
+    from araclar import kosu
+    assert hasattr(kosu, "_gorevi_yeniden_kur")
+    k = inspect.getsource(kosu._yeni_gorev)
+    assert "_gorevi_yeniden_kur" in k, "E yetmediginde gorev kurulmuyor"
+
+
 if __name__ == "__main__":
     import traceback
     ad_listesi = [k for k in sorted(globals()) if k.startswith("test_")]

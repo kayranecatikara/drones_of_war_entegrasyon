@@ -39,7 +39,7 @@ def main():
         for dv in degerler:
             i += 1
             setattr(Ayar, alan, dv)
-            if not _yeni_gorev(): print(f"{i:3d} görev yok"); continue
+            if not _yeni_gorev(beyin): print(f"{i:3d} görev yok"); continue
             if not beyin.b.canli(): beyin.b.yeniden_bagla()
             dz = os.path.join(kok, f"d{int(dv):03d}_{tur+1}")
             o = kosu_yap(beyin, sct, dz, sure, det)

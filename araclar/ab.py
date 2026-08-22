@@ -41,7 +41,7 @@ def main():
                 setattr(IbvsCfg, alan[5:], deger)
             else:
                 setattr(Ayar, alan, deger)
-            if not _yeni_gorev(): print(f"{i:3d} görev yok"); continue
+            if not _yeni_gorev(beyin): print(f"{i:3d} görev yok"); continue
             if not beyin.b.canli(): beyin.b.yeniden_bagla()
             o = kosu_yap(beyin, sct, os.path.join(kok, f"{kol}{i:02d}"), sure, det)
             o["kosu"]=i; o["kol"]=kol; o["deger"]=int(deger); ozet.append(o)

@@ -53,8 +53,32 @@ from araclar.kayit import Kayit
 from araclar.kadraj import BOLGE, ucusta_mi, oyunu_one_al, yeniden_dogur, hazirla
 
 
-def _yeni_gorev():
-    """Drone'u yeniden doğur (çarptıysa) ve kadrajın uçuşta olmasını bekle."""
+def _gorevi_yeniden_kur(zaman_asimi=240):
+    """⛔ SON ÇARE: 'E' ile yeniden doğuş yetmediğinde GÖREVİ baştan kurar.
+
+    NEDEN (2026-08-22): hedefi VURUNCA drone yok oluyor ve oyun bazen
+    görev-sonu ekranına düşüyor; orada 'E' hiçbir şey yapmıyor. GV08'de
+    ilk koşu ISABETLE bitti, kalan 5 koşu 'görev başlatılamadı' dedi ve
+    kampanya boşa gitti. Kullanıcının istedigi 'sorun olursa durdur,
+    yeniden başlat' mekanizmasının eksik kalan parçası buydu."""
+    kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    betik = os.path.join(kok, "calistirma_betikleri", "goreve_gir.sh")
+    print("  [görev yeniden kuruluyor — bu ~2 dk sürer]", flush=True)
+    try:
+        subprocess.run([betik], timeout=zaman_asimi,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        print(f"  görev kurulamadı: {e}", flush=True); return False
+    for _ in range(20):
+        with mss.mss() as sct:
+            img = np.array(sct.grab(BOLGE))[:, :, :3]
+        if ucusta_mi(img): return True
+        time.sleep(2.0)
+    return False
+
+
+def _yeni_gorev(beyin=None):
+    """Drone'u yeniden doğur; olmazsa GÖREVİ baştan kur."""
     for _ in range(4):
         yeniden_dogur()
         with mss.mss() as sct:
@@ -62,7 +86,13 @@ def _yeni_gorev():
         if ucusta_mi(img):
             return True
         oyunu_one_al(); time.sleep(1.0)
-    return False
+    # 'E' yetmedi -> görevi baştan kur
+    if not _gorevi_yeniden_kur():
+        return False
+    if beyin is not None:
+        try: beyin.b.yeniden_bagla()
+        except Exception: pass
+    return True
 
 
 def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
@@ -190,6 +220,15 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
         kalan = dt_hedef - (time.time() - t)
         if kalan > 0: time.sleep(kalan)
 
+    # ⛔ ÖLÇÜM HATASI DÜZELTMESİ (2026-08-22):
+    #   Hedefi VURUNCA drone da yok oluyor -> bekçi "drone_yok" diyor ve
+    #   koşuyu GEÇERSİZ sayıyordu. Yani BAŞARIYI başarısızlık gibi
+    #   işaretliyordum; bu, istatistiği tam da istediğimiz sonucun ALEYHİNE
+    #   sistematik olarak saptırır (§5.2 "ölçüt kötü sebeple iyileşir mi"nin
+    #   tersi: ölçüt İYİ sebeple KÖTÜLEŞİYORDU).
+    #   İsabet varsa koşu GEÇERLİDİR; ihlal "isabet_sonrasi" diye işaretlenir.
+    if isabet and ihlal in ("drone_yok", "baglanti_yok", "telemetri_dondu"):
+        ihlal = None
     if kayit: kayit.kapat()
     beyin.b.komut(beyin.cev._vz_cubuk(0.0), 0.0, 0.0, 0.0, True)
     a = np.array(ist_hatalar) if ist_hatalar else np.array([np.nan])
@@ -241,7 +280,7 @@ def main():
           f"{'görsel tik':>10} {'tespit%':>8} {'EN YAKIN':>9} {'isabet':>7}", flush=True)
     ozetler = []
     for i in range(1, adet + 1):
-        if not _yeni_gorev():
+        if not _yeni_gorev(beyin):
             print(f"{i:3d}  görev başlatılamadı"); continue
         if not beyin.b.canli(): beyin.b.yeniden_bagla()
         o = kosu_yap(beyin, sct, os.path.join(kok, f"k{i:02d}"), sure, det)
