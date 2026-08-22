@@ -40,6 +40,16 @@ class CevCfg:
     # Gazebo NED: X kuzey, Y doğu, Z AŞAĞI (vz>0 = alçal).
     # Unreal:     X ileri, Y sağ,  Z YUKARI (throttle>0 = tırman).
     Z_ISARET = -1.0        # NED vz -> Unreal yukarı hızı
+    # ⛔ YANAL EKSEN İŞARETİ — ÖLÇÜLDÜ, TAHMİN DEĞİL.
+    #   Unreal SOL-ELLİ (X ileri, Y sağ, Z yukarı, yaw saat yönü); benim
+    #   dunya_govde() dönüşümüm SAĞ-ELLİ varsayıyordu. Sonuç: yanal komut
+    #   TERS yöne gidiyor, hata kapanacağına BÜYÜYOR, roll -1'e çakılıyor
+    #   (ölçüldü: tiklerin %94'ünde doyum) ve araç hedefe gitmek yerine
+    #   DAİRE çiziyor. Kapanma hızı medyan -3.78 m/s = uzaklaşıyor.
+    #   ÖLÇÜM (200 m'de, 3 s saf komut, gerçek yer değişimi):
+    #     pitch +0.6 -> gövde ileri +66.6 m, gövde sağ  -0.0  ✅ doğru
+    #     roll  +0.6 -> gövde ileri  +6.6 m, gövde sağ -66.8  ❌ TERS
+    Y_ISARET = -1.0        # ölçüldü: +roll aracı SOLA götürüyor
 
     # --- [2] YATAY İÇ DÖNGÜ ---
     # a_istenen = K_V * (v_hedef - v_olculen)
@@ -129,12 +139,14 @@ class HizCubukCevirici:
 
     # ---------------- [1] eksen ----------------
     @staticmethod
-    def dunya_govde(vx, vy, yaw_rad):
+    def dunya_govde(vx, vy, yaw_rad, y_isaret=None):
         """Dünya yatay hızını GÖVDE çerçevesine çevirir.
-        ileri = burun yönü, sag = burnun sağı."""
+        ileri = burun yönü, sag = burnun sağı.
+        y_isaret: Unreal'in sol-elli ekseni için ölçülmüş düzeltme (bkz. CevCfg)."""
+        if y_isaret is None: y_isaret = CevCfg.Y_ISARET
         c, s = math.cos(yaw_rad), math.sin(yaw_rad)
         ileri = vx * c + vy * s
-        sag   = -vx * s + vy * c
+        sag   = y_isaret * (-vx * s + vy * c)
         return ileri, sag
 
     # ---------------- [3] ivme -> çubuk ----------------
@@ -174,8 +186,8 @@ class HizCubukCevirici:
         vx_o, vy_o, vz_o     = v_olculen_unreal
 
         # [1] iki hızı da GÖVDE çerçevesine al
-        ileri_h, sag_h = self.dunya_govde(vx_h, vy_h, yaw_rad)
-        ileri_o, sag_o = self.dunya_govde(vx_o, vy_o, yaw_rad)
+        ileri_h, sag_h = self.dunya_govde(vx_h, vy_h, yaw_rad, c.Y_ISARET)
+        ileri_o, sag_o = self.dunya_govde(vx_o, vy_o, yaw_rad, c.Y_ISARET)
 
         # [2] hız hatası -> istenen ivme
         a_ileri = c.K_V * (ileri_h - ileri_o)

@@ -167,6 +167,21 @@ def test_B16_kacak_tirmanma_korumasi():
     assert "zaten_yuksek" in k, "kalkıştan bağımsız ikinci çıkış kapısı yok"
 
 
+def test_B17_yanal_eksen_isareti():
+    """⛔ ÖLÇÜLDÜ: Unreal SOL-ELLİ; sağ-elli dönüşüm yanal komutu TERS yöne
+    verir, hata büyür, roll -1'e çakılır (tiklerin %94'ü) ve araç hedefe
+    gitmek yerine daire çizer (kapanma -3.78 m/s = uzaklaşma).
+      pitch +0.6 -> gövde ileri +66.6 m (doğru)
+      roll  +0.6 -> gövde sağ  -66.8 m (TERS)"""
+    from dow.gudum.cevirici import CevCfg, HizCubukCevirici
+    assert CevCfg.Y_ISARET == -1.0, "yanal eksen işareti ölçümle uyuşmuyor"
+    # burun kuzeye (+x) bakarken, DOĞUYA (+y) gitmek istiyoruz.
+    # Unreal sol-elli olduğu için bu, gövdede SOL demektir -> sag NEGATİF.
+    ileri, sag = HizCubukCevirici.dunya_govde(0.0, 10.0, 0.0)
+    assert abs(ileri) < 1e-9
+    assert sag < 0, "yanal işaret uygulanmamış"
+
+
 if __name__ == "__main__":
     import traceback
     ad_listesi = [k for k in sorted(globals()) if k.startswith("test_")]
