@@ -16,6 +16,12 @@ def _f(ad, v):  return float(os.environ.get(ad, v))
 def _b(ad, v):  return os.environ.get(ad, str(int(v))).strip() not in ("0", "", "false", "False")
 
 
+class _IbvsKopru:
+    """Panelin IBVS ayarlarını canlı değiştirebilmesi için köprü:
+    Ayar.<ALAN> okunduğunda/yazıldığında IbvsCfg'ye yansır."""
+    pass
+
+
 class Ayar:
     # ================= AŞAMA ANAHTARLARI =================
     # ⚠ GELİŞTİRME KİPİ (2026-08-22, kullanıcı kararı):
@@ -71,9 +77,19 @@ class Ayar:
     YAW_RATE_MAX    = _f("DOW_YAW_MAX", 120.0)      # °/s
 
     # ================= GÖRSEL DEVİR =================
-    # Devir kapısı GPS menziline bakar (yanlış-pozitifin ürettiği sahte
-    # "yakın menzil"i yapısal olarak eler — bkz. ana.py'deki not).
-    DEVIR_GPS_MENZIL_M = _f("DOW_DEVIR_GPS", 60.0)
+    # ⛔⛔ YARIŞMA KURALI (kullanıcı 2026-08-22, DİSKALİFİYE SEBEBİ):
+    #   "Görsel güdüm sırasında GPS verisini ASLA kullanma; mesafe verisini
+    #    bile GPS'ten çekme. Görsel güdüm algoritmasına GPS verisini dahil
+    #    etmek diskalifiye sebebi."
+    #   Bu yüzden devir kapısı ARTIK GPS MENZİLİNE BAKMIYOR. Kapı tamamen
+    #   KAMERA verisinden: ardışık N geçerli tespit.
+    #   Yanlış-pozitife karşı koruma (eskiden GPS kapısı yapıyordu) şimdi:
+    #     (a) ardışık 10 kare şartı — 10 kare üst üste aynı sahte kutu zor
+    #     (b) ibvs.gecerli(): conf >= 0.40, kutu boyutu MENZIL_MIN..MAX
+    #         aralığında (3-50 m). 140 m'de üretilen dev yanlış-pozitif
+    #         (menzil 1.3 m) bu kapıdan GEÇEMEZ.
+    DEVIR_KARE      = int(_f("DOW_DEVIR_KARE", 10))   # ardışık TESPİT -> görsel
+    KAYIP_KARE      = int(_f("DOW_KAYIP_KARE", 20))   # ardışık TESPİTSİZ -> GPS
 
     # ================= BEKÇİ (uçuş sağlık bandı) =================
     BEKCI_AKTIF        = _b("DOW_BEKCI", True)
@@ -106,6 +122,9 @@ CANLI = {
     "GORSEL_AKTIF":      ("b", "GÖRSEL faz açık (güdüm)", 0, 1),
     "DEDEKTOR_GOSTER":   ("b", "Dedektörü panelde göster", 0, 1),
     "DEDEKTOR_HZ":       ("f", "Dedektör hızı (Hz)", 0.5, 10),
+    "V_HUCUM":           ("f", "Hücum hızı (m/s)", 18, 34),
+    "MERKEZ_FREN":       ("f", "Merkez freni", 0, 3),
+    "K_CY":              ("f", "Dikey kadraj kazancı", 0.01, 0.3),
     "GPS_KAYNAK":        ("s", "GPS kaynağı (truth/filtre)", 0, 0),
     "BEKCI_AKTIF":       ("b", "Bekçi açık", 0, 1),
 }

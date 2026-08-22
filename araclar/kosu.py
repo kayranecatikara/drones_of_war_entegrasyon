@@ -76,6 +76,10 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
 
     t0 = time.time(); son = t0; n = 0
     son_det = 0.0
+    # ⚠ ÖLÇÜM-ONLY: truth kanalı YALNIZ isabet/menzil ölçmek için okunur.
+    #   Beyin'e ASLA verilmez; yarışmada bu kanal zaten yoktur.
+    en_yakin = 1e9; isabet = 0; gorsel_tik_say = 0; tespit_say = 0
+    devir_t = None; devir_menzil = None
     ist_hatalar = []; oturma_t = None
     ihlal = None; tespit = None
     dt_hedef = 1.0 / Ayar.LOOP_HZ
@@ -84,8 +88,8 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
         t = time.time(); dt = max(1e-3, t - son); son = t
 
         img = None
-        gerek_kare = (kayit and kayit.gerek(t - t0)) or panel_ac
-        if gerek_kare or Ayar.GORSEL_AKTIF:
+        gerek_kare = True   # görsel fazda her tik kare gerekir
+        if gerek_kare:
             img = np.array(sct.grab(BOLGE))[:, :, :3][:, :, ::-1]   # RGB
             if not ucusta_mi(img[:, :, ::-1]):
                 ihlal = "drone_yok"; break
@@ -112,6 +116,20 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
         s = bekci.kontrol(t - t0, dp, beyin._zemin_z, hp, beyin.b.canli())
         if s:
             ihlal = s; break
+
+        # ---- ÖLÇÜM-ONLY: gerçek menzil / isabet ----
+        _tr = beyin.b.truth()
+        if _tr:
+            _R = math.dist(dp, _tr["hedef_m"])
+            if _R > 0.05:
+                if _R < en_yakin: en_yakin = _R
+                if _R < 4.0: isabet = 1
+        if beyin.durum == "GORSEL":
+            gorsel_tik_say += 1
+            if beyin._bu_kare_tespit: tespit_say += 1
+            if devir_t is None:
+                devir_t = t - t0
+                devir_menzil = _R if _tr else -1
 
         # ---- ölçüt: istasyon hatası ----
         ih = ti.get("ist_hata_m")
@@ -168,6 +186,12 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
     return {
         "sure": round(time.time() - t0, 1), "tik": n,
         "ihlal": ihlal or "-",
+        "en_yakin_m": round(en_yakin, 2) if en_yakin < 1e8 else -1,
+        "isabet": isabet,
+        "devir_s": round(devir_t, 1) if devir_t else -1,
+        "devir_menzil": round(devir_menzil, 1) if devir_menzil else -1,
+        "gorsel_tik": gorsel_tik_say,
+        "gorsel_tespit_yuzde": round(100.0 * tespit_say / max(1, gorsel_tik_say), 1),
         "ist_hata_medyan": round(float(np.nanmedian(a)), 2),
         "ist_hata_min": round(float(np.nanmin(a)), 2),
         "ist_hata_son5s": round(float(np.nanmedian(a[-int(5/max(1e-9,1/Ayar.LOOP_HZ)):])), 2)
@@ -203,8 +227,8 @@ def main():
 
     print(f"\n{adet} koşu x {sure:.0f} s | GPS={Ayar.GPS_KAYNAK} | "
           f"görsel={'AÇIK' if Ayar.GORSEL_AKTIF else 'KAPALI'}", flush=True)
-    print(f"{'#':>3} {'süre':>6} {'tik':>5} {'ihlal':>16} {'ist_hata med':>13} "
-          f"{'min':>7} {'oturma':>7} {'≤15m %':>7}", flush=True)
+    print(f"{'#':>3} {'tik':>5} {'ihlal':>13} {'ist_hata':>9} {'devir@':>7} "
+          f"{'görsel tik':>10} {'tespit%':>8} {'EN YAKIN':>9} {'isabet':>7}", flush=True)
     ozetler = []
     for i in range(1, adet + 1):
         if not _yeni_gorev():
@@ -212,9 +236,10 @@ def main():
         if not beyin.b.canli(): beyin.b.yeniden_bagla()
         o = kosu_yap(beyin, sct, os.path.join(kok, f"k{i:02d}"), sure, det)
         o["kosu"] = i; ozetler.append(o)
-        print(f"{i:3d} {o['sure']:6.1f} {o['tik']:5d} {o['ihlal']:>16} "
-              f"{o['ist_hata_medyan']:13.2f} {o['ist_hata_min']:7.2f} "
-              f"{o['oturma_s']:7.1f} {100*o['ist_orani_15m']:7.1f}", flush=True)
+        print(f"{i:3d} {o['tik']:5d} {o['ihlal']:>13} {o['ist_hata_medyan']:9.2f} "
+              f"{o['devir_menzil']:7.1f} {o['gorsel_tik']:10d} "
+              f"{o['gorsel_tespit_yuzde']:8.1f} {o['en_yakin_m']:9.2f} "
+              f"{'EVET' if o['isabet'] else '-':>7}", flush=True)
 
     if ozetler:
         with open(os.path.join(kok, "ozet.csv"), "w", newline="") as f:
@@ -224,8 +249,13 @@ def main():
         print(f"\nGEÇERLİ {len(gec)}/{len(ozetler)} koşu")
         if gec:
             m = np.array([o["ist_hata_medyan"] for o in gec])
-            print(f"istasyon hatası medyanı: {np.nanmedian(m):.1f} m "
-                  f"(Gazebo hedefi ≤10 m)")
+            ey = np.array([o["en_yakin_m"] for o in gec])
+            isb = sum(o["isabet"] for o in gec)
+            gt = np.array([o["gorsel_tik"] for o in gec])
+            print(f"istasyon hatası medyanı: {np.nanmedian(m):.1f} m")
+            print(f"EN YAKIN medyan {np.nanmedian(ey):.2f} m | en iyi {np.nanmin(ey):.2f} m")
+            print(f"İSABET {isb}/{len(gec)}  |  görsel faza giren koşu: "
+                  f"{int((gt>0).sum())}/{len(gec)}")
     beyin.b.kapat()
 
 

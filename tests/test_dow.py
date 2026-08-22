@@ -113,16 +113,66 @@ def test_B12_dev_yanlis_pozitif_elenir():
     assert ok
 
 
-def test_B13_devir_gps_ile_kapili():
-    """⛔ Görsel devir kapısı, menzili KUTUDAN alırsa yanlış-pozitif onu
-    kandırır (kutu büyük -> menzil küçük -> kapı açılır). Kapı GPS
-    menziline de bakmalı. GPS burada MEŞRU: görsel temas henüz YOK."""
+def test_B13_devir_kapisi_YALNIZ_KAMERA():
+    """YARISMA KURALI (kullanici 2026-08-22): gorsel gudum sirasinda GPS
+    kullanmak DISKALIFIYE sebebi. Devir kapisi da GPS e bakmamali.
+    Onceki surum GPS menzilini kapi olarak kullaniyordu; kural netlesince
+    KALDIRILDI. Yerine: ardisik kare sayaci + kamera-ici gecerlilik kapisi."""
     import inspect
     from dow import ana
     from dow.ayarlar import Ayar
-    kaynak = inspect.getsource(ana.Beyin.adim)
-    assert "DEVIR_GPS_MENZIL_M" in kaynak, "devir kapısı GPS menzilini kullanmıyor"
-    assert Ayar.DEVIR_GPS_MENZIL_M <= 80.0
+    k = inspect.getsource(ana.Beyin.adim)
+    bas = k.index("kilit_kare")
+    devir = k[max(0, bas-900):bas+300]
+    for y in ("hedef_konumu", "truth", "get_target", "gps_menzil"):
+        assert y not in devir, f"devir kapisinda GPS izi: {y}"
+    assert Ayar.DEVIR_KARE >= 10, "devir 10 ardisik kare olmali"
+    assert Ayar.KAYIP_KARE >= 20, "kayip 20 ardisik kare olmali"
+
+
+def test_B18_gorsel_fazda_gps_OKUNMAZ():
+    """En kati hali: GORSEL fazda hedefin GPS i OKUNMAZ bile.
+    hedef_konumu() cagrisi durum != GORSEL kosuluna BAGLI olmali."""
+    import inspect
+    from dow import ana
+    k = inspect.getsource(ana.Beyin.adim)
+    i2 = k.index("hedef_konumu(t)")
+    assert 'self.durum != "GORSEL"' in k[max(0, i2-300):i2], \
+        "hedef_konumu() GORSEL fazda da cagriliyor - GPS okunuyor!"
+
+
+def test_B19_ibvs_girdisi_yalniz_goruntu():
+    """ibvs.komut/gecerli: girdiler YALNIZ bbox pikselleri + KENDI IMU."""
+    import inspect
+    from dow.gudum import ibvs as I
+    for fn in (I.komut, I.gecerli):
+        for ad in inspect.signature(fn).parameters:
+            assert not any(y in ad.lower() for y in
+                           ("hedef", "target", "tgt", "gps", "truth",
+                            "dunya", "world")), \
+                f"{fn.__name__}() dunya-uzayi girdisi aliyor: {ad}"
+    src = inspect.getsource(I)
+    for y in ("get_target", "hedef_konum", "debug_truth"):
+        assert y not in src, f"ibvs modulunde GPS erisimi: {y}"
+
+
+def test_B20_lead_terimi_bagli():
+    """OLCULDU (GV02): lead terimi ibvs.komut() a HIC gecilmiyordu.
+    Saf takip capraz hedefin gerisinde kaldi: cx 991 -> 1292 (merkez 960),
+    sonra tespit koptu. LOS hizi YALNIZ kameradan turetilmeli."""
+    import inspect, ast as A, textwrap as T
+    from dow import ana
+    assert "los_hiz_deg_s=" in inspect.getsource(ana.Beyin.adim), \
+        "ibvs.komut() lead terimi ALMIYOR"
+    fn = A.parse(T.dedent(inspect.getsource(ana.Beyin._los_hizi))).body[0]
+    fn.body = [n for n in fn.body if not (isinstance(n, A.Expr)
+               and isinstance(n.value, A.Constant)
+               and isinstance(n.value.value, str))]
+    kod = A.dump(fn)
+    for y in ("hedef_konum", "truth", "get_target"):
+        assert y not in kod, f"LOS hizi KODU GPS e erisiyor: {y}"
+    assert list(inspect.signature(ana.Beyin._los_hizi).parameters)[1:] == \
+        ["azimut_deg", "t"], "LOS hizi fazladan girdi aliyor"
 
 
 def test_B14_kalkis_zemine_goreli():

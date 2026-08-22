@@ -72,13 +72,42 @@ class IbvsCfg:
     LEAD_MENZIL_M = 6.4     # m; bu menzilin altında lead söner
     LEAD_MAX_DEG  = 25.0    # °; lead açısı tavanı
 
-    # --- dikey ---
-    K_ELEV        = 1.0     # nişan yükselişi -> dikey hız ölçeği
+    # --- DİKEY: KADRAJ REGÜLASYONU ("alttan vuruş") ---
+    # ⛔ ÖNCEKİ YASA ÇÖKTÜ (GV01, 3 koşu, ölçüldü):
+    #   Hız vektörü doğrudan hedefe nişanlanıyordu (saf takip). Bu, hedefin
+    #   İRTİFASINA TIRMANMAK demek: 24° yükselişte 28·sin(24°)=11.4 m/s
+    #   tırmanma komutu. 6.8 m'lik farkı 0.6 s'de kapatıp hedefin hizasına
+    #   çıkıyor; kamera 26.5° YUKARI baktığı için oradan hedef GÖRÜNMÜYOR.
+    #   Sonuç: görsel fazda tespit %90 -> %12-15, isabet 0/3.
+    #
+    # YENİ YASA: hedefi KADRAJDA sabit bir yükseklikte tut (cy -> cy_ref).
+    #   Kamera gövdeye sabit ve TILT° yukarı baktığı için "hedefi kadrajın
+    #   şurasında tut" demek, "hedefin ALTINDA şu açıyla kal" demektir —
+    #   geometri kendiliğinden çıkar, ayrıca hesaplamaya gerek yok.
+    #   GİRDİ YALNIZ PİKSEL: menzil/irtifa/GPS KULLANILMAZ.
+    #
+    #   cy > cy_ref  -> hedef kadrajda AŞAĞIDA -> biz YÜKSEKTEYİZ -> ALÇAL
+    #   cy < cy_ref  -> hedef kadrajda YUKARIDA -> biz ALÇAKTAYIZ -> TIRMAN
+    K_CY          = 0.06    # (m/s)/px; kadraj dikey hatası -> dikey hız
+    CY_REF_UZAK   = 470.0   # px; UZAKTA hedefi merkezin ÜSTÜNDE tut (altta kal)
+    CY_REF_YAKIN  = 540.0   # px; YAKINDA merkeze getir (nişan al, vur)
+    # Geçiş kutu boyutuyla: kutu bu değerden büyükse "yakın" sayılır.
+    CY_GECIS_PX_UZAK = 40.0   # px (≈25 m)
+    CY_GECIS_PX_YAKIN= 90.0   # px (≈11 m)
     VZ_MAX_TIRMAN = 33.5    # m/s; ÖLÇÜLDÜ
-    VZ_MAX_ALCAL  = 6.95    # m/s; ÖLÇÜLDÜ (⚠ 4.8 kat asimetrik)
-    # Hedefi kadrajda tutmak için aracı hedefin ALTINDA tut: nişan noktası
-    # hedefin bu kadar ALTINA konur (açı olarak). Gazebo'daki "alttan vuruş".
-    ALT_NISAN_DEG = 0.0     # °; 0 = doğrudan hedefe nişanla
+    VZ_MAX_ALCAL  = 6.95    # m/s; ÖLÇÜLDÜ (⚠ 4.8 kat asimetrik; hover'da.
+                            #   İleri uçuşta 15.6'ya çıkıyor ama tabanı alıyoruz)
+
+    # --- MERKEZ FRENİ (Gazebo'dan taşınmamıştı) ---
+    # "Önce ortala, sonra ilerle." Hedef kadrajın kenarındayken tam gaz
+    # gitmek onu kadrajdan ATIYOR: araç yatıyor, kamera gövdeye sabit
+    # olduğu için görüntü sallanıyor, tespit kopuyor.
+    # ÖLÇÜLDÜ (GV02): görsel fazda cx 991 -> 1292 (merkez 960) kaçtı ve
+    # tespit %90'dan %22'ye düştü.
+    # r = merkeze normalize sapma (0 = tam ortada, 1 = kadraj kenarı)
+    # v *= max(FREN_TABAN, 1 - MERKEZ_FREN * r)
+    MERKEZ_FREN  = 1.2     # 0 = kapalı (eski davranış)
+    FREN_TABAN   = 0.35    # asla tam durma; biraz kapanış kalsın
 
     # --- geçerlilik ---
     CONF_MIN      = 0.40    # ÖLÇÜLDÜ (dow/gorus/dedektor.py)
@@ -133,6 +162,11 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     yaw_hedef = own_yaw_deg + cfg.K_YAW * eps_yaw
     tani["ibvs_eps_yaw"] = eps_yaw
 
+    # --- 4b) İSTENEN KADRAJ YERİ (dikey nişan) — fren de bunu kullanır ---
+    kg = _kirp((boyut - cfg.CY_GECIS_PX_UZAK) /
+               max(1e-6, cfg.CY_GECIS_PX_YAKIN - cfg.CY_GECIS_PX_UZAK), 0.0, 1.0)
+    cy_ref = cfg.CY_REF_UZAK + kg * (cfg.CY_REF_YAKIN - cfg.CY_REF_UZAK)
+
     # --- 5) HIZ: kutu boyutu hatası üzerinden PI ---
     # Denge kutusu = TEMAS kutusu -> hata hep pozitif, hız tavanda oturur.
     hedef_boyut = KAM.MENZIL_C / cfg.HUCUM_MENZIL_M
@@ -140,25 +174,35 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     hiz_I = _kirp(hiz_I + cfg.K_I * hata_px * dt, -cfg.I_MAX, cfg.I_MAX)
     v_istek = cfg.K_FWD * hata_px + hiz_I
     v = _kirp(v_istek, cfg.V_MIN, cfg.V_HUCUM)
+
+    # MERKEZ FRENİ: İSTENEN kadraj yerinden ne kadar sapmışsa o kadar yavaşla.
+    # ⚠ Dikeyde referans KADRAJ MERKEZİ DEĞİL, cy_ref'tir: hedefi bilerek
+    #   merkezin üstünde tutuyoruz (alttan yaklaşma), bu SAPMA SAYILMAZ.
+    rx = (cx - KAM.CX) / KAM.CX
+    ry = (cy - cy_ref) / KAM.CY
+    r = math.hypot(rx, ry)
+    fren = max(cfg.FREN_TABAN, 1.0 - cfg.MERKEZ_FREN * r) if cfg.MERKEZ_FREN > 0 else 1.0
+    v *= fren
     tani["ibvs_hata_px"] = hata_px
     tani["ibvs_v"] = v
+    tani["ibvs_sapma"] = r
+    tani["ibvs_fren"] = fren
 
-    # --- 6) HIZI LOS YÖNÜNE DAĞIT ---
-    # Hız DAİMA LOS (nişan) yönünde: hedef dönünce hız vektörü de döner,
-    # dondurulmuş taşıyıcının yana savurma hatası YAPISAL OLARAK imkânsız.
-    nisan_yukselis = yukselis - cfg.ALT_NISAN_DEG
-    ce = math.cos(math.radians(nisan_yukselis))
-    se = math.sin(math.radians(nisan_yukselis))
-    # yatay bileşen, KOMUT EDİLEN yaw yönünde (burun hedefe dönüyor)
+    # --- 6) YATAY: hız LOS yönünde (yalnız AZİMUT; dikey ayrı kanal) ---
     yon = math.radians(yaw_hedef)
-    vx = v * ce * math.cos(yon)
-    vy = v * ce * math.sin(yon)
+    vx = v * math.cos(yon)
+    vy = v * math.sin(yon)
 
-    # --- 7) DİKEY: nişan yükselişine göre, ASİMETRİK tavanla ---
-    vz_yukari = cfg.K_ELEV * v * se
+    # --- 7) DİKEY: KADRAJ REGÜLASYONU (piksel -> dikey hız) ---
+    # Yakınlaştıkça nişan merkeze kayar: uzakta altta kal, yakında vur.
+    e_cy = cy - cy_ref                      # + = hedef kadrajda AŞAĞIDA
+    vz_yukari = -cfg.K_CY * e_cy            # aşağıdaysa ALÇAL
     vz_yukari = _kirp(vz_yukari, -cfg.VZ_MAX_ALCAL, cfg.VZ_MAX_TIRMAN)
     vz_ned = -vz_yukari            # NED: pozitif = AŞAĞI
     tani["ibvs_vz_yukari"] = vz_yukari
+    tani["ibvs_cy_ref"] = cy_ref
+    tani["ibvs_e_cy"] = e_cy
+    tani["ibvs_yakinlik"] = kg
 
     return (vx, vy), vz_ned, yaw_hedef, hiz_I, tani
 

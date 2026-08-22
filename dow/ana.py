@@ -41,7 +41,11 @@ class Beyin:
         self._zemin_z = None
         self._son_tespit = None
         self._son_tespit_t = 0.0
+        self._bu_kare_tespit = False
         self._kilit = 0
+        self._kayip = 0
+        self._son_komut = (0.0, 0.0, 0.0, 0.0)
+        self._los_az = None; self._los_t = None; self._los_hiz = 0.0
         self.hiz_I = 0.0
         self.tani = {}
 
@@ -52,7 +56,8 @@ class Beyin:
         self.durum = "KALKIS"
         self._zemin_z = None
         self._son_tespit = None
-        self._kilit = 0
+        self._bu_kare_tespit = False
+        self._kilit = 0; self._kayip = 0
         self.hiz_I = 0.0
         self.izleyici.sifirla()
         self.cev.sifirla()
@@ -70,14 +75,40 @@ class Beyin:
         return (temiz[0] / 100.0, temiz[1] / 100.0, temiz[2] / 100.0)
 
     # ---------------- görsel ----------------
+    def ibvs_sifirla(self):
+        self._los_az = None; self._los_t = None; self._los_hiz = 0.0
+
+    def _los_hizi(self, azimut_deg, t):
+        """LOS'un dönüş hızı (°/s) — LEAD terimi için.
+        ⛔ GİRDİ YALNIZ KAMERA: bbox azimutunun zaman türevi. GPS YOK.
+        EMA ile yumuşatılır; dedektör ~10 Hz ve gürültülü."""
+        if self._los_az is None or self._los_t is None:
+            self._los_az, self._los_t = azimut_deg, t
+            return 0.0
+        dt = t - self._los_t
+        if dt < 0.02:
+            return self._los_hiz
+        ham = (azimut_deg - self._los_az) / dt
+        if abs(ham) < 200.0:
+            self._los_hiz = 0.35 * ham + 0.65 * self._los_hiz
+        self._los_az, self._los_t = azimut_deg, t
+        return self._los_hiz
+
     def gorsel_tik(self, img_rgb, t):
+        """Bir kamera karesini işle. GİRDİ YALNIZ GÖRÜNTÜ — GPS yok."""
+        self._bu_kare_tespit = False
         if not self.cfg.GORSEL_AKTIF or self.det is None:
             return None
         d = self.det.bul(img_rgb)
         if d is None:
             return None
+        cx, cy, w, h, conf = d
+        ok, _sebep = ibvs.gecerli(cx, cy, w, h, conf)
+        if not ok:
+            return None
         self._son_tespit = d
         self._son_tespit_t = t
+        self._bu_kare_tespit = True
         return d
 
     # ---------------- ana adım ----------------
@@ -98,8 +129,13 @@ class Beyin:
             self._zemin_z = dp[2]
         yukseklik = dp[2] - self._zemin_z
 
-        hp = self.hedef_konumu(t)
-        hv = self.izleyici.guncelle(hp, t) if hp else (0.0, 0.0, 0.0)
+        # ⛔⛔ YARIŞMA KURALI: GÖRSEL fazda GPS'e DOKUNULMAZ — okunmaz bile.
+        #   hedef_konumu() YALNIZ görsel temas YOKKEN çağrılır. Böylece
+        #   "görsel güdüm sırasında GPS kullanımı" fiziksel olarak imkânsız.
+        hp = None; hv = (0.0, 0.0, 0.0)
+        if self.durum != "GORSEL":
+            hp = self.hedef_konumu(t)
+            hv = self.izleyici.guncelle(hp, t) if hp else (0.0, 0.0, 0.0)
 
         self.tani = {"durum": self.durum, "yukseklik": yukseklik,
                      "hedef_var": int(hp is not None)}
@@ -123,30 +159,49 @@ class Beyin:
         #   hesaplanan menzil 1.3 m çıkıyor, kapı açılıyor ve güdüm "temas"
         #   sanıp tam hücum veriyor -> araç yere çakılıyor (2026-08-21, iki
         #   koşu, "Player ☠"). GPS burada MEŞRU: görsel temas HENÜZ YOK.
-        if self.cfg.GORSEL_AKTIF and self._son_tespit is not None:
-            taze = (t - self._son_tespit_t) <= 0.35
-            if taze:
+        # ---- DEVİR SAYAÇLARI (yalnız KAMERA verisi) ----
+        # Kullanıcının şartı: 10 ardışık TESPİT -> görsel; 20 ardışık
+        # TESPİTSİZ kare -> GPS'e dön.
+        if self.cfg.GORSEL_AKTIF:
+            if self._bu_kare_tespit:
                 self._kilit += 1
-                cx, cy, w, h, conf = self._son_tespit
-                from dow.gorus import kamera as KAM
-                from dow.gorus.dedektor import DEVIR_MENZIL_M
-                R_kutu = KAM.menzil(max(w, h))
-                gps_menzil = math.dist(dp, hp) if hp else 1e9
-                gps_ok = gps_menzil <= self.cfg.DEVIR_GPS_MENZIL_M
-                self.tani["devir_gps_m"] = gps_menzil
-                self.tani["devir_kutu_m"] = R_kutu if R_kutu else -1
-                if (self.durum != "GORSEL" and self._kilit >= 3 and gps_ok
-                        and R_kutu is not None and R_kutu <= DEVIR_MENZIL_M):
-                    self.durum = "GORSEL"; self.hiz_I = 0.0
+                self._kayip = 0
             else:
+                self._kayip += 1
                 self._kilit = 0
-                if self.durum == "GORSEL" and (t - self._son_tespit_t) > 1.0:
-                    self.durum = "ISTASYON"
+            self.tani["kilit_kare"] = self._kilit
+            self.tani["kayip_kare"] = self._kayip
+            if self.durum != "GORSEL" and self._kilit >= self.cfg.DEVIR_KARE:
+                self.durum = "GORSEL"; self.hiz_I = 0.0
+                self.ibvs_sifirla()
+            elif self.durum == "GORSEL" and self._kayip >= self.cfg.KAYIP_KARE:
+                self.durum = "ISTASYON"; self._son_tespit = None
 
         if self.durum == "GORSEL":
+            if self._son_tespit is None:
+                # ⛔ DERS (GV01): burada son komutu AYNEN tutuyordum. Son komut
+                #   sert bir dönüşse (roll ±1) araç 20 kare boyunca KÖR halde
+                #   fırıl fırıl dönüyordu ve hedefi bir daha bulamıyordu.
+                #   Köprüde DÖNÜŞ SIFIRLANIR; ileri ve dikey korunur —
+                #   hedef kadrajda kaldığı yerde kalsın.
+                t_, p_, r_, y_ = self._son_komut
+                kopru = (t_, p_, 0.0, 0.0)
+                self.b.komut(*kopru, True)
+                self.tani["durum"] = "GORSEL_KOPRU"
+                self._son_komut = kopru
+                return kopru
             cx, cy, w, h, conf = self._son_tespit
+            # ⛔ LEAD: LOS dönüş hızı YALNIZ kameradan türetilir (bbox
+            #   azimutunun türevi). GV02'de bu terim BAĞLANMAMIŞTI (lead=0)
+            #   ve saf takip çapraz giden hedefin gerisinde kalıyordu:
+            #   cx 991 -> 1190 -> 1292 (merkez 960), sonra tespit koptu.
+            from dow.gorus import kamera as _KAM
+            _az, _ = _KAM.piksel_kerteriz(cx, cy, own_pitch, own_roll)
+            los_h = self._los_hizi(_az, t)
             (vx, vy), vz_ned, yaw_hedef, self.hiz_I, ti = ibvs.komut(
-                cx, cy, w, h, own_yaw, own_pitch, own_roll, self.hiz_I, dt)
+                cx, cy, w, h, own_yaw, own_pitch, own_roll, self.hiz_I, dt,
+                los_hiz_deg_s=los_h)
+            self.tani["los_hiz"] = los_h
             self.tani.update(ti)
             e = (yaw_hedef - own_yaw + 180.0) % 360.0 - 180.0
             yaw_rate = max(-self.cfg.YAW_RATE_MAX,
@@ -155,6 +210,7 @@ class Beyin:
                 (vx, vy, vz_ned), v_olculen, math.radians(own_yaw), yaw_rate)
             self.b.komut(thr, pitch, roll, yaw, True)
             self.tani.update(self.cev.tani)
+            self._son_komut = (thr, pitch, roll, yaw)
             return thr, pitch, roll, yaw
 
         # ---- ISTASYON ----
