@@ -15,14 +15,23 @@ def oyunu_one_al():
         return None
 
 def oyun_mu(img):
-    """HUD imzası: DoW kadrajında sağ üstte 'fly/ALT/SPD' beyaz metin bloğu,
-    sol altta batarya göstergeleri var. Tarayıcı/terminalde bu desen yoktur.
-    Ölçüt: sağ-üst 300x140 kutuda parlak piksel oranı %1-25 arası VE
-    kadrajın genel renk çeşitliliği yüksek (düz arayüz değil)."""
-    su = img[60:200, 1600:1900]
-    parlak = float((su.mean(axis=2) > 200).mean())
+    """DoW FPV kadrajı mı VE drone SPAWN OLMUŞ mu?
+
+    İMZA: sol altta akım/batarya göstergeleri ("11.50A / 4.20v / 25.2v").
+    Bunlar drone VAR olduğu sürece görünür — havada da, yerde de.
+
+    ⛔ ÖNCEKİ SÜRÜM SAĞ ÜSTTEKİ 'fly/ALT/SPD' BLOĞUNA BAKIYORDU ve YANILDI:
+      uçarken "12:22 / 173m / 49kmh" bol beyaz piksel verirken, yerde
+      "00:00 / 0m / 0kmh" çok az verir ve eşiğin altında kalır. Bir uçtan
+      uca koşu tamamen bu yüzden boşa gitti (döngü "despawn" sanıp durdu).
+      ÖLÇÜLDÜ (parlak piksel oranı, >190):
+        sağ üst : yerde 0.057 | uçuşta 0.072 | spawn-bekler 0.000
+        SOL ALT : yerde 0.151 | uçuşta 0.155 | spawn-bekler 0.000  <- AYIRICI
+      Sol alt, drone'un varlığını durumdan BAĞIMSIZ ayırıyor."""
+    b = img[850:1060, 80:320].mean(axis=2)
+    parlak = float((b > 190).mean())
     renk_std = float(img.reshape(-1,3).std(axis=0).mean())
-    return (0.01 < parlak < 0.25) and (renk_std > 18), parlak, renk_std
+    return (parlak > 0.05) and (renk_std > 15), parlak, renk_std
 
 def kapi(sct, dene=3):
     """Oyun kadrajı doğrulanana kadar pencereyi öne alır. (ok, img, tani)"""

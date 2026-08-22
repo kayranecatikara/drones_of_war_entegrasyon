@@ -43,6 +43,23 @@ class DowBaglanti:
             time.sleep(bekle)
         return False
 
+    def canli(self):
+        """Bağlantı GERÇEKTEN yaşıyor mu?
+
+        ⛔ DERS (2026-08-21): SDK'nın alıcı iş parçacığı ölünce (oyun
+        bağlantıyı kapatır, ör. drone despawn) get_* fonksiyonları SON
+        BİLİNEN değeri sonsuza dek döndürmeye devam eder. Telemetri DONAR
+        ama hata da vermez. Bir uçtan uca koşuda 40+ saniye donmuş veriyle
+        uçmaya çalıştık ve fark etmedik. Ekran kapısı bunu göremez —
+        soketin kendisine bakmak gerekir."""
+        return _sdk.is_connected()
+
+    def yeniden_bagla(self, deneme=6):
+        try: _sdk.disconnect()
+        except Exception: pass
+        self.bagli = False
+        return self.baglan(deneme=deneme)
+
     def kapat(self):
         # Aracı havada KONTROLSÜZ bırakma (CLAUDE.md §9): önce nötr + disarm.
         try:

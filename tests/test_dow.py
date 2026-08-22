@@ -1,0 +1,183 @@
+# -*- coding: utf-8 -*-
+"""DoW güdüm bekçileri. Her biri ÖLÇÜLMÜŞ bir bulguyu ya da ÜSTÜN bir kuralı korur."""
+import sys, os, math, inspect
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from dow.gudum.cevirici import HizCubukCevirici, CevCfg
+from dow.gudum import ibvs
+from dow.gorus import kamera as KAM
+
+
+def test_B1_gorsel_fazda_hedef_gps_yasak():
+    """⛔ ÜSTÜN KURAL (CLAUDE.md §10): görsel temas varken GPS güdümü YASAK.
+    YAPISAL GARANTİ: ibvs.komut() imzasında hedefin konumuna dair HİÇBİR
+    parametre olamaz. Girdiler yalnız bbox pikselleri + KENDİ IMU'muz."""
+    p = list(inspect.signature(ibvs.komut).parameters)
+    yasak = ("hedef", "target", "tgt", "gps", "lat", "lon", "truth", "tx", "ty", "tz")
+    for ad in p:
+        assert not any(y in ad.lower() for y in yasak), \
+            f"ibvs.komut() hedef konumu alıyor: '{ad}' — §10 İHLALİ"
+    assert set(p[:4]) == {"cx","cy","w","h"}, "ilk dört girdi bbox olmalı"
+
+
+def test_B2_dikey_zehirli_bant():
+    """⛔ ÖLÇÜLDÜ: throttle (-0.586, 0) bandı aracı 9 m/s TIRMANDIRIR.
+    Çevirici bu banda ASLA komut üretmemeli."""
+    c = HizCubukCevirici()
+    for i in range(-4000, 4001):
+        vz = i / 100.0
+        t = c._vz_cubuk(vz)
+        assert not (CevCfg.HOVER_THR < t < 0.0), \
+            f"vz={vz} -> thr={t} ZEHİRLİ BANTTA"
+        assert -1.0 <= t <= 1.0
+
+
+def test_B3_dikey_asimetri():
+    """⛔ ÖLÇÜLDÜ: tırmanma 33.5 m/s, alçalma 6.95 m/s (4.8 kat).
+    Simetrik tavan kullanmak alçalma komutunu ~5 kat abartır."""
+    assert CevCfg.VZ_MAX_TIRMAN > 4.0 * CevCfg.VZ_MAX_ALCAL
+    c = HizCubukCevirici()
+    assert c._vz_cubuk(-100.0) == -1.0      # doyum
+    assert c._vz_cubuk(+100.0) == +1.0
+
+
+def test_B4_hover_sifir_degil():
+    """⛔ ÖLÇÜLDÜ: throttle 0, oyunun 'irtifa tut' kipi OLMASINA RAĞMEN
+    +0.88 m/s tırmanıyor. Sıfır hız isteği HOVER_THR vermeli, 0.0 DEĞİL."""
+    c = HizCubukCevirici()
+    assert c._vz_cubuk(0.0) == CevCfg.HOVER_THR
+    assert CevCfg.HOVER_THR < -0.4
+
+
+def test_B5_hucum_hizi_hedefi_gecer():
+    """DoW Talon'u 17.98 m/s uçuyor. Hücum hızı bunu belirgin AŞMALI,
+    yoksa kapanma sıfıra iner ve hedef ASLA yakalanamaz."""
+    assert ibvs.IbvsCfg.V_HUCUM >= 25.0
+    assert ibvs.IbvsCfg.V_HUCUM - 17.98 >= 5.0
+
+
+def test_B6_menzil_sabiti_olculen():
+    """Menzil sabiti DoW Talon'una (1.718 m) göre olmalı.
+    Gazebo sabiti 1920'ye ölçeklenince 557 ederdi -> 1.79 kat yanlış."""
+    assert 900.0 <= KAM.MENZIL_C <= 1100.0
+    assert abs(KAM.menzil(55.0) - 18.1) < 1.0     # eşik menzili
+
+
+def test_B7_kamera_pitch_telafisi():
+    """Kamera gövdeye sabit: araç öne yatınca kamera ekseni AŞAĞI döner.
+    Telafi edilmezse hedef kadrajın altından kaçar (2026-08-21'de yaşandı)."""
+    _, y0 = KAM.piksel_kerteriz(960, 540, 0.0)
+    _, y1 = KAM.piksel_kerteriz(960, 540, -17.0)   # 17° burun aşağı
+    assert abs(y0 - KAM.TILT_DEG) < 1e-6
+    assert abs(y1 - (KAM.TILT_DEG - 17.0)) < 1e-6
+
+
+def test_B8_yaw_tavani_korundu():
+    """Araç 214 °/s yapabiliyor AMA hızlı yaw görüntüyü bulandırıp
+    dedektörü kırar. Tavan bilinçli olarak 120'de tutuldu."""
+    assert ibvs.IbvsCfg.YAW_RATE_MAX <= 130.0
+
+
+def test_B9_dedektor_uzak_kol_1920():
+    """⛔ ÖLÇÜLDÜ: 54 m'de 960 %6, 1920 %87 (14 kat). Kutu yoksa ya da
+    küçükse DAİMA duyarlı kol kullanılmalı."""
+    from dow.gorus import dedektor as DD
+    assert DD.IMGSZ_UZAK == 1920
+    assert 40.0 <= DD.YAKIN_ESIK_PX <= 70.0
+    assert DD.CONF_MIN >= 0.35
+
+
+def test_B10_gorsel_devir_menzili():
+    """60-90 m'de tespit %10 -> orada görsel devir yapılmamalı."""
+    from dow.gorus.dedektor import DEVIR_MENZIL_M
+    assert DEVIR_MENZIL_M <= 55.0
+    assert ibvs.IbvsCfg.MENZIL_MAX_M <= 55.0
+
+
+def test_B11_cevirici_gudume_dokunmaz():
+    """YAPISAL AYRIM (§5.10): çevirici güdüm yasasını İTHAL ETMEMELİ.
+    Böylece biri değişince diğeri etkilenmez."""
+    import dow.gudum.cevirici as C
+    kaynak = inspect.getsource(C)
+    assert "ibvs" not in kaynak.lower().replace("ibvs (görüntü","")
+    assert "import" in kaynak
+
+
+def test_B12_dev_yanlis_pozitif_elenir():
+    """⛔ ÖLÇÜLDÜ: dedektör 140 m'de 300+ px kutular üretiyor; bunlar
+    menzil formülünde 1.3 m'ye çevriliyor ve güdüm 'temas' sanıyor.
+    İki uçtan uca koşu bu yüzden yere çakıldı ('Player ☠')."""
+    ok, sebep = ibvs.gecerli(960, 540, 400, 350, 0.8)
+    assert not ok and sebep == "menzil_yakin", \
+        "400 px kutu (=2.5 m) geçerli sayıldı — dev yanlış-pozitif kapısı YOK"
+    ok, _ = ibvs.gecerli(960, 540, 40, 30, 0.8)   # 25 m — makul
+    assert ok
+
+
+def test_B13_devir_gps_ile_kapili():
+    """⛔ Görsel devir kapısı, menzili KUTUDAN alırsa yanlış-pozitif onu
+    kandırır (kutu büyük -> menzil küçük -> kapı açılır). Kapı GPS
+    menziline de bakmalı. GPS burada MEŞRU: görsel temas henüz YOK."""
+    import inspect
+    from dow import ana
+    kaynak = inspect.getsource(ana.Beyin.adim)
+    assert "DEVIR_GPS_MENZIL_M" in kaynak, "devir kapısı GPS menzilini kullanmıyor"
+    assert ana.Cfg.DEVIR_GPS_MENZIL_M <= 80.0
+
+
+def test_B14_kalkis_zemine_goreli():
+    """⛔ ÖLÇÜLDÜ: get_drone_altitude() DÜNYA Z'si döndürür ve zemin ~48 m.
+    Kalkış eşiği mutlak alınırsa drone doğar doğmaz 'zaten yüksekteyim' der,
+    kalkışı atlar ve yerdeyken yatay komut alıp takılır/çakılır."""
+    import inspect
+    from dow import ana
+    k = inspect.getsource(ana.Beyin.adim)
+    assert "_zemin_z" in k and "yukseklik" in k, \
+        "kalkış mutlak irtifa kullanıyor — zemine göreli olmalı"
+    assert "yukseklik >= Cfg.KALKIS_ALT_M" in k
+
+
+def test_B15_donmus_telemetri_kapisi():
+    """⛔ ÖLÇÜLDÜ: SDK'nın alıcı iş parçacığı ölünce get_* fonksiyonları
+    SON değeri sonsuza dek döndürür — telemetri DONAR, hata VERMEZ.
+    Bir koşuda 40+ sn donmuş veriyle uçtuk ve fark etmedik. Ana döngü
+    her tikte bağlantı sağlığını sınamalı."""
+    import inspect
+    from dow import ana
+    from dow.sdk.baglanti import DowBaglanti
+    assert hasattr(DowBaglanti, "canli") and hasattr(DowBaglanti, "yeniden_bagla")
+    k = inspect.getsource(ana.Beyin.adim)
+    assert "canli()" in k, "ana döngü bağlantı sağlığını sınamıyor"
+    assert k.index("canli()") < k.index("yonelim()"), \
+        "sağlık kapısı telemetri okumadan ÖNCE olmalı"
+
+
+def test_B16_kacak_tirmanma_korumasi():
+    """⛔ ÖLÇÜLDÜ (koşu #9): bağlantı kesintisi fazı KALKIS'a atıyor,
+    spawn_sifirla() zemin referansını o anki irtifadan yeniden alıyor,
+    araç 'yerdeyim' sanıp 45 m daha tırmanıyordu. irtifa 48 -> 855 m.
+    İKİ koruma şart: (a) kesinti fazı değiştirmez, (b) zemin sıfırlanmaz."""
+    import inspect
+    from dow import ana
+    k = inspect.getsource(ana.Beyin.adim)
+    kesinti = k[k.index("BAGLANTI_YOK"):k.index("BAGLANTI_YOK")+700]
+    assert 'self.durum = "KALKIS"' not in kesinti, \
+        "bağlantı kesintisi fazı KALKIS'a atıyor — kaçak tırmanma riski"
+    sp = inspect.getsource(ana.Beyin.spawn_sifirla)
+    assert "_zemin_z = None" not in sp, "spawn_sifirla zemin referansını siliyor"
+    assert "zaten_yuksek" in k, "kalkıştan bağımsız ikinci çıkış kapısı yok"
+
+
+if __name__ == "__main__":
+    import traceback
+    ad_listesi = [k for k in sorted(globals()) if k.startswith("test_")]
+    gecti = 0
+    for ad in ad_listesi:
+        try:
+            globals()[ad]()
+            print(f"  ✅ {ad}"); gecti += 1
+        except AssertionError as e:
+            print(f"  ❌ {ad}: {e}")
+        except Exception:
+            print(f"  ❌ {ad}: {traceback.format_exc().splitlines()[-1]}")
+    print(f"\n{gecti}/{len(ad_listesi)} bekçi geçti")
+    sys.exit(0 if gecti == len(ad_listesi) else 1)

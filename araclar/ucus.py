@@ -4,8 +4,8 @@ DERS (2026-08-21): bir koşu zaman aşımına uğrayıp ileri-pitch komutu askı
 kalınca drone dakikalarca uçup 1731 m uzaklaştı ve koşu boşa gitti.
 Buradaki her fonksiyon try/finally ile GÜVENLİ KOMUT bırakır."""
 import math, time, atexit, sys
-sys.path.insert(0,"dow/sdk")
-import drone_sdk as d
+sys.path.insert(0,".")
+from dow.sdk import drone_sdk as d
 
 def wrap(a): return (a+180)%360-180
 
