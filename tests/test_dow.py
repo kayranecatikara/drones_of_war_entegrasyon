@@ -119,9 +119,10 @@ def test_B13_devir_gps_ile_kapili():
     menziline de bakmalı. GPS burada MEŞRU: görsel temas henüz YOK."""
     import inspect
     from dow import ana
+    from dow.ayarlar import Ayar
     kaynak = inspect.getsource(ana.Beyin.adim)
     assert "DEVIR_GPS_MENZIL_M" in kaynak, "devir kapısı GPS menzilini kullanmıyor"
-    assert ana.Cfg.DEVIR_GPS_MENZIL_M <= 80.0
+    assert Ayar.DEVIR_GPS_MENZIL_M <= 80.0
 
 
 def test_B14_kalkis_zemine_goreli():
@@ -130,10 +131,11 @@ def test_B14_kalkis_zemine_goreli():
     kalkışı atlar ve yerdeyken yatay komut alıp takılır/çakılır."""
     import inspect
     from dow import ana
+    from dow.ayarlar import Ayar
     k = inspect.getsource(ana.Beyin.adim)
     assert "_zemin_z" in k and "yukseklik" in k, \
         "kalkış mutlak irtifa kullanıyor — zemine göreli olmalı"
-    assert "yukseklik >= Cfg.KALKIS_ALT_M" in k
+    assert "yukseklik >= self.cfg.KALKIS_ALT_M" in k
 
 
 def test_B15_donmus_telemetri_kapisi():
@@ -143,6 +145,7 @@ def test_B15_donmus_telemetri_kapisi():
     her tikte bağlantı sağlığını sınamalı."""
     import inspect
     from dow import ana
+    from dow.ayarlar import Ayar
     from dow.sdk.baglanti import DowBaglanti
     assert hasattr(DowBaglanti, "canli") and hasattr(DowBaglanti, "yeniden_bagla")
     k = inspect.getsource(ana.Beyin.adim)
@@ -158,12 +161,19 @@ def test_B16_kacak_tirmanma_korumasi():
     İKİ koruma şart: (a) kesinti fazı değiştirmez, (b) zemin sıfırlanmaz."""
     import inspect
     from dow import ana
+    from dow.ayarlar import Ayar
     k = inspect.getsource(ana.Beyin.adim)
-    kesinti = k[k.index("BAGLANTI_YOK"):k.index("BAGLANTI_YOK")+700]
+    # (a) bağlantı kesintisi fazı DEĞİŞTİRMEMELİ ve zemini SİLMEMELİ
+    i = k.index("BAGLANTI_YOK")
+    kesinti = k[max(0, i-400):i+400]
     assert 'self.durum = "KALKIS"' not in kesinti, \
         "bağlantı kesintisi fazı KALKIS'a atıyor — kaçak tırmanma riski"
+    assert "_zemin_z = None" not in kesinti, \
+        "bağlantı kesintisi zemin referansını siliyor — kaçak tırmanma riski"
+    # (b) zemin yalnız GERÇEK respawn'da yenilenir
     sp = inspect.getsource(ana.Beyin.spawn_sifirla)
-    assert "_zemin_z = None" not in sp, "spawn_sifirla zemin referansını siliyor"
+    assert "_zemin_z = None" in sp, "gerçek respawn'da zemin yenilenmiyor"
+    # (c) kalkıştan bağımsız ikinci çıkış kapısı
     assert "zaten_yuksek" in k, "kalkıştan bağımsız ikinci çıkış kapısı yok"
 
 
