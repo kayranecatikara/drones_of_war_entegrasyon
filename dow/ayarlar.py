@@ -127,9 +127,8 @@ class Ayar:
     ISTASYON_KP     = _f("DOW_IST_KP", 0.9)         # 1/s; konum hatası -> hız
     ISTASYON_KP_Z   = _f("DOW_IST_KPZ", 0.9)
     ISTASYON_ILERI  = _b("DOW_IST_ILERI", True)     # hedef hızı ileri besle
-    # DÖNÜŞ ileri beslemesi: istasyon noktasının hedef etrafındaki süpürme
-    # hızı (w x r). Kill-switch — ölçümle karar verilecek.
-    ISTASYON_DONUS_ILERI = _b("DOW_IST_DONUS", False)
+    # ⛔ ISTASYON_DONUS_ILERI ÇIKARILDI (2026-08-23) — ölçüldü, elendi.
+    #    Ayrıntı ve sayılar: dow/gudum/gps.py başındaki not.
     V_MAX           = _f("DOW_V_MAX", 33.0)         # m/s (araç 34.6 yapabiliyor)
     VZ_MAX_TIRMAN   = 33.5
     VZ_MAX_ALCAL    = 6.95
@@ -198,6 +197,32 @@ class Ayar:
     BEKCI_SPAWN_MAX_M  = _f("DOW_B_SPAWN", 1500.0)
     BEKCI_DONMA_S      = _f("DOW_B_DONMA", 4.0)   # telemetri bu kadar donarsa
     BEKCI_ESIK         = 3                        # ardışık ihlal -> iptal
+
+    # ================= TEMAS SINIFLANDIRMASI =================
+    # Kullanıcı isteği (2026-08-23): "drone hedefin pervanesine çarparsa bu
+    # vuruş sayılmıyor, drone geriye itiliyor; sen bu pervaneye çarpmayı
+    # anla ve bunu vuruş say."
+    #
+    # ⭐ EŞİK ÖLÇÜLDÜ (TEMAS kampanyası, 6 koşu, döngü hızında ~43 Hz):
+    #     koşu  en_yakin  temas ivmesi  @menzil   normal uçuş p99
+    #       1     0.78 m     536 m/s²    1.15 m        63
+    #       2     0.95 m     879 m/s²    1.11 m        77
+    #       3     0.69 m      14 m/s²    5.78 m        59   <- temas YOK
+    #       4     0.71 m     359 m/s²    1.19 m        69
+    #       5     0.86 m     813 m/s²    1.21 m        67
+    #       6     0.93 m      99 m/s²    5.65 m        67   <- temas YOK
+    #   Temas darbeleri 359-879, temassızlar 14-99, normal uçuş p99 ≈ 67.
+    #   Boşluk ÇOK GENİŞ; eşik 200 (temassızın 2 katı, temasın yarısından az).
+    #   Temas menzili 1.11-1.21 m'de KÜMELENİYOR — Talon kanat yarı açıklığı
+    #   0.86 m + drone yarıçapı ile geometrik olarak da uyuşuyor.
+    #
+    # ⚠ BU BİR ÖLÇÜT DEĞİŞİKLİĞİDİR. Eski `isabet` yalnız "menzil < 4 m"
+    #   diyordu ve TEMAS ile YAKIN GEÇİŞİ ayırmıyordu (aynı 6 koşuda altısını
+    #   da isabet sayardı; gerçekte 4 temas, 2 yakın geçiş, 0 imha).
+    #   Bu tarihten önceki kampanyaların `isabet` sayıları bu ölçütle
+    #   DOĞRUDAN KIYASLANAMAZ.
+    TEMAS_IVME_ESIK = _f("DOW_TEMAS_IVME", 200.0)   # m/s²
+    TEMAS_MENZIL_M  = _f("DOW_TEMAS_MENZIL", 2.0)   # m
 
     # ================= KAYIT =================
     KAYIT_AKTIF   = _b("DOW_KAYIT", True)

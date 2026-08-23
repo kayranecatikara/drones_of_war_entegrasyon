@@ -334,17 +334,28 @@ def test_B17_yanal_eksen_isareti():
     assert sag < 0, "yanal işaret uygulanmamış"
 
 
-def test_B21_isabet_gecersizlik_sayilmaz():
-    """OLCUM HATASI: hedefi vurunca drone da yok oluyor -> bekci
-    drone_yok diyor ve kosuyu GECERSIZ sayiyordu. Basari, basarisizlik
-    gibi isaretleniyordu; istatistik tam da istedigimiz sonucun ALEYHINE
-    sistematik saptiriyordu."""
+def test_B21_gecerlilik_kurali_IKI_YONLU():
+    """§5.2 — olcut NE BASARIYI NE BASARISIZLIGI eleyebilir.
+
+    (1) 2026-08-22: hedefi VURUNCA drone da yok oluyor ve bekci "drone_yok"
+        diyordu -> BASARI gecersiz sayiliyordu. Bu, istatistigi tam da
+        istedigimiz sonucun ALEYHINE saptirir.
+    (2) 2026-08-23: TERSI de yanlisti. Temas OLMADAN dusen drone
+        (C1_BAYAT kosu 3-4: ivme 18-19 m/s², hedefin 2.5-4.3 m'sinde
+        despawn) GECERSIZ sayilip eleniyordu — oysa o bir ISKA, yani veri.
+        Basarisizligi elemek iki kolu da OLDUGUNDAN IYI gosterir.
+
+    DOGRU KURAL: gorsel faza GIRDIYSE `drone_yok` bir SONUCTUR (isabet ya da
+    iska), gecersizlik degil. Hic giremediyse kurulum sorunudur."""
     import inspect
     from araclar import kosu
     k = inspect.getsource(kosu.kosu_yap)
-    assert "if isabet and ihlal in" in k, \
-        "isabet sonrasi despawn hala gecersizlik sayiliyor"
-
+    i = k.find('if ihlal in ("drone_yok"')
+    assert i > 0, "gecerlilik kurali kaybolmus"
+    civar = k[i:i + 300]          # kosulun KENDISI (yorumlar oncesinde)
+    assert "isabet or gorsel_tik_say > 0" in civar, \
+        ("kural tek yonlu: ya basariyi ya basarisizligi eliyor. "
+         "Gorsel faza girmis bir kosu, temas olmasa da GECERLIDIR.")
 
 def test_B22_gorev_seviyesi_yeniden_kurulum():
     """OLCULDU (GV08): hedefi VURUNCA drone yok oluyor ve oyun gorev-sonu
@@ -460,6 +471,143 @@ def test_B27_bekci_menzil_kurali_YAKLASMAYI_IPTAL_ETMEZ():
                 for i in range(10)]
     assert "hedef_cok_uzak" in ihlaller, \
         "yaklastiktan SONRA kacan drone yakalanmiyor - bekci is gormuyor"
+
+
+def test_B28_temas_siniflandirmasi_OLCULDU():
+    """Kullanici (2026-08-23): "drone hedefin pervanesine carparsa bu vurus
+    sayilmiyor, drone geriye itiliyor; sen bu pervaneye carpmayi anla ve
+    bunu vurus say."
+
+    Eski olcut YALNIZ mesafeydi (menzil < 4 m) ve TEMAS ile YAKIN GECISI
+    ayirmiyordu: TEMAS kampanyasinin 6 kosusunun ALTISINI da isabet
+    sayardi; gercekte 4 temas + 2 yakin gecis + 0 imha vardi.
+
+    Esikler OLCULDU (dongu hizinda ~43 Hz, 6 kosu):
+      temas darbeleri 359-879 m/s² @ 1.11-1.21 m
+      temassiz maks    14-99 m/s² @ 5.6-5.8 m
+      normal ucus p99  59-77 m/s²
+    Esik 200 m/s² bu iki kumenin ORTASINDA ve her ikisinden de uzak."""
+    from dow.ayarlar import Ayar
+    import inspect
+    from araclar import kosu
+    # esik olculen iki kumenin ARASINDA olmali
+    assert 100 < Ayar.TEMAS_IVME_ESIK < 350, \
+        "temas esigi olculen kumelerin arasinda degil"
+    assert 1.3 <= Ayar.TEMAS_MENZIL_M <= 3.0, \
+        "temas menzili olculen 1.11-1.21 m kumesini kapsamali"
+    k = inspect.getsource(kosu.kosu_yap)
+    assert "_temas_ivme >= Ayar.TEMAS_IVME_ESIK" in k, \
+        "isabet hala YALNIZ mesafeye bakiyor - pervane carpmasi ayirt edilmiyor"
+    assert '"temas": _temas' in k and '"imha": _imha' in k, \
+        "temas/imha ayri raporlanmiyor"
+    # olcum DONGU hizinda olmali, 0.5 s kayittan DEGIL (0.5 s darbeyi ayiramadi)
+    assert "_ivme_tum.append" in k, "ivme dongu hizinda toplanmiyor"
+
+
+def test_B29_kerteriz_borcu_GORUNUR():
+    """⚠⚠ BİLİNEN BORÇ (2026-08-23) — sessizce unutulmasin diye bekci.
+
+    `piksel_kerteriz` MATEMATIKSEL OLARAK YANLIS: roll donusunu TILT
+    eklendikten SONRA uyguluyor, bu yuzden hata ~roll kadar buyuyor
+    (3°->3.3°, 10°->11.0°, 35°->39.8°). Gazebo'nun `los_seviye`si dogru
+    ve 4146 esleşmis karede DOGRULANDI: tespit edilen kutuya uyum
+    yaklasik 33.1 px vs TAM 13.6 px medyan sapma.
+
+    OLCUM yolu tam zincire GECIRILDI. GUDUM cevrimi hala yaklasigi
+    kullaniyor cunku tam zincire gecince temas 6/8 -> 4/8'e dustu ve
+    salinim 4 katina cikti (kazanclar yanlis modele gore ayarlanmis).
+    Su an zararsiz: roll p90 3-8°. YATIS TEKRAR BUYURSE hata geri gelir.
+
+    Bu bekci iki seyi garanti eder:
+      1) dogru zincir (los_seviye/seviye_piksel) KODDA DURUYOR ve olcum
+         yolu onu kullaniyor,
+      2) ters donusum hala TAM (gidis-donus kimligi)."""
+    import inspect
+    from dow.gorus import kamera as K
+    from araclar import kosu, tespit_olcu
+    assert hasattr(K, "los_seviye") and hasattr(K, "seviye_piksel"), \
+        "dogru kerteriz zinciri kaybolmus"
+    for m in (inspect.getsource(kosu._gecmis_beklenen),
+              inspect.getsource(tespit_olcu.olc)):
+        assert "seviye_piksel" in m, \
+            "olcum yolu yanlis (yaklasik) zincire geri donmus"
+    for az in (-40.0, 0.0, 25.0):
+        for el in (-15.0, 0.0, 35.0):
+            for r, p in ((0.0, 0.0), (35.0, -12.0), (-20.0, 8.0)):
+                x, y = K.seviye_piksel(az, el, r, p)
+                a2, e2 = K.los_seviye(x, y, r, p)
+                assert abs(a2 - az) < 1e-6 and abs(e2 - el) < 1e-6, \
+                    "seviye_piksel, los_seviye'nin tersi degil"
+
+
+def test_B30_kabul_edilen_ayarlar_YERINDE():
+    """⛔ 2026-08-23'te YASANDI: bir blok silerken KOPRU_S ve BAYAT_BIRAK
+    yanlislikla silindi. 29 bekcinin HICBIRI yakalamadi cunku hicbiri o
+    alanlari OKUMUYORDU; bir sonraki ucus AttributeError ile cokerdi.
+    Bu bekci, OLCUMLE KABUL EDILMIS her ayarin yerinde ve makul aralikta
+    oldugunu dogrular — silme kazasina karsi son savunma."""
+    from dow.gudum.ibvs import IbvsCfg as C
+    from dow.ayarlar import Ayar
+    bekle = {
+        "KOPRU_S": (0.2, 3.0),          # B2/B5/B6: 1.0 kazandi
+        "YEREL_KAPI_PX": (10, 300),     # B3b/B3c: 60
+        "YEREL_CONF_MIN": (0.05, 0.5),  # B4: 0.20
+        "YEREL_KURTAR": (1, 20),
+        "VZ_TAVAN_GORSEL": (0.5, 8.0),  # B8/B9b: 1.5
+        "V_HUCUM": (18.0, 34.6),
+        "K_CY": (0.01, 0.3),
+    }
+    for ad, (lo, hi) in bekle.items():
+        assert hasattr(C, ad), f"KABUL EDILMIS ayar SILINMIS: IbvsCfg.{ad}"
+        v = float(getattr(C, ad))
+        assert lo <= v <= hi, f"IbvsCfg.{ad}={v} olculen araligin disinda"
+    assert isinstance(C.VZ_TAVAN_AKTIF, bool) and C.VZ_TAVAN_AKTIF, \
+        "dikey yumusatma (gecenin en buyuk kazanimi) kapanmis"
+    assert hasattr(C, "BAYAT_BIRAK"), "BAYAT_BIRAK anahtari silinmis"
+    for ad, (lo, hi) in (("ISTASYON_MENZIL_M", (4, 20)),
+                         ("ISTASYON_ALT_ORAN", (0.3, 1.2)),
+                         ("TEMAS_IVME_ESIK", (100, 350)),
+                         ("GORSEL_DET_HZ", (2, 30))):
+        assert hasattr(Ayar, ad), f"KABUL EDILMIS ayar SILINMIS: Ayar.{ad}"
+        v = float(getattr(Ayar, ad))
+        assert lo <= v <= hi, f"Ayar.{ad}={v} olculen araligin disinda"
+
+
+def test_B31_temas_IKI_IMZALI_ve_dikey_ORANSAL():
+    """Iki ders, iki bekci — ikisi de OLCUMLE yasandi.
+
+    (1) TEMAS'in IKI imzasi var ve ikisi de sayilmali:
+        SEKME  : ani geri ivme, drone YASAR (pervane carpmasi)
+        IMHA   : kosu TAM en yakinlasma aninda biter, menzil temas
+                 yaricapi icinde -> drone yok oldu, SEKME OLMAZ
+        Yalniz darbeye bakan surum EN TEMIZ VURUSLARI kaciriyordu:
+        E1b'de uc kosu 0.67-0.81 m'de tam o anda bitmis, darbe sifir;
+        0.014/4.0 kolu 3/8 gorunuyordu, gercekte 8/8.
+
+    (2) DIKEY KANAL ORANSAL OLMALI, ac-kapa DEGIL:
+        K_CY=0.06 + tavan 1.5 ile |e_cy|>25 px olan her kare DOYUMDA idi
+        (olculdu: taze kutuda bile %98.3). Komut hatayi hic tasimiyordu.
+        K_CY=0.014 + tavan 4.0 -> dogrusal aralik +-286 px, doyum %17.7,
+        TEMAS 6/8 -> 8/8, en_yakin 0.86 -> 0.51 m, salinim 3 kat azaldi."""
+    import inspect
+    from dow.gudum.ibvs import IbvsCfg as C
+    from araclar import kosu, tespit_olcu
+
+    # (2) dikey kanal dogrusal aralik: gercek hata dagilimini (medyan ~143,
+    #     p90 ~258 px) kapsamali, yoksa yine ac-kapa olur
+    aralik = C.VZ_TAVAN_GORSEL / C.K_CY
+    assert aralik >= 200, (f"dikey kanal yine AC-KAPA: dogrusal aralik "
+                           f"+-{aralik:.0f} px, olculen hata medyani 143 px")
+    assert C.VZ_TAVAN_GORSEL >= 2.5, \
+        "dikey tavan geometrinin istedigi 1.67 m/s'yi karsilamiyor"
+
+    # (1) iki imza da kodda
+    k = inspect.getsource(kosu.kosu_yap)
+    assert "_sekme" in k and "_imha" in k and "_temas = int(_sekme or _imha)" in k, \
+        "temas siniflandirmasi iki imzali degil"
+    assert "_en_yakin_t" in k, "en yakinlasma ANI kaydedilmiyor"
+    assert hasattr(tespit_olcu, "temas_sinifla"), \
+        "ortak siniflandirici kaybolmus (analiz ve kayit ayrisir)"
 
 
 if __name__ == "__main__":

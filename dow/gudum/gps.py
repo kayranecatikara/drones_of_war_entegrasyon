@@ -43,16 +43,14 @@ class HedefIzleyici:
     doğrulandı). Hız konumdan türetilmek ZORUNDA.
     EMA ile yumuşatılır: ham fark 5 Hz veriyle çok gürültülü olur."""
 
-    def __init__(self, ema=0.25, min_dt=0.08, w_ema=0.20):
+    def __init__(self, ema=0.25, min_dt=0.08):
         self.ema = ema
-        self.w_ema = w_ema
         self.min_dt = min_dt
         self._p = None
         self._t = None
         self.v = (0.0, 0.0, 0.0)      # m/s
         self.hiz = 0.0
         self.yon_deg = None           # hedefin gidiş yönü (derece)
-        self.omega = 0.0              # rad/s; hedefin DÖNÜŞ hızı (z ekseni)
 
     def guncelle(self, p, t):
         if self._p is None:
@@ -70,19 +68,13 @@ class HedefIzleyici:
         self.hiz = math.hypot(self.v[0], self.v[1])
         if self.hiz > 1.0:
             yeni = math.degrees(math.atan2(self.v[1], self.v[0]))
-            if self.yon_deg is not None and dt > 0:
-                d = (yeni - self.yon_deg + 180.0) % 360.0 - 180.0
-                w = math.radians(d) / dt
-                if abs(w) < 2.0:                      # >115°/s = gürültü
-                    a = self.w_ema
-                    self.omega = a * w + (1 - a) * self.omega
             self.yon_deg = yeni
         return self.v
 
     def sifirla(self):
         self._p = self._t = None
         self.v = (0.0, 0.0, 0.0); self.hiz = 0.0
-        self.yon_deg = None; self.omega = 0.0
+        self.yon_deg = None
 
 
 def istasyon_noktasi(hedef_p, hedef_yon_deg, cfg=Ayar):
@@ -105,8 +97,7 @@ def istasyon_noktasi(hedef_p, hedef_yon_deg, cfg=Ayar):
             z)
 
 
-def komut(drone_p, drone_yaw_deg, hedef_p, hedef_v, hedef_yon_deg, cfg=Ayar,
-          hedef_omega=0.0):
+def komut(drone_p, drone_yaw_deg, hedef_p, hedef_v, hedef_yon_deg, cfg=Ayar):
     """İstasyon tutma komutu.
 
     ÇIKTI: (v_dunya=(vx,vy), vz_ned, yaw_rate_deg_s, tani)
@@ -123,22 +114,25 @@ def komut(drone_p, drone_yaw_deg, hedef_p, hedef_v, hedef_yon_deg, cfg=Ayar,
 
     ff_x, ff_y, ff_z = (hedef_v if cfg.ISTASYON_ILERI else (0.0, 0.0, 0.0))
 
-    # DÖNÜŞ İLERİ BESLEMESİ — istasyon noktasının KENDİ hızı
-    # ------------------------------------------------------------------
-    # İstasyon hedefin R m ARKASINDA. Hedef w rad/s ile dönerken istasyon
-    # noktası hedefin etrafında SÜPÜRÜR: v_istasyon = v_hedef + w x r.
-    # Bu terim olmadan dönüşlerde kalıcı gecikme kalır.
-    # ÖLÇÜLDÜ (GA01, 4 koşu): hata YALNIZ yatayda (6.21 m) ve PERİYODİK —
-    # minimumlar/maksimumlar ~16 s'de bir, yani hedefin dönüş aralığında.
-    # Dikey hata zaten +0.08 m (kusursuz), sorun tamamen dönüşte.
-    # Büyüklük: w=0.379 rad/s (21.7°/s) ve R=35 m -> w*R = 13.3 m/s.
-    # Yani EKSİK olan terim, hedef hızının %74'ü kadar.
-    w = hedef_omega if cfg.ISTASYON_DONUS_ILERI else 0.0
-    rx = sx - hedef_p[0]
-    ry = sy - hedef_p[1]
-    ff_x += -w * ry
-    ff_y += +w * rx
-
+    # ⛔ DÖNÜŞ İLERİ BESLEMESİ ÇIKARILDI (2026-08-23, §5.12).
+    #   Fikir: istasyon hedefin R m arkasında olduğu için hedef w rad/s ile
+    #   dönerken istasyon noktası w x r hızıyla süpürür; bu terim olmadan
+    #   dönüşlerde kalıcı gecikme kalır.
+    #   ÖLÇÜLDÜ (C2+C2b havuzlanmış, n=8/kol, dönüşümlü) — MEKANİZMA ÇALIŞTI
+    #   ama SONUCA DÖNÜŞMEDİ:
+    #       ölçüt              kapalı   açık
+    #       TEMAS               4/8      3/8
+    #       en_yakin medyan    0.95 m   0.94 m
+    #       manevra%           21.20    33.95   <- mekanizma kanıtı
+    #       hedef_w             3.70     8.60 °/s (2.3 kat)
+    #       ist_hata            6.46     8.19   <- BEDEL
+    #       roll p90            7.05    13.50°  <- BEDEL
+    #   Yani görsel faza manevrada girmeyi SAĞLADI (donus_ff medyan
+    #   0.70-1.85 m/s, tepe 8.3 — mekanizma sütunu kanıtlı) ama temas
+    #   artmadı ve araç belirgin biçimde daha çalkantılı uçtu.
+    #   CLAUDE.md §4: salınan araç, aynı sonucu üretse bile kötüdür.
+    #   ⚠ n=4'te "0/4 vs 2/4" diye lehte görünüyordu; n=8'de TERSİNE döndü —
+    #     §5.4'ün ("n<4 iken hüküm kurulmaz") bir kez daha doğrulanması.
     vx = ff_x + cfg.ISTASYON_KP * ex
     vy = ff_y + cfg.ISTASYON_KP * ey
     # yatay hız tavanı — YÖNÜ koruyarak kırp
@@ -168,7 +162,5 @@ def komut(drone_p, drone_yaw_deg, hedef_p, hedef_v, hedef_yon_deg, cfg=Ayar,
         "hedef_yon": hedef_yon_deg if hedef_yon_deg is not None else -999,
         "yaw_hata": yaw_hata,
         "v_istek": math.hypot(vx, vy),
-        "hedef_omega_deg": math.degrees(hedef_omega),
-        "donus_ff": math.hypot(w * ry, w * rx),
     }
     return (vx, vy), -vz_yukari, yaw_rate, tani

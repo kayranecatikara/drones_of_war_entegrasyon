@@ -37,6 +37,7 @@ class Kayit:
         "hedef_roll", "hedef_pitch", "hedef_yaw",
         "ist_x", "ist_y", "ist_z", "ist_hata_m", "ist_hata_yatay", "ist_hata_dikey",
         "hedef_menzil_m", "yaw_hata", "v_istek",
+        # §5.1 mekanizma sütunu (C): dönüş ileri beslemesinin ürettiği hız
         # ⚠ ÖLÇÜM-ONLY (truth): gudume ASLA girmez, yalnız analiz için.
         "gercek_menzil", "gercek_dz", "gercek_elev",
         "thr", "pitch", "roll", "yaw",
@@ -51,7 +52,8 @@ class Kayit:
         "bek_cx", "bek_cy", "bek_w", "bek_ufuk_cy",
         # §5.1 MEKANİZMA SÜTUNLARI — özellik gerçekten devreye girdi mi?
         # Deney kolunda bunlar sıfırsa o koşu veri noktası değil, GEÇERSİZ.
-        "kopru_kare", "yerel_aday", "yerel_uygun",
+        "kopru_kare", "bayat_birak", "yerel_aday", "yerel_uygun",
+        "ibvs_nisan_elev", "ibvs_vz_kirpildi", "ibvs_e_cy", "ibvs_vz_yukari",
     ]
 
     def __init__(self, dizin, aralik=0.5, jpg_kalite=80):

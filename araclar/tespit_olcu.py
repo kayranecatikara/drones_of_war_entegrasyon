@@ -62,6 +62,54 @@ def _f(r, k):
         return None
 
 
+def temas_sinifla(dizin, ozet_satiri=None, esik_m=None, son_s=0.6):
+    """TEMAS var mı? İKİ ayrı imza — ikisi de BAŞARI sayılır.
+
+    ⛔ İKİ KEZ YANILDI, kayda geçsin:
+      (1) İlk sürüm YALNIZ MESAFEYE bakıyordu (menzil<4 m) ve yakın geçişi
+          temas sayıyordu.
+      (2) İkinci sürüm YALNIZ DARBEYE bakıyordu (ani geri ivme). Ama darbe
+          ancak drone SEKERSE oluşur — TAM VURUŞ dronu anında yok eder ve
+          sekme olmaz. ÖLÇÜLDÜ (E1b): üç koşu tam en yakınlaşma anında
+          bitmiş (0.0 s sonra), son menzil 0.67-0.81 m, darbe SIFIR.
+          Yani ölçüt EN TEMİZ VURUŞLARI kaçırıyordu ve 0.014/4.0 kolunu
+          3/8 gösteriyordu; gerçekte 7/8.
+
+    İMZA 1 — SEKME (pervane çarpması): ani geri ivme >= TEMAS_IVME_ESIK,
+      menzil <= TEMAS_MENZIL_M. Drone yaşar. (Kullanıcı: "bunu vuruş say".)
+    İMZA 2 — ANINDA İMHA: koşu TAM en yakınlaşma anında biter (<= son_s)
+      ve o menzil temas yarıçapı içindedir. Sekme yok çünkü drone yok oldu.
+    """
+    from dow.ayarlar import Ayar
+    esik_m = Ayar.TEMAS_MENZIL_M if esik_m is None else esik_m
+    yol = os.path.join(dizin, "meta.csv") if os.path.isdir(dizin) else dizin
+    try:
+        R = [r for r in csv.DictReader(open(yol)) if r.get("gercek_menzil")]
+    except OSError:
+        return 0, 0, 0
+    if not R:
+        return 0, 0, 0
+    mz = [_f(r, "gercek_menzil") for r in R]
+    mz = [m for m in mz if m is not None]
+    if not mz:
+        return 0, 0, 0
+    i = mz.index(min(mz))
+    try:
+        bitis = float(R[-1]["t"]) - float(R[i]["t"])
+    except (KeyError, ValueError):
+        bitis = 1e9
+    sekme = 0
+    if ozet_satiri:
+        try:
+            sekme = int(float(ozet_satiri.get("temas_ivme", 0))
+                        >= Ayar.TEMAS_IVME_ESIK
+                        and 0 <= float(ozet_satiri.get("temas_menzil", -1)) <= esik_m)
+        except (TypeError, ValueError):
+            sekme = 0
+    imha_ani = int(min(mz) <= esik_m and bitis <= son_s)
+    return int(sekme or imha_ani), sekme, imha_ani
+
+
 def olc(meta_yolu, yalniz_faz="ISTASYON"):
     try:
         R = list(csv.DictReader(open(meta_yolu)))
@@ -100,8 +148,10 @@ def olc(meta_yolu, yalniz_faz="ISTASYON"):
             elev = math.degrees(math.atan2(hz - dz, max(yat, 1e-6)))
             ker = math.degrees(math.atan2(hy - dy, hx - dx))
             az = (ker - yaw + 180.0) % 360.0 - 180.0
-            tcx, tcy, tw = KAM.beklenen_kadraj(menzil, elev, az, pit, rol)
-            _, tuf, _ = KAM.beklenen_kadraj(menzil, 0.0, az, pit, rol)
+            # TAM zincir (bkz. kosu.py'deki ölçüm notu; 2.4 kat daha uyumlu)
+            tcx, tcy = KAM.seviye_piksel(az, elev, rol, pit)
+            tw = KAM.MENZIL_C / max(menzil, 1e-6)
+            _, tuf = KAM.seviye_piksel(az, 0.0, rol, pit)
         n += 1
         bw = tw
         icerde = (0 <= tcx < KAM.IMG_W) and (0 <= tcy < KAM.IMG_H)

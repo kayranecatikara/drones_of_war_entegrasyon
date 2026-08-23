@@ -97,7 +97,10 @@ class IbvsCfg:
                             # görüntüyü bulandırıp dedektörü kırar -> KORUNDU.
     YAW_OLU_BAND  = 1.0     # °; altında yaw komutu güncellenmez
 
-    VZ_TAVAN_GORSEL = _fi("DOW_VZ_TAVAN_GORSEL", 1.5)   # m/s
+    #   ⭐ 4.0'a YÜKSELTİLDİ — ama YALNIZ K_CY 0.014'e düşürüldüğü için.
+    #     Tek başına 4.0 (K_CY 0.06 ile) B8'de KAYBETMİŞTİ; ikisi birlikte
+    #     kanalı oransal yapıyor. Bkz. K_CY notu.
+    VZ_TAVAN_GORSEL = _fi("DOW_VZ_TAVAN_GORSEL", 4.0)   # m/s
 
     # --- DİKEY: KADRAJ REGÜLASYONU ("alttan vuruş") ---
     # ⛔ ÖNCEKİ YASA ÇÖKTÜ (GV01, 3 koşu, ölçüldü):
@@ -115,7 +118,28 @@ class IbvsCfg:
     #
     #   cy > cy_ref  -> hedef kadrajda AŞAĞIDA -> biz YÜKSEKTEYİZ -> ALÇAL
     #   cy < cy_ref  -> hedef kadrajda YUKARIDA -> biz ALÇAKTAYIZ -> TIRMAN
-    K_CY          = 0.06    # (m/s)/px; kadraj dikey hatası -> dikey hız
+    # ⭐⭐ YENİDEN AYARLANDI 2026-08-23 (E1+E1b, havuzlanmış n=8/kol)
+    #   ⛔ TEŞHİS: K_CY=0.06 + tavan 1.5 ile |e_cy|>25 px olan HER kare
+    #     doyuma giriyordu. ÖLÇÜLDÜ: taze kutuda bile karelerin %98.3'ü
+    #     doyumda, |e_cy| medyan 143 px. Yani dikey kanal oransal kontrolcü
+    #     DEĞİL, AÇ-KAPA anahtarıydı: hedef 30 px de üstte olsa 300 px de
+    #     olsa komut aynı (throttle tam tıpatıp 0.019 ölçüldü).
+    #     Geometri de tutmuyordu: 24.8° yükseliş + 3.62 m/s kapanma ->
+    #     gereken dikey 1.67 m/s, tavan 1.50 m/s.
+    #   ⚠ Önceki tavan taramalarım (2/4/8) YANILTICIYDI: hepsinde K_CY 0.06
+    #     sabitti, yani hepsi aç-kapaydı; büyük tavan sadece daha büyük
+    #     darbe verip salınım üretti. KAZANÇ ve TAVAN hiç BİRLİKTE
+    #     değiştirilmemişti — eksik olan deney buydu.
+    #      ölçüt              0.06/1.5   0.014/4.0
+    #      TEMAS                6/8        8/8
+    #      en_yakin medyan     0.86 m     0.51 m   (-%41)
+    #      tespit%             59.00      70.80
+    #      cx dönüş/s           0.30       0.10   (3 kat sakin)
+    #      roll p90             3.75°      3.25°
+    #      görsel kesinti      10.20 s     2.05 s (5 kat az)
+    #      DOYUM oranı         %97.0      %17.7   <- mekanizma kanıtı
+    #   Doğrusal kaldığı aralık: 4.0/0.014 = ±286 px (eskiden ±25 px).
+    K_CY          = _fi("DOW_K_CY", 0.014)  # (m/s)/px
     CY_REF_UZAK   = 470.0   # px; UZAKTA hedefi merkezin ÜSTÜNDE tut (altta kal)
     CY_REF_YAKIN  = 540.0   # px; YAKINDA merkeze getir (nişan al, vur)
     # Geçiş kutu boyutuyla: kutu bu değerden büyükse "yakın" sayılır.
@@ -148,30 +172,92 @@ class IbvsCfg:
     #   2.2 kat, ölçülen EN BÜYÜK ayırıcı. Tavan tam o büyüklüğü kısıyor.
     VZ_TAVAN_AKTIF = _b_i("DOW_VZ_TAVAN", True)
 
-    # T5 · BBOX KÖPRÜSÜ (ölü-hesap) — Gazebo'da vardı, DoW'a taşınmamıştı.
+    # ⛔ D1 TERMİNAL DİKEY SERBESTLİĞİ ELENDİ ve SİLİNDİ (2026-08-23)
+    #   Hipotez: dikey tavan (1.5 m/s) son metrelerde düzeltmeyi kısıtlıyor.
+    #   ÖLÇÜLDÜ (n=4/kol, dönüşümlü) — HİPOTEZ ÇÜRÜDÜ, aralıklar AYRIK:
+    #       ölçüt        kapalı                 açık (menzil<5 m'de serbest)
+    #       TEMAS         4/4                    0/4
+    #       en_yakin   0.78 m (0.89·0.80·        1.61 m (1.70·1.85·
+    #                          0.76·0.70)                1.53·1.17)
+    #   Mekanizma kapısı geçmişti (terminal kare 13-20 vs 0), yani özellik
+    #   çalıştı ve İŞİ KÖTÜLEŞTİRDİ. Dikey tavan terminali KISITLAMIYOR,
+    #   KORUYOR: kalkınca araç son metrelerde savruluyor.
+    # T5 · BBOX KÖPRÜSÜ (ölü-hesap) — ⭐ GİRDİ (B2, n=4/kol)
     #   Çıkarım 10 Hz; aradaki ~100 ms'de ve tespit boşluklarında güdüm
-    #   BAYAT kutuyla çalışıyor. Kutunun ATALET YÖNÜNÜ sabit tutup KENDİ
+    #   BAYAT kutuyla çalışıyor. Kutunun ATALET yönünü saklayıp KENDİ
     #   dönüşümüzü telafi ederek kutuyu kadrajda ileri taşırız.
     #   ⭐ GİRDİ YALNIZ: son kutu + KENDİ IMU'muz. GPS YOK, menzil YOK.
-    #   KOPRU_S = köprünün geçerli kaldığı azami süre (s). 0 = kapalı.
-    # ⭐ GİRDİ 2026-08-22 gecesi — B2, n=4/kol, dönüşümlü A/B:
     #      ölçüt            KOPRU=0    KOPRU=0.5
     #      isabet             1/4        4/4
     #      en_yakin medyan   5.44 m     1.94 m   (-64%)
-    #      tespit%           26.30      34.20
-    #      doğru%            76.35      80.25
-    #      yanlış%           23.65      19.75
     #      roll p90          48.65°     27.05°   (-44%)
-    #   Geçerlilik eşleri (§5.2) tuttu: tespit% junk kutuyla yükselseydi
-    #   doğru% düşer / yanlış% artardı; ikisi de TERS yönde gitti.
-    #   Tek olumsuz sinyal kadraj% 97->90 idi; incelendi: kadraj dışı
-    #   kareler YAKINDA değil UZAKTA (medyan 14-18 m, ıska sonrası yeniden
-    #   yaklaşma) ve fark 390 karede 6 kare — gürültü.
-    #   MEKANİZMA: köprü kutuyu tazeleyince nişan hatası küçülüyor, yanal
-    #   talep düşüyor, çevirici daha az yatış üretiyor (roll p90 yarıya
-    #   iniyor) ve gövdeye sabit kamera daha az sallanınca dedektör de
-    #   iyileşiyor — tek değişiklik iki ölçütü birden düzeltiyor.
-    KOPRU_S       = _fi("DOW_KOPRU_S", 1.0)   # B5 taramasi: 0.3/0.5/1.0 -> 1.0 kazandi
+    #   Süre TARANDI (B5, n=4/kol): 0.3 -> 3.35 m, 0.5 -> 1.90 m,
+    #   1.0 -> 1.34 m (kazanan). 2.0 ek kazanç vermedi (B6).
+    KOPRU_S       = _fi("DOW_KOPRU_S", 1.0)
+
+    # B · BAYAT KUTUYU BIRAK — BERABERE, KAPALI (C1, n=4/kol)
+    #   Köprü KOPRU_S dolunca güdüm sessizce ESKİ HAM KUTUYA düşüyordu;
+    #   kaybı ancak 20 çıkarım (=2 s) sonra kabul ediyordu. ÖLÇÜLDÜ:
+    #   kutu yaşı medyan 80 ms, p90 1546 ms, max 2187 ms — karelerin %30'u
+    #   0.5 s'den ESKİ kutuyla uçuyor. Mekanizma kapısı GEÇTİ (bayat_birak
+    #   sayacı deney kolunda 46-497, kontrolde 0).
+    #      ölçüt            kapalı   açık
+    #      TEMAS             3/4      3/4
+    #      en_yakin medyan  0.92 m   0.75 m  (-%18; ilan edilen eşik %20)
+    #   Aralıklar örtüşüyor -> GİRMEDİ. ⚠ Karşılaştırmanın tamamı hedef DÜZ
+    #   uçarken yapıldı; hayalete uçmanın bedeli manevrada çıkabilir.
+    #   Anahtar KAPALI, gerekçesi yazılı, manevra açılınca yeniden sınanacak.
+    BAYAT_BIRAK   = _b_i("DOW_BAYAT_BIRAK", False)
+
+    # ⛔ D2 TAM KERTERİZ — GÜDÜM ÇEVRİMİNDE ELENDİ, ÖLÇÜMDE GİRDİ (2026-08-23)
+    #
+    #   `piksel_kerteriz` roll döndürmesini TILT eklendikten SONRA uyguluyor;
+    #   yükseliş bileşeni 26.5° olduğu için küçük yatış bile azimuta
+    #   26.5·sin(roll) sızdırır. Hata ≈ roll'un kendisi kadar
+    #   (3°->3.3°, 10°->11.0°, 35°->39.8°).
+    #   Gazebo'nun `los_seviye`si dönüşü 3B ışın üzerinde doğru sırayla
+    #   yapıyor; AYNEN taşındı + tersi yazıldı (gidiş-dönüş 700/700 tam).
+    #
+    #   ⭐ HANGİSİ DOĞRU: 4146 eşleşmiş karede tespit edilen kutuya uyum
+    #      yaklaşık 33.1 px / TAM 13.6 px medyan sapma -> TAM zincir DOĞRU.
+    #      Bu yüzden ÖLÇÜM YOLU tam zincire geçirildi (kosu.py, tespit_olcu).
+    #
+    #   ⛔ AMA GÜDÜM ÇEVRİMİNDE ELENDİ (havuzlanmış n=8/kol):
+    #        temas 6/8 -> 4/8,  cx dönüş/s 0.34 -> 1.30 (4 kat salınım)
+    #      SEBEP: tam zincirde araç 35° yatıkken KADRAJ MERKEZİNDEKİ hedefin
+    #      azimutu +21° çıkar (doğrudur). Güdüm bunu `yaw + 3.0·azimut` ile
+    #      hız yönüne çeviriyor -> yatış > büyük yaw > daha çok yatış.
+    #      Kazançlar YANLIŞ modele göre ayarlanmış.
+    #   ⛔ Yalnız köprüde denendi (D2c): temas 3/4 vs 3/4, BERABERE.
+    #      D2'deki "+11 puan tespit" büyük ölçüde kısa/yakın karşılaşmanın
+    #      yan etkisiymiş (§5.2 tuzağı).
+    #
+    #   ⚠⚠ BİLİNEN BORÇ: güdüm hâlâ MATEMATİKSEL OLARAK YANLIŞ kerterizi
+    #      kullanıyor. Şu an zararsız çünkü roll p90 3-8°'ye indi (gece
+    #      başında 42-51°'ydi). Yatış tekrar büyürse hata sessizce geri
+    #      gelir. Doğru çözüm: tam zincire geçip K_YAW'ı yeniden ayarlamak.
+    #      Bekçi B29 bu borcu görünür tutuyor.
+    # D3 · DİKEY YASA — Gazebo'nun 3B saf takibi vs kadraj regülasyonu
+    #   Kullanıcı: "gazebodaki görsel güdüm algoritmasının aynısını entegre
+    #   etsek olmaz mı." Yatay kanal ZATEN aynı; kalan tek büyük fark bu.
+    #
+    #   "kadraj"   (mevcut): vz = -K_CY·(cy - cy_ref)
+    #        Hedefi kadrajda sabit yükseklikte tut. GV01'de saf takip
+    #        dikeyde "hedefin irtifasına tırmanıp kaybetme" yapınca buna
+    #        geçmiştim — AMA O KARARI n=3 İLE VERMİŞTİM (§5.4 ihlali).
+    #   "saftakip" (Gazebo): nisan_elev = K_ELEV·elev_los;
+    #        vz = -v·sin(nisan_elev), yani hız vektörü 3B'de hedefe nişanlanır
+    #        (yatayla AYNI matematik). Artı:
+    #          - türev sönümlemesi K_VZ_D (kendi dikey hızımız nişanı aşarsa
+    #            komut geri çekilir -> hedefin üstünden geçme biter)
+    #          - |v| KORUNUMU: dikey ne alırsa yatay kısılır
+    #        elev_los TAM zincirden gelir (los_seviye) — D2'de ölçüldü,
+    #        4146 karede 2.4 kat daha uyumlu.
+    #   ⚠ Gazebo'nun YAVASLA / lead / DIKEY_KAPANMA özellikleri DAHİL DEĞİL
+    #     (ayrı deney). Dikey tavan HER İKİ KOLDA da uygulanır.
+    DIKEY_YASA    = os.environ.get("DOW_DIKEY_YASA", "kadraj").strip()
+    K_ELEV        = _fi("DOW_K_ELEV", 1.0)      # Gazebo değeri
+    K_VZ_D        = _fi("DOW_K_VZ_D", 0.6)      # Gazebo değeri
 
     # T4 · YERELLİK KAPISI — düşük eşik + "hedef nerede olmalı" kısıtı.
     #   Görsel fazda hedefin kadrajda NEREDE olduğunu bir önceki kutumuzdan
@@ -221,7 +307,7 @@ class IbvsCfg:
 
 
 def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
-          hiz_I, dt, cfg=IbvsCfg):
+          hiz_I, dt, cfg=IbvsCfg, own_vz=0.0):
     """IBVS kontrol yasası.
 
     GİRDİ (hedefin GPS'i YOK — yapısal garanti):
@@ -229,6 +315,8 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
       own_*         : KENDİ yönelimimiz (derece) — kendi IMU'muz
       hiz_I         : hız integralinin o anki değeri (m/s); çağıran taşır
       dt            : adım süresi (s)
+      own_vz        : KENDİ dikey hızımız (m/s, yukarı+) — D3 türev
+                      sönümlemesi için; kendi sensörümüz (§10 temiz)
 
     ÇIKTI: (v_ned, vz, yaw_hedef_deg, hiz_I_yeni, tani)
       v_ned = (vx, vy) m/s DÜNYA yatay düzleminde (NED: x kuzey, y doğu)
@@ -275,15 +363,33 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     vx = v * math.cos(yon)
     vy = v * math.sin(yon)
 
-    # --- 7) DİKEY: KADRAJ REGÜLASYONU (piksel -> dikey hız) ---
-    # Yakınlaştıkça nişan merkeze kayar: uzakta altta kal, yakında vur.
+    # --- 7) DİKEY ---
     e_cy = cy - cy_ref                      # + = hedef kadrajda AŞAĞIDA
-    vz_yukari = -cfg.K_CY * e_cy            # aşağıdaysa ALÇAL
-    if cfg.VZ_TAVAN_AKTIF:                          # T6
-        _v0 = vz_yukari
+    if cfg.DIKEY_YASA == "saftakip":
+        # D3 · GAZEBO: hız vektörünü 3B'de hedefe nişanla (yatayla aynı
+        # matematik). elev_los TAM zincirden; nişan ofseti YOK.
+        _, _elev = KAM.los_seviye(cx, cy, own_roll_deg, own_pitch_deg)
+        nisan_elev = _kirp(cfg.K_ELEV * _elev, -60.0, 60.0)
+        _vz_nisan = v * math.sin(math.radians(nisan_elev))     # yukarı+
+        # TÜREV SÖNÜMLEMESİ: kendi dikey hızımız nişanı aştıysa geri çek
+        vz_yukari = _vz_nisan + cfg.K_VZ_D * (_vz_nisan - own_vz)
+        tani["ibvs_nisan_elev"] = nisan_elev
+    else:
+        # KADRAJ REGÜLASYONU (mevcut): hedefi kadrajda sabit yükseklikte tut
+        vz_yukari = -cfg.K_CY * e_cy        # aşağıdaysa ALÇAL
+    _v0 = vz_yukari
+    if cfg.VZ_TAVAN_AKTIF:                              # T6
         vz_yukari = _kirp(vz_yukari, -cfg.VZ_TAVAN_GORSEL, cfg.VZ_TAVAN_GORSEL)
-        tani["ibvs_vz_kirpildi"] = int(_v0 != vz_yukari)   # §5.1 mekanizma
+    # §5.1 MEKANİZMA SÜTUNU: dikey kanal DOYUMDA mı? Ölçüldü 2026-08-23:
+    #   taze kutuda bile karelerin %98.3'ü doyumda -> kontrolcü oransal
+    #   DEĞİL, aç-kapa. Bu sütun kazanç/tavan çiftinin işe yarayıp
+    #   yaramadığını doğrudan gösterir.
+    tani["ibvs_vz_kirpildi"] = int(_v0 != vz_yukari)
     vz_yukari = _kirp(vz_yukari, -cfg.VZ_MAX_ALCAL, cfg.VZ_MAX_TIRMAN)
+    if cfg.DIKEY_YASA == "saftakip":
+        # |v| KORUNUMU: dikey ne aldıysa gerisi yataya (Gazebo).
+        _yat = math.sqrt(max(v * v - vz_yukari * vz_yukari, 0.0))
+        vx = _yat * math.cos(yon); vy = _yat * math.sin(yon)
     vz_ned = -vz_yukari            # NED: pozitif = AŞAĞI
     tani["ibvs_vz_yukari"] = vz_yukari
     tani["ibvs_cy_ref"] = cy_ref

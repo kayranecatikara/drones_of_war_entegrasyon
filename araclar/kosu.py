@@ -190,9 +190,39 @@ def _gecmis_beklenen(halka, t_hedef):
     elev = math.degrees(math.atan2(hp[2] - dp[2], max(yat, 1e-6)))
     ker = math.degrees(math.atan2(hp[1] - dp[1], hp[0] - dp[0]))
     az = (ker - yon[2] + 180.0) % 360.0 - 180.0
-    cx, cy, w = _KAM.beklenen_kadraj(menzil, elev, az, yon[1], yon[0])
-    _, ufuk, _ = _KAM.beklenen_kadraj(menzil, 0.0, az, yon[1], yon[0])
+    # ⭐ TAM ZİNCİR (Gazebo'nun `los_seviye`inin tersi). ÖLÇÜLDÜ 2026-08-23,
+    #   4146 eşleşmiş karede tespit edilen kutuya uyum:
+    #     yaklaşık zincir: sapma medyan 33.1 px (p90 109.4)
+    #     TAM zincir     : sapma medyan 13.6 px (p90  76.4)   <- 2.4 KAT iyi
+    #   Yanlış model, gerçek tespitlerin bir kısmını "yanlış nişan"
+    #   saydırıyordu -> `dogru%` olduğundan DÜŞÜK ölçülüyordu.
+    cx, cy = _KAM.seviye_piksel(az, elev, yon[0], yon[1])
+    w = _KAM.MENZIL_C / max(menzil, 1e-6)
+    _, ufuk = _KAM.seviye_piksel(az, 0.0, yon[0], yon[1])
     return cx, cy, w, ufuk
+
+
+def _saglikli(beyin, deneme=3):
+    """Koşuya BAŞLAMADAN önce sim gerçekten hazır mı?
+
+    ⛔ ÖLÇÜLDÜ 2026-08-23: oyun bir koşu ortasında tamamen KAPANDI; harness
+      HUD kapısını geçmiş sayıp koşmaya devam etti ve 3 koşu `drone_yok` /
+      `baglanti_yok` ile boşa gitti. HUD kapısı "ekranda oyun var mı" der,
+      "SDK canlı mı" DEMEZ. Koşu saymadan önce ikisi de doğrulanır; gerekirse
+      oyun baştan kurulur."""
+    from araclar.sim import hazir_ol
+    for i in range(deneme):
+        if beyin.b.canli():
+            return True
+        beyin.b.yeniden_bagla()
+        if beyin.b.canli():
+            return True
+        print(f"  [sağlık {i+1}/{deneme}] SDK ölü — sim baştan kuruluyor",
+              flush=True)
+        if not hazir_ol():
+            continue
+        beyin.b.yeniden_bagla()
+    return beyin.b.canli()
 
 
 def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
@@ -221,7 +251,17 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
     _halka = deque(maxlen=140)      # (t, dp, (roll,pitch,yaw), hedef_p)
     # ⚠ ÖLÇÜM-ONLY: truth kanalı YALNIZ isabet/menzil ölçmek için okunur.
     #   Beyin'e ASLA verilmez; yarışmada bu kanal zaten yoktur.
-    en_yakin = 1e9; isabet = 0; gorsel_tik_say = 0; tespit_say = 0
+    en_yakin = 1e9; _en_yakin_t = 0.0; isabet = 0; gorsel_tik_say = 0; tespit_say = 0
+    # ⭐ TEMAS ÖLÇÜMÜ (kullanıcı isteği 2026-08-23): "drone hedefin
+    #   pervanesine çarparsa bu vuruş sayılmıyor, drone geriye itiliyor;
+    #   sen bu pervaneye çarpmayı anla ve bunu vuruş say."
+    #   0.5 s'lik kayıt darbeyi AYIRAMADI (her menzil bandında taban/darbe
+    #   oranı 1.4-2.5x, ayrışma yok) -> ölçüm DÖNGÜ HIZINDA (~43 Hz) yapılır.
+    #   Burada yalnız ADAY toplanır; eşik SONRADAN veriden seçilecek.
+    #   ⚠ ÖLÇÜM-ONLY: truth + KENDİ hızımız. Güdüme girmez.
+    _v_onceki = None; _ivme_tum = []
+    _temas_ivme = 0.0; _temas_menzil = -1.0; _temas_t = -1.0
+    _temas_geri = 0.0
     devir_t = None; devir_menzil = None
     # ⛔ CLAUDE.md §4: "SALINIM ÖLÇÜLMEDEN 'İYİLEŞTİ' DENMEZ."
     #   Yalnız isabet+menzile bakan ölçüt, dengesizce savrulup ŞANS eseri
@@ -299,8 +339,25 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
             _gyat = math.hypot(_hp[0]-dp[0], _hp[1]-dp[1])
             _gelev = math.degrees(math.atan2(_gdz, max(_gyat, 1e-6)))
             if _R > 0.05:
-                if _R < en_yakin: en_yakin = _R
+                if _R < en_yakin: en_yakin = _R; _en_yakin_t = t - t0
                 if _R < 4.0: isabet = 1
+            # ---- TEMAS ADAYI: kendi hızımızda ani sıçrama, YAKINDA ----
+            _vv = beyin.b.hiz_vektoru()
+            if _v_onceki is not None and dt > 1e-3:
+                _dv = tuple(_vv[i] - _v_onceki[i] for i in range(3))
+                _iv = math.sqrt(sum(c * c for c in _dv)) / dt
+                _ivme_tum.append(_iv)
+                # ⭐ "GERİYE doğru" bileşen (kullanıcının tarifi 2026-08-23):
+                #   yaklaşma yönü = drone -> hedef birim vektörü. Darbenin bu
+                #   yönün TERSİNDEKİ bileşeni = geri itilme.
+                _geri = 0.0
+                if _hp and _R > 1e-6:
+                    _u = tuple((_hp[i] - dp[i]) / _R for i in range(3))
+                    _geri = -sum(_dv[i] * _u[i] for i in range(3)) / dt
+                if _R < 6.0 and _iv > _temas_ivme:
+                    _temas_ivme = _iv; _temas_menzil = _R; _temas_t = t - t0
+                    _temas_geri = _geri
+            _v_onceki = _vv
             _halka.append((t, dp, (math.degrees(_yon[0]), math.degrees(_yon[1]),
                                    math.degrees(_yon[2])), _hp))
         if beyin.durum == "GORSEL":
@@ -385,7 +442,9 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
             for k in ("hedef_hiz", "hedef_yon", "ist_x", "ist_y", "ist_z",
                       "ist_hata_m", "ist_hata_yatay", "ist_hata_dikey",
                       "hedef_menzil_m", "yaw_hata", "v_istek",
-                      "kopru_kare", "yerel_aday", "yerel_uygun"):
+                      "kopru_kare", "bayat_birak", "yerel_aday", "yerel_uygun",
+                      "ibvs_nisan_elev", "ibvs_vz_kirpildi", "ibvs_e_cy",
+                      "ibvs_vz_yukari"):
                 if k in ti: sat[k] = round(ti[k], 2) if isinstance(ti[k], float) else ti[k]
             if tespit:
                 sat.update({"vis_cx": round(tespit[0], 1), "vis_cy": round(tespit[1], 1),
@@ -412,7 +471,36 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
     #   İsabet varsa koşu GEÇERLİDİR; ihlal "isabet_sonrasi" diye işaretlenir.
     if _g_kesik_bas is not None:            # koşu kesinti içinde bitti
         _g_kesinti_s += time.time() - _g_kesik_bas
-    if isabet and ihlal in ("drone_yok", "baglanti_yok", "telemetri_dondu"):
+    # ---- TEMAS SINIFLANDIRMASI (Ayar.TEMAS_* eşikleri ÖLÇÜLDÜ) ----
+    #   ⭐ KULLANICI KARARI (2026-08-23): "imha ettim demek için hedefe
+    #      DEĞMEK YETERLİ. DoW pervaneye çarpmayı vuruş saymıyor ama sen say;
+    #      bu bizim için BAŞARIDIR."
+    #   TEMAS       : darbe var -> BAŞARI (pervane çarpması dahil)
+    #   imha        : temasın alt kümesi — drone da yok oldu (yalnız teşhis)
+    #   YAKIN GEÇİŞ : yakından geçtik ama HİÇ DEĞMEDİK -> başarısız
+    #   İMZA 1 — SEKME (pervane): ani geri ivme, drone yaşar
+    _sekme = int(_temas_ivme >= Ayar.TEMAS_IVME_ESIK
+                 and 0 <= _temas_menzil <= Ayar.TEMAS_MENZIL_M)
+    #   İMZA 2 — ANINDA İMHA: koşu TAM en yakınlaşma anında bitti ve o
+    #   menzil temas yarıçapı içinde. Sekme YOK çünkü drone yok oldu.
+    #   ⛔ Bu imza EKSİKTİ ve en temiz vuruşları kaçırıyordu (E1b: üç koşu
+    #      0.67-0.81 m'de tam o anda bitmiş, darbe sıfır -> "temas yok"
+    #      sayılmıştı; gerçekte 0.014/4.0 kolu 3/8 değil 8/8'di).
+    _imha = int(en_yakin <= Ayar.TEMAS_MENZIL_M
+                and (time.time() - t0) - _en_yakin_t <= 0.6)
+    _temas = int(_sekme or _imha)
+    isabet = _temas                        # kullanıcı kuralı: temas = vuruş
+    # ⛔ GEÇERLİLİK KURALI — İKİ YÖNLÜ DÜZELTME (§5.2)
+    #  (1) 2026-08-22: hedefi VURUNCA drone da yok oluyor ve bekçi
+    #      "drone_yok" diyordu -> BAŞARI başarısızlık gibi işaretleniyordu.
+    #  (2) 2026-08-23: TERSİ de yanlıştı. Temas OLMADAN düşen drone
+    #      (C1_BAYAT koşu 3-4: ivme 18-19, hedefin 2.5-4.3 m'sinde despawn)
+    #      GEÇERSİZ sayılıp elenıyordu — oysa o bir ISKA, yani veri.
+    #      Başarısızlığı elemek iki kolu da olduğundan iyi gösterir.
+    #  DOĞRU KURAL: görsel faza GİRDİYSE `drone_yok` bir SONUÇTUR (isabet ya
+    #  da ıska), geçersizlik değil. Hiç giremediyse kurulum sorunudur.
+    if ihlal in ("drone_yok", "baglanti_yok", "telemetri_dondu") \
+            and (isabet or gorsel_tik_say > 0):
         ihlal = None
     _sure_ger = max(1e-6, time.time() - t0)
     _tik_hz = n / _sure_ger          # ⚠ GERÇEK döngü hızı: görsel fazda YOLO
@@ -424,7 +512,20 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
         "sure": round(_sure_ger, 1), "tik": n, "tik_hz": round(_tik_hz, 1),
         "ihlal": ihlal or "-",
         "en_yakin_m": round(en_yakin, 2) if en_yakin < 1e8 else -1,
-        "isabet": isabet,
+        "isabet": isabet,          # = TEMAS veya İMHA (ölçüldü, mesafe değil)
+        "temas": _temas,
+        "sekme": _sekme,
+        "imha": _imha,
+        # --- TEMAS ADAYI (eşik henüz seçilmedi; ham ölçüm) ---
+        "temas_ivme": round(_temas_ivme, 1),
+        "temas_geri": round(_temas_geri, 1),   # darbenin GERİYE bileşeni
+        "temas_menzil": round(_temas_menzil, 2),
+        "temas_t": round(_temas_t, 1),
+        "ivme_p99": round(float(np.percentile(_ivme_tum, 99)), 1)
+                    if len(_ivme_tum) > 50 else float("nan"),
+        "ivme_medyan": round(float(np.median(_ivme_tum)), 1)
+                       if len(_ivme_tum) > 50 else float("nan"),
+        "drone_yasadi": int(ihlal not in ("drone_yok",)),
         "devir_s": round(devir_t, 1) if devir_t else -1,
         "devir_menzil": round(devir_menzil, 1) if devir_menzil else -1,
         "gorsel_tik": gorsel_tik_say,
@@ -492,9 +593,12 @@ def main():
           f"{'görsel tik':>10} {'tespit%':>8} {'EN YAKIN':>9} {'isabet':>7}", flush=True)
     ozetler = []
     for i in range(1, adet + 1):
+        if not _saglikli(beyin):
+            print(f"{i:3d}  sim hazırlanamadı — koşu ATLANDI"); continue
         if not _yeni_gorev(beyin):
             print(f"{i:3d}  görev başlatılamadı"); continue
-        if not beyin.b.canli(): beyin.b.yeniden_bagla()
+        if not _saglikli(beyin):
+            print(f"{i:3d}  spawn sonrası SDK ölü — koşu ATLANDI"); continue
         o = kosu_yap(beyin, sct, os.path.join(kok, f"k{i:02d}"), sure, det)
         o["kosu"] = i; ozetler.append(o)
         print(f"{i:3d} {o['tik']:5d} {o['ihlal']:>13} {o['ist_hata_medyan']:9.2f} "

@@ -29,8 +29,8 @@ from dow.ayarlar import Ayar
 from dow.ana import Beyin
 from dow import panel as PANEL
 from araclar.kadraj import hazirla
-from araclar.kosu import (kosu_yap, _yeni_gorev, _gorus_isi, _gorus_isp,
-                          gorus_durdur, _son_kare)
+from araclar.kosu import (kosu_yap, _yeni_gorev, _saglikli, _gorus_isi,
+                          _gorus_isp, gorus_durdur, _son_kare)
 from araclar.tespit_olcu import olc
 
 
@@ -46,11 +46,15 @@ def _ayarla(alan, v):
 def main():
     ad = sys.argv[1]
     alanlar = sys.argv[2].split(",")
-    kombolar = [tuple(float(x) for x in p.split("/")) for p in sys.argv[3].split(",")]
+    def _cev(x):
+        try: return float(x)
+        except ValueError: return x        # metin alanlar (ör. DIKEY_YASA)
+    kombolar = [tuple(_cev(x) for x in p.split("/")) for p in sys.argv[3].split(",")]
     assert all(len(k) == len(alanlar) for k in kombolar), "kombo/alan sayısı uyuşmuyor"
     tekrar = int(sys.argv[4]) if len(sys.argv) > 4 else 2
     sure = float(sys.argv[5]) if len(sys.argv) > 5 else 60.0
-    etiket = lambda k: "/".join(f"{v:g}" for v in k)
+    etiket = lambda k: "/".join((f"{v:g}" if isinstance(v, float) else str(v))
+                                for v in k)
 
     kok = os.path.join("logs", ad); os.makedirs(kok, exist_ok=True)
     sct = mss.mss()
@@ -91,10 +95,11 @@ def main():
             i += 1
             for alan, v in zip(alanlar, kombo):
                 _ayarla(alan, v)
-            if not _yeni_gorev(beyin):
-                print(f"{i:3d} {etiket(kombo):>10}  görev başlatılamadı", flush=True)
+            if not _saglikli(beyin) or not _yeni_gorev(beyin) \
+                    or not _saglikli(beyin):
+                print(f"{i:3d} {etiket(kombo):>10}  sim hazır değil — ATLANDI",
+                      flush=True)
                 continue
-            if not beyin.b.canli(): beyin.b.yeniden_bagla()
             dz = os.path.join(kok, f"{etiket(kombo).replace('/', '_')}__t{tur+1}")
             o = kosu_yap(beyin, sct, dz, sure, det)
             t = olc(os.path.join(dz, "meta.csv")) or {}
@@ -104,7 +109,8 @@ def main():
                         if r.get("durum") == "ISTASYON" and r.get("hedef_menzil_m")]
                 mz = float(np.median([float(r["hedef_menzil_m"]) for r in rows])) if rows else 0.0
             except Exception: pass
-            R = kombo[0] if alanlar[0] == "ISTASYON_MENZIL_M" else float("nan")
+            R = (kombo[0] if (alanlar[0] == "ISTASYON_MENZIL_M"
+                              and isinstance(kombo[0], float)) else float("nan"))
             ihR = o["ist_hata_medyan"] / R if R == R and R else float("nan")
             o.update({"kosu": i, "kombo": etiket(kombo), "tur": tur + 1,
                       "menzil_med": round(mz, 1), "ih_bolu_R": round(ihR, 2)})

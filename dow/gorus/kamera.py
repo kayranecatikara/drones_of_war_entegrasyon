@@ -97,6 +97,72 @@ def piksel_kerteriz(cx_px, cy_px, own_pitch_deg, own_roll_deg=0.0):
     return yat, yukselis
 
 
+def los_seviye(cx_px, cy_px, roll_deg, pitch_deg):
+    """Piksel + aracın KENDİ duruşu → SEVİYE çerçevesinde (azimut, yükseliş).
+
+    ⭐ Kullanıcının Gazebo deposundaki `bbox_ibvs.los_seviye` AYNEN taşındı
+      (yalnız derece/radyan sarmalayıcısı eklendi, matematik birebir).
+
+    NEDEN GEREKLİ: `piksel_kerteriz` roll'u BİRİNCİ DERECE küçük-açı
+      yaklaşımıyla çeviriyor. Gazebo'da ölçülmüş: 30-40° yatışta bu
+      yaklaşım 11-14° sapma veriyor. Bu zincir TAM dönüşüm yapar:
+        1) piksel → kamera ışını      [sağ, aşağı, ileri]
+        2) kamera → GÖVDE (FRD)       kamera TILT° yukarı vidalı: Ry(−tilt)
+        3) gövde → SEVİYE             Ry(pitch)·Rx(roll) ile duruş çıkarılır
+
+    ⭐ GİRDİ YALNIZ: bbox pikselleri + KENDİ IMU'muz (§10 temiz).
+    Dönüş: (azimut, yükseliş) DERECE — azimut burna göre sağ+, yükseliş yukarı+.
+    """
+    x = (cx_px - CX) / F_PX
+    y = (cy_px - CY) / F_PX
+    t = math.radians(TILT_DEG)
+    ct, st = math.cos(t), math.sin(t)
+    bx = ct + st * y                     # ileri
+    by = x                               # sağ
+    bz = ct * y - st                     # aşağı
+    r = math.radians(roll_deg); p = math.radians(pitch_deg)
+    cr, sr = math.cos(r), math.sin(r)
+    y1 = by * cr - bz * sr
+    z1 = by * sr + bz * cr
+    cp, sp = math.cos(p), math.sin(p)
+    x2 = bx * cp + z1 * sp
+    z2 = -bx * sp + z1 * cp
+    return (math.degrees(math.atan2(y1, x2)),
+            math.degrees(math.atan2(-z2, math.hypot(x2, y1))))
+
+
+def seviye_piksel(azimut_deg, yukselis_deg, roll_deg, pitch_deg):
+    """`los_seviye`in TAM TERSİ: seviye çerçevesindeki yönden kadraj konumu.
+
+    Zincir ters çevrilir: seviye → gövde (Rx(roll)·Ry(-pitch)) → kamera
+    (Ry(+tilt)) → piksel. Bridge (T5) bunu kullanır.
+    ⭐ GİRDİ YALNIZ: açı + KENDİ IMU'muz. Menzil/GPS yok (§10 temiz).
+    """
+    a = math.radians(azimut_deg); e = math.radians(yukselis_deg)
+    # seviye çerçevesinde birim vektör (ileri, sağ, aşağı)
+    ce = math.cos(e)
+    x2, y1, z2 = ce * math.cos(a), ce * math.sin(a), -math.sin(e)
+    # seviye -> gövde: pitch geri
+    p = math.radians(pitch_deg)
+    cp, sp = math.cos(p), math.sin(p)
+    bx = x2 * cp - z2 * sp
+    z1 = x2 * sp + z2 * cp
+    # gövde: roll geri
+    r = math.radians(roll_deg)
+    cr, sr = math.cos(r), math.sin(r)
+    by = y1 * cr + z1 * sr
+    bz = -y1 * sr + z1 * cr
+    # gövde -> kamera ışını (Ry(+tilt) tersi)
+    t = math.radians(TILT_DEG)
+    ct, st = math.cos(t), math.sin(t)
+    ileri = ct * bx - st * bz          # kamera ekseni bileşeni
+    if abs(ileri) < 1e-9:
+        return float("nan"), float("nan")
+    y = (st * bx + ct * bz) / ileri
+    x = by / ileri
+    return CX + F_PX * x, CY + F_PX * y
+
+
 def kerteriz_piksel(azimut_deg, yukselis_deg, own_pitch_deg, own_roll_deg=0.0):
     """`piksel_kerteriz`in TAM TERSİ: gövde-bağımsız kerterizden kadraj
     konumu (cx, cy).

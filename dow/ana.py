@@ -48,6 +48,7 @@ class Beyin:
         self._yerel_kayip = 0          # ardışık kapı başarısızlığı
         self._yerel_uygun = 0
         self._kopru_say = 0            # §5.1 mekanizma sütunu
+        self._bayat_birak_say = 0      # §5.1 mekanizma sütunu (B)
         self._kilit = 0
         self._kayip = 0
         self._ist_kare = 0        # geliştirme devir kapısı sayacı
@@ -70,6 +71,7 @@ class Beyin:
         self._yerel_kayip = 0          # ardışık kapı başarısızlığı
         self._yerel_uygun = 0
         self._kopru_say = 0            # §5.1 mekanizma sütunu
+        self._bayat_birak_say = 0      # §5.1 mekanizma sütunu (B)
         self._kilit = 0; self._kayip = 0
         self.hiz_I = 0.0
         self.izleyici.sifirla()
@@ -257,7 +259,8 @@ class Beyin:
                      # kalıcı alanlardan yeniden yayınlanıyor.
                      "yerel_aday": self._yerel_aday,
                      "yerel_uygun": self._yerel_uygun,
-                     "kopru_kare": self._kopru_say}
+                     "kopru_kare": self._kopru_say,
+                     "bayat_birak": self._bayat_birak_say}
 
         # ---- KALKIS ----
         if self.durum == "KALKIS":
@@ -356,6 +359,20 @@ class Beyin:
                     _tsp = _kb
                     if not self._bu_kare_tespit:
                         self._kopru_say += 1
+                elif (ibvs.IbvsCfg.BAYAT_BIRAK
+                      and (t - self._son_tespit_t) > ibvs.IbvsCfg.KOPRU_S):
+                    # B: köprü doldu -> hedef KAYIP. Eski ham kutuya nişan
+                    #    almaya devam etmek, hayalete uçmaktır.
+                    _tsp = None
+                    self._bayat_birak_say += 1
+            self.tani["bayat_birak"] = self._bayat_birak_say
+            if _tsp is None:
+                t_, p_, r_, y_ = self._son_komut
+                kopru = (t_, p_, 0.0, 0.0)
+                self.b.komut(*kopru, True)
+                self.tani["durum"] = "GORSEL_KOPRU"
+                self._son_komut = kopru
+                return kopru
             self.tani["kopru_kare"] = self._kopru_say
             cx, cy, w, h, conf = _tsp
             # ⛔ LEAD: LOS dönüş hızı YALNIZ kameradan türetilir (bbox
@@ -363,7 +380,8 @@ class Beyin:
             #   ve saf takip çapraz giden hedefin gerisinde kalıyordu:
             #   cx 991 -> 1190 -> 1292 (merkez 960), sonra tespit koptu.
             (vx, vy), vz_ned, yaw_hedef, self.hiz_I, ti = ibvs.komut(
-                cx, cy, w, h, own_yaw, own_pitch, own_roll, self.hiz_I, dt)
+                cx, cy, w, h, own_yaw, own_pitch, own_roll, self.hiz_I, dt,
+                own_vz=v_olculen[2])      # Unreal Z yukarı; KENDİ hızımız
             self.tani.update(ti)
             e = (yaw_hedef - own_yaw + 180.0) % 360.0 - 180.0
             _tv = self.cfg.YAW_RATE_MAX
@@ -382,8 +400,7 @@ class Beyin:
             return self.cev._vz_cubuk(0.0), 0.0, 0.0, 0.0
 
         (vx, vy), vz_ned, yaw_rate, ti = GPS.komut(
-            dp, own_yaw, hp, hv, self.izleyici.yon_deg, self.cfg,
-            self.izleyici.omega)
+            dp, own_yaw, hp, hv, self.izleyici.yon_deg, self.cfg)
         self.tani.update(ti)
 
         thr, pitch, roll, yaw = self.cev.cevir(

@@ -31,9 +31,10 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-SUT = [("n", None), ("isabet", "sum"), ("en_yakin_m", "med"),
+SUT = [("n", None), ("temas", "sum"), ("sekme", "sum"), ("imha", "sum"),
+       ("en_yakin_m", "med"),
        ("tespit%", "med"), ("dogru%", "med"), ("yanlis%", "med"),
-       ("kadraj%", "med"),
+       ("kadraj%", "med"), ("manevra%", "med"), ("hedef_w", "med"),
        ("gorsel_s", "med"), ("cx_donus_s", "med"), ("roll_p90", "med"),
        ("kesinti_s", "med"), ("devir_menzil", "med"),
        ("ist_hata_medyan", "med"), ("tik_hz", "med")]
@@ -89,16 +90,54 @@ def _sayi(g, k):
     return out
 
 
+def _manevra(meta, esik=15.0):
+    """GÖRSEL fazın yüzde kaçı hedef >esik °/s dönerken geçti + medyan dönüş."""
+    import math
+    try:
+        R = [r for r in csv.reader(open(meta))]
+    except OSError:
+        return None, None
+    if len(R) < 3: return None, None
+    bas = R[0]
+    try:
+        iy, it, idu = bas.index("hedef_yaw"), bas.index("t"), bas.index("durum")
+    except ValueError:
+        return None, None
+    G = [r for r in R[1:] if len(r) > max(iy, it, idu) and r[idu] == "GORSEL"]
+    w = []
+    for a, b in zip(G[:-1], G[1:]):
+        try:
+            ya, yb, ta, tb = float(a[iy]), float(b[iy]), float(a[it]), float(b[it])
+        except ValueError:
+            continue
+        if tb <= ta: continue
+        d = abs((yb - ya + 180) % 360 - 180) / (tb - ta)
+        if d < 200: w.append(d)
+    if not w: return None, None
+    return (round(100.0 * sum(1 for x in w if x > esik) / len(w), 1),
+            round(float(np.median(w)), 1))
+
+
 def _zenginlestir(g, kok):
     """Her koşuya truth-eşleşmeli GÖRSEL FAZ ölçütlerini ekle."""
-    from araclar.tespit_olcu import olc
+    from araclar.tespit_olcu import olc, temas_sinifla
     for r in g:
         d = r.get("_dizin")
         if not d: continue
         o = olc(os.path.join(d, "meta.csv"), "GORSEL")
-        if not o: continue
-        r["dogru%"] = o["gercek_yuzde"]; r["yanlis%"] = o["yanlis_yuzde"]
-        r["kadraj%"] = o["kadraj_yuzde"]
+        if o:
+            r["dogru%"] = o["gercek_yuzde"]; r["yanlis%"] = o["yanlis_yuzde"]
+            r["kadraj%"] = o["kadraj_yuzde"]
+        # ⭐ C'NİN BİRİNCİL ÖLÇÜTÜ: görsel fazın yüzde kaçı hedef MANEVRA
+        #   yaparken geçti. ÖLÇÜLDÜ: hedef zamanının %42.7'sinde >15 °/s
+        #   dönüyor ama görsel fazın yalnız %15.4'ü öyle — yani manevrada
+        #   VURAMIYOR değiliz, manevrada hiç DEVRETMİYORUZ.
+        t, sekme, imha_ani = temas_sinifla(d, r)
+        r["temas"] = t; r["isabet"] = t
+        r["sekme"] = sekme; r["imha"] = imha_ani
+        mv, w = _manevra(os.path.join(d, "meta.csv"))
+        if mv is not None:
+            r["manevra%"] = mv; r["hedef_w"] = w
     return g
 
 
