@@ -42,10 +42,17 @@ class Beyin:
         self._son_tespit = None
         self._son_tespit_t = 0.0
         self._bu_kare_tespit = False
+        self._cikarim_yapildi = True   # çıkarım bu tikte koştu mu (sayaç kapısı)
+        self._kopru = None             # T5: son kutunun ATALET yönü
+        self._yerel_aday = 0           # §5.1 mekanizma (T4)
+        self._yerel_kayip = 0          # ardışık kapı başarısızlığı
+        self._yerel_uygun = 0
+        self._kopru_say = 0            # §5.1 mekanizma sütunu
         self._kilit = 0
         self._kayip = 0
+        self._ist_kare = 0        # geliştirme devir kapısı sayacı
+        self._devir_sebep = ""
         self._son_komut = (0.0, 0.0, 0.0, 0.0)
-        self._los_az = None; self._los_t = None; self._los_hiz = 0.0
         self.hiz_I = 0.0
         self.tani = {}
 
@@ -57,6 +64,12 @@ class Beyin:
         self._zemin_z = None
         self._son_tespit = None
         self._bu_kare_tespit = False
+        self._cikarim_yapildi = True   # çıkarım bu tikte koştu mu (sayaç kapısı)
+        self._kopru = None             # T5: son kutunun ATALET yönü
+        self._yerel_aday = 0           # §5.1 mekanizma (T4)
+        self._yerel_kayip = 0          # ardışık kapı başarısızlığı
+        self._yerel_uygun = 0
+        self._kopru_say = 0            # §5.1 mekanizma sütunu
         self._kilit = 0; self._kayip = 0
         self.hiz_I = 0.0
         self.izleyici.sifirla()
@@ -75,31 +88,13 @@ class Beyin:
         return (temiz[0] / 100.0, temiz[1] / 100.0, temiz[2] / 100.0)
 
     # ---------------- görsel ----------------
-    def ibvs_sifirla(self):
-        self._los_az = None; self._los_t = None; self._los_hiz = 0.0
-
-    def _los_hizi(self, azimut_deg, t):
-        """LOS'un dönüş hızı (°/s) — LEAD terimi için.
-        ⛔ GİRDİ YALNIZ KAMERA: bbox azimutunun zaman türevi. GPS YOK.
-        EMA ile yumuşatılır; dedektör ~10 Hz ve gürültülü."""
-        if self._los_az is None or self._los_t is None:
-            self._los_az, self._los_t = azimut_deg, t
-            return 0.0
-        dt = t - self._los_t
-        if dt < 0.02:
-            return self._los_hiz
-        ham = (azimut_deg - self._los_az) / dt
-        if abs(ham) < 200.0:
-            self._los_hiz = 0.35 * ham + 0.65 * self._los_hiz
-        self._los_az, self._los_t = azimut_deg, t
-        return self._los_hiz
-
     def gorsel_tik(self, img_rgb, t):
         """Bir kamera karesini işle. GİRDİ YALNIZ GÖRÜNTÜ — GPS yok."""
         self._bu_kare_tespit = False
         if not self.cfg.GORSEL_AKTIF or self.det is None:
             return None
-        d = self.det.bul(img_rgb)
+        d = self._yerel_bul(img_rgb, t) if ibvs.IbvsCfg.YEREL_KAPI_PX > 0 \
+            else self.det.bul(img_rgb)
         if d is None:
             return None
         cx, cy, w, h, conf = d
@@ -109,7 +104,125 @@ class Beyin:
         self._son_tespit = d
         self._son_tespit_t = t
         self._bu_kare_tespit = True
+        self._kopru_kaydet(d, t)
         return d
+
+    # ---------------- T4: YERELLİK KAPISI ----------------
+    def _yerel_bul(self, img_rgb, t):
+        """Düşük eşikte tüm kutuları al, hedefin OLMASI GEREKEN yerine göre ele.
+
+        Referans konum: önce T5 köprüsü (kendi dönüşümüz telafi edilmiş),
+        yoksa son kutu. Referans yoksa normal argmax'a düşülür.
+        ⭐ GİRDİ YALNIZ: görüntü + son kutu + KENDİ IMU'muz (§10 temiz)."""
+        C = ibvs.IbvsCfg
+        yon = self.b.yonelim()
+        oy, op, orl = (math.degrees(yon[2]), math.degrees(yon[1]),
+                       math.degrees(yon[0]))
+        ref = self._kopru_kutu(oy, op, orl, t) or self._son_tespit
+        # ⛔ KİLİTLENME ÇARESİ: üst üste YEREL_KURTAR kez hiçbir aday
+        #   geçmediyse referans bayatlamış demektir; kapıyı AÇ ve düz
+        #   argmax'la yeniden yakala. (B3'te bu yoktu ve kapı bir kere
+        #   kaybedince bir daha asla bulamıyordu.)
+        if self._yerel_kayip >= C.YEREL_KURTAR:
+            ref = None
+        adaylar = self.det.bul_hepsi(img_rgb, C.YEREL_CONF_MIN)
+        self._yerel_aday = len(adaylar)
+        self._yerel_uygun = 0
+        if not adaylar:
+            self._yerel_kayip += 1
+            return None
+        if ref is None:                       # referans yok/bayat -> argmax
+            self._yerel_kayip = 0
+            return max(adaylar, key=lambda a: a[4])
+        rx, ry, rw = ref[0], ref[1], max(ref[2], 1.0)
+        yaricap = C.YEREL_KAPI_PX + 2.0 * rw
+        uygun = [a for a in adaylar
+                 if math.hypot(a[0]-rx, a[1]-ry) <= yaricap
+                 and 0.5 <= a[2]/rw <= 2.0]
+        self._yerel_uygun = len(uygun)
+        if not uygun:
+            self._yerel_kayip += 1
+            return None
+        self._yerel_kayip = 0
+        # ⚠ SEÇİM KURALI: referansa en yakın DEĞİL, EN YÜKSEK GÜVENLİ.
+        #   "En yakın" seçmek, yerellik kapısından geçen bir çöp kutuyu
+        #   referansa kilitleyip sürüklenmeye yol açıyor; dedektörün kendi
+        #   kanıtı (güven) devrede kalmalı. Yerellik zaten YANLIŞ YERİ eledi.
+        return max(uygun, key=lambda a: a[4])
+
+    # ---------------- T5: BBOX KÖPRÜSÜ (ölü-hesap) ----------------
+    def _kopru_kaydet(self, d, t):
+        """Tespit anında kutunun ATALET yönünü sakla.
+
+        ⭐ GİRDİ YALNIZ: bbox pikselleri + KENDİ IMU'muz. Hedefin GPS'i,
+          menzili, hiçbiri yok -> görsel fazda meşru (§10)."""
+        yon = self.b.yonelim()
+        oy, op, orl = (math.degrees(yon[2]), math.degrees(yon[1]),
+                       math.degrees(yon[0]))
+        cx, cy, w, h, conf = d
+        az, el = ibvs.KAM.piksel_kerteriz(cx, cy, op, orl)
+        self._kopru = {"az": oy + az, "el": el, "w": w, "h": h,
+                       "conf": conf, "t": t}
+
+    def _kopru_kutu(self, own_yaw, own_pitch, own_roll, t):
+        """Saklanan atalet yönünü BUGÜNKÜ duruşumuzla kadraja geri yansıt.
+
+        NEDEN: çıkarım 10 Hz (100 ms) ve tespit boşlukları var; o sürede
+        araç yatıyor/dönüyor (ölçüldü: roll p90 52.7°, yani 100 ms'de
+        kolayca 5-10° gövde dönüşü) ve gövdeye SABİT kamera yüzünden hedef
+        kadrajda kayıyor. Güdüm bayat pikselle nişan alıyor. Köprü, kendi
+        dönüşümüzü telafi ederek kutuyu kadrajda ileri taşır.
+        SINIRI: hedefin KENDİ hareketini bilmez; bu yüzden KOPRU_S kadar
+        yaşar, sonra düşer."""
+        k = self._kopru
+        if not k or ibvs.IbvsCfg.KOPRU_S <= 0:
+            return None
+        if (t - k["t"]) > ibvs.IbvsCfg.KOPRU_S:
+            return None
+        az = (k["az"] - own_yaw + 180.0) % 360.0 - 180.0
+        cx, cy = ibvs.KAM.kerteriz_piksel(az, k["el"], own_pitch, own_roll)
+        if not (0 <= cx < ibvs.KAM.IMG_W and 0 <= cy < ibvs.KAM.IMG_H):
+            return None
+        return (cx, cy, k["w"], k["h"], k["conf"])
+
+    # ---------------- ⛔ GELİŞTİRME DEVİR KAPISI ----------------
+    def _gelistirme_devir_hazir(self, dp, hp):
+        """Drone istasyona OTURDU ve hedefe ~15 m menzilde mi?
+
+        ⛔⛔ BU METOT HEDEFİN GPS'İNİ OKUR. YARIŞMADA KULLANILAMAZ.
+          Tek çağrı yeri `Beyin.adim` içindedir ve
+          `self.cfg.gelistirme_devri()` bayrağının ARKASINDADIR; o bayrak
+          `YARISMA_KIPI=1` iken DAİMA False döner, yani bu metot yarışma
+          kipinde HİÇ ÇAĞRILMAZ ve sistem kamera-tek kapıya düşer.
+
+        ⛔ Bu bir FAZ GEÇİŞİ kapısıdır, GÜDÜM YASASI DEĞİLDİR. Görsel faz
+          başladıktan sonra hedefin GPS'i okunmaz bile: `hedef_konumu()`
+          çağrısı `durum != "GORSEL"` koşuluna bağlıdır (bekçi B18) ve
+          `ibvs.komut()` imzasında hedef konumu yoktur (B1/B19).
+
+        NEDEN VAR (kullanıcı kararı 2026-08-22): dedektör menzile şiddetle
+          bağlı (14 m'de ham tespit %88-97, 40 m'de %50, 70 m'de %33), bu
+          yüzden "ardışık 10 kare tespit" kapısı uzakta sağlanamıyor ve
+          görsel güdüm geliştirmeyi bloke ediyor. İyi dedektör gelince bu
+          iskele SÖKÜLÜR (§5.12).
+        """
+        if hp is None:
+            self._ist_kare = 0
+            return False
+        sx, sy, sz = GPS.istasyon_noktasi(hp, self.izleyici.yon_deg, self.cfg)
+        ist_hata = math.dist(dp, (sx, sy, sz))
+        d_hedef = math.dist(dp, hp)
+        if (ist_hata <= self.cfg.DEVIR_IST_HATA_M
+                and d_hedef <= self.cfg.DEVIR_MENZIL_M):
+            self._ist_kare += 1
+        else:
+            self._ist_kare = 0
+        self.tani["devir_ist_kare"] = self._ist_kare
+        self.tani["devir_ist_hata"] = ist_hata
+        # görsel yasanın elinde BİR KUTU olmadan devretmek, fazı doğrudan
+        # kör "köprü" durumuna sokar -> asgari ardışık tespit de aranır.
+        return (self._ist_kare >= self.cfg.DEVIR_IST_KARE
+                and self._kilit >= self.cfg.DEVIR_KARE_DEV)
 
     # ---------------- ana adım ----------------
     def adim(self, t, dt):
@@ -138,7 +251,13 @@ class Beyin:
             hv = self.izleyici.guncelle(hp, t) if hp else (0.0, 0.0, 0.0)
 
         self.tani = {"durum": self.durum, "yukseklik": yukseklik,
-                     "hedef_var": int(hp is not None)}
+                     "hedef_var": int(hp is not None),
+                     # §5.1 mekanizma sütunları — tani her tik SIFIRDAN
+                     # kurulduğu için gorsel_tik'in yazdıkları siliniyordu;
+                     # kalıcı alanlardan yeniden yayınlanıyor.
+                     "yerel_aday": self._yerel_aday,
+                     "yerel_uygun": self._yerel_uygun,
+                     "kopru_kare": self._kopru_say}
 
         # ---- KALKIS ----
         if self.durum == "KALKIS":
@@ -159,10 +278,20 @@ class Beyin:
         #   hesaplanan menzil 1.3 m çıkıyor, kapı açılıyor ve güdüm "temas"
         #   sanıp tam hücum veriyor -> araç yere çakılıyor (2026-08-21, iki
         #   koşu, "Player ☠"). GPS burada MEŞRU: görsel temas HENÜZ YOK.
+        # ---- GÜDÜM KİPİ (panelden canlı) ----
+        from dow.ayarlar import kip_oku
+        kip = kip_oku()          # panelden CANLI seçilir (paylaşımlı dosya)
+        self.tani["kip"] = kip
+        if kip == "gps" and self.durum == "GORSEL":
+            self.durum = "ISTASYON"       # kip değişti -> görselden çık
+
         # ---- DEVİR SAYAÇLARI (yalnız KAMERA verisi) ----
         # Kullanıcının şartı: 10 ardışık TESPİT -> görsel; 20 ardışık
         # TESPİTSİZ kare -> GPS'e dön.
-        if self.cfg.GORSEL_AKTIF:
+        if self.cfg.GORSEL_AKTIF and self._cikarim_yapildi:
+            # ⚠ SAYAÇLAR ÇIKARIM BAŞINA SAYAR, kontrol tiki başına DEĞİL.
+            #   Çıkarım 10 Hz, kontrol ~48 Hz; tik başına saymak "20 ardışık
+            #   tespitsiz kare" kuralını 0.4 saniyeye indirirdi.
             if self._bu_kare_tespit:
                 self._kilit += 1
                 self._kayip = 0
@@ -171,10 +300,40 @@ class Beyin:
                 self._kilit = 0
             self.tani["kilit_kare"] = self._kilit
             self.tani["kayip_kare"] = self._kayip
-            if self.durum != "GORSEL" and self._kilit >= self.cfg.DEVIR_KARE:
+            # ---- ⛔ GELİŞTİRME DEVİR KAPISI (YARIŞMADA KAPALI) ----
+            # Bu blok, hedefe olan GPS menzilini FAZ GEÇİŞİNDE okuyan TEK
+            # yerdir ve tamamen `gelistirme_devri()` bayrağının arkasındadır.
+            # YARISMA_KIPI=1 iken bayrak False döner, blok hiç çalışmaz ve
+            # sistem kamera-tek kapıya (ardışık DEVIR_KARE tespit) düşer.
+            # ⛔ Görsel YASA bundan etkilenmez: GORSEL fazda hedef_konumu()
+            #    hiç çağrılmaz (bekçi B18), ibvs.komut() hedef konumu almaz
+            #    (B1/B19). Devir kapısı ≠ güdüm yasası.
+            dev_hazir = (self._gelistirme_devir_hazir(dp, hp)
+                         if (self.cfg.gelistirme_devri()
+                             and self.durum != "GORSEL") else False)
+            self.tani["dev_hazir"] = int(dev_hazir)
+
+            # ---- KAPI SEÇİMİ ----
+            # ⛔ İKİSİ YARIŞMAZ. Geliştirme kapısı AÇIKKEN kamera kapısı
+            #   DEVRE DIŞIDIR; çünkü yeni istasyon geometrisinde (8 m/0.75)
+            #   tespit zaten %88-97 ve kamera kapısı YAKLAŞMA sırasında,
+            #   araç daha oturmadan ateşliyor (ölçüldü: devir 22.7 m'de,
+            #   14.9 s'de, istasyon hatası hâlâ 34.6 m). Kullanıcının istediği
+            #   "otur, SONRA devret" o zaman hiç gerçekleşmiyor.
+            #   YARISMA_KIPI=1 -> geliştirme kapısı kapanır ve kamera kapısı
+            #   TEK kapı olur (yarışmada geçerli olan budur).
+            if self.cfg.gelistirme_devri():
+                _tetik, _sebep = dev_hazir, "istasyon"
+            else:
+                _tetik = self._kilit >= self.cfg.DEVIR_KARE
+                _sebep = "kamera"
+            if kip != "gps" and self.durum != "GORSEL" and _tetik:
                 self.durum = "GORSEL"; self.hiz_I = 0.0
-                self.ibvs_sifirla()
-            elif self.durum == "GORSEL" and self._kayip >= self.cfg.KAYIP_KARE:
+                self._devir_sebep = _sebep
+                self._ist_kare = 0
+            # "gorsel" kipinde GERİ DÖNÜLMEZ; yalnız "hibrit"te geri dönüş var
+            elif (kip == "hibrit" and self.durum == "GORSEL"
+                    and self._kayip >= self.cfg.KAYIP_KARE):
                 self.durum = "ISTASYON"; self._son_tespit = None
 
         if self.durum == "GORSEL":
@@ -190,26 +349,25 @@ class Beyin:
                 self.tani["durum"] = "GORSEL_KOPRU"
                 self._son_komut = kopru
                 return kopru
-            cx, cy, w, h, conf = self._son_tespit
+            _tsp = self._son_tespit
+            if ibvs.IbvsCfg.KOPRU_S > 0:
+                _kb = self._kopru_kutu(own_yaw, own_pitch, own_roll, t)
+                if _kb is not None:
+                    _tsp = _kb
+                    if not self._bu_kare_tespit:
+                        self._kopru_say += 1
+            self.tani["kopru_kare"] = self._kopru_say
+            cx, cy, w, h, conf = _tsp
             # ⛔ LEAD: LOS dönüş hızı YALNIZ kameradan türetilir (bbox
             #   azimutunun türevi). GV02'de bu terim BAĞLANMAMIŞTI (lead=0)
             #   ve saf takip çapraz giden hedefin gerisinde kalıyordu:
             #   cx 991 -> 1190 -> 1292 (merkez 960), sonra tespit koptu.
-            from dow.gorus import kamera as _KAM
-            _az, _ = _KAM.piksel_kerteriz(cx, cy, own_pitch, own_roll)
-            los_h = self._los_hizi(_az, t)
             (vx, vy), vz_ned, yaw_hedef, self.hiz_I, ti = ibvs.komut(
-                cx, cy, w, h, own_yaw, own_pitch, own_roll, self.hiz_I, dt,
-                los_hiz_deg_s=los_h)
-            self.tani["los_hiz"] = los_h
+                cx, cy, w, h, own_yaw, own_pitch, own_roll, self.hiz_I, dt)
             self.tani.update(ti)
-            # SAKİN KAMERA: yaw döngüsü de yumuşatıldı (ölçüm: sert yaw
-            # tespiti öldürüyor — |yaw| 0.103 VAR / 0.194 YOK)
             e = (yaw_hedef - own_yaw + 180.0) % 360.0 - 180.0
-            _kz = ibvs.IbvsCfg.YAW_KAZANC if ibvs.IbvsCfg.SAKIN_KAMERA else 3.0
-            _tv = ibvs.IbvsCfg.YAW_HIZ_TAVAN if ibvs.IbvsCfg.SAKIN_KAMERA \
-                  else self.cfg.YAW_RATE_MAX
-            yaw_rate = max(-_tv, min(_tv, _kz * e))
+            _tv = self.cfg.YAW_RATE_MAX
+            yaw_rate = max(-_tv, min(_tv, 3.0 * e))
             thr, pitch, roll, yaw = self.cev.cevir(
                 (vx, vy, vz_ned), v_olculen, math.radians(own_yaw), yaw_rate)
             self.b.komut(thr, pitch, roll, yaw, True)

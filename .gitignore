@@ -23,3 +23,6 @@ __pycache__/
 *.secret
 .env
 gizli*
+
+# panel <-> kampanya arasi calisma-zamani kip dosyasi
+.gudum_kipi

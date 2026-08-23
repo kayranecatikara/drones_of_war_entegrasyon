@@ -63,7 +63,17 @@ A/B ile, n>=4/kol sınanır. Kod duruyor, anahtarlar KAPALI.
 ================================================================================
 """
 import math
+import os
+
 from dow.gorus import kamera as KAM
+
+
+def _fi(ad, v):   # env ile geçersiz kılınabilir (kampanya kill-switch'i)
+    return float(os.environ.get(ad, v))
+
+
+def _b_i(ad, v):
+    return os.environ.get(ad, str(int(v))).strip() not in ("0", "", "false", "False")
 
 
 def _kirp(x, lo, hi):
@@ -87,39 +97,7 @@ class IbvsCfg:
                             # görüntüyü bulandırıp dedektörü kırar -> KORUNDU.
     YAW_OLU_BAND  = 1.0     # °; altında yaw komutu güncellenmez
 
-    # --- ⭐ SAKİN KAMERA (ÖLÇÜMLE BULUNDU, n=416 görsel kare) ---
-    # Tespit kaybının sebebi HIZ DEĞİL, KONTROL EFORU:
-    #      büyüklük     tespit VAR   tespit YOK
-    #   |yaw komutu|        0.103        0.194   (1.9x)
-    #   |roll|              0.095        0.200   (2.1x)
-    #   |throttle|          0.300        0.669   (2.2x)
-    #   |pitch|             0.249        0.258   (fark YOK)
-    #   hız                 21.1         19.9    (fark YOK)
-    # Kamera GÖVDEYE SABİT: araç yattıkça/döndükçe görüntü sallanıyor ve
-    # 46 pikselik hedef bulanıklaşıyor. ana_kontrol.py'de de yazıyor:
-    #   "Roll HEP 0 (bank yok — bank hedefi kadrajdan atıp kamerayı yere
-    #    ceviriyordu)."
-    # ÇARE: hızı LOS yönünde değil, ARACIN KENDİ BURNU yönünde komut et.
-    #   Burnu hedefe yaw çevirir; roll ~0 kalır, kamera sabitlenir.
-    SAKIN_KAMERA  = False   # ⛔ GERİ ALINDI (aşağıdaki nota bak)
-    #                        kill-switch; False = eski (LOS yönünde) davranış
-    # ⚠ YAW BANT GENİŞLİĞİ GERİ AÇILDI (GV06 dersi):
-    #   Ölçümde suçlu üç büyüklüktü: roll (2.1x), throttle (2.2x), yaw (1.9x).
-    #   SAKIN_KAMERA roll'u YAPISAL olarak sıfırladı; artık yaw'ı kısmaya
-    #   gerek yok. Kısmanın BEDELİ ölçüldü: hedef 21.7 °/s dönüyor, kazanç
-    #   1.5 ile kalıcı nişan hatası 21.7/1.5 = 14.5° kalıyor -> sürekli
-    #   YANDAN uçuyoruz, menzil kapanmıyor (GV05: 18.9 -> 37.4 m geri açıldı).
-    YAW_KAZANC    = 3.0
-    YAW_HIZ_TAVAN = 120.0   # °/s
-    VZ_TAVAN_GORSEL = 4.0   # m/s; dikey de kamerayı sallıyor -> kıs
-
-    # --- lead (öngörü) ---
-    # LEAD: kalıcı izleme gecikmesini kapatır. Gecikme = w_hedef / KAZANC.
-    #   21.7 °/s ve kazanç 3.0 -> 7.2° kalıcı hata. lead = LEAD_SURE * w
-    #   bunu kapatmalı: LEAD_SURE ~ 1/KAZANC = 0.33 s. Pay bırakıp 0.5.
-    LEAD_SURE     = 0.0     # ⛔ GERİ ALINDI (aşağıdaki nota bak)
-    LEAD_MENZIL_M = 6.4     # m; bu menzilin altında lead söner
-    LEAD_MAX_DEG  = 25.0    # °; lead açısı tavanı
+    VZ_TAVAN_GORSEL = _fi("DOW_VZ_TAVAN_GORSEL", 1.5)   # m/s
 
     # --- DİKEY: KADRAJ REGÜLASYONU ("alttan vuruş") ---
     # ⛔ ÖNCEKİ YASA ÇÖKTÜ (GV01, 3 koşu, ölçüldü):
@@ -147,16 +125,90 @@ class IbvsCfg:
     VZ_MAX_ALCAL  = 6.95    # m/s; ÖLÇÜLDÜ (⚠ 4.8 kat asimetrik; hover'da.
                             #   İleri uçuşta 15.6'ya çıkıyor ama tabanı alıyoruz)
 
-    # --- MERKEZ FRENİ (Gazebo'dan taşınmamıştı) ---
-    # "Önce ortala, sonra ilerle." Hedef kadrajın kenarındayken tam gaz
-    # gitmek onu kadrajdan ATIYOR: araç yatıyor, kamera gövdeye sabit
-    # olduğu için görüntü sallanıyor, tespit kopuyor.
-    # ÖLÇÜLDÜ (GV02): görsel fazda cx 991 -> 1292 (merkez 960) kaçtı ve
-    # tespit %90'dan %22'ye düştü.
-    # r = merkeze normalize sapma (0 = tam ortada, 1 = kadraj kenarı)
-    # v *= max(FREN_TABAN, 1 - MERKEZ_FREN * r)
-    MERKEZ_FREN  = 0.0     # ⛔ GERİ ALINDI (aşağıdaki nota bak)
-    FREN_TABAN   = 0.35    # asla tam durma; biraz kapanış kalsın
+    # T6 · DİKEY YUMUŞATMA — |throttle| tespiti en çok bozan büyüklüktü
+    #   (2.2 kat). VZ_TAVAN_GORSEL zaten var ama YALNIZ SAKIN_KAMERA
+    #   açıkken uygulanıyordu; bu anahtar onu bağımsız kılar.
+    # ⭐⭐ GİRDİ 2026-08-23 gecesi — GECENİN EN BÜYÜK KAZANIMI.
+    #   B7, n=4/kol, dönüşümlü A/B:
+    #      ölçüt          KAPALI     AÇIK
+    #      isabet          3/4        4/4
+    #      en_yakin       3.00 m     0.72 m
+    #      koşular   2.16·1.55·3.84·5.14   0.69·0.82·0.56·0.76
+    #      tespit%        20.70      50.90   (2.5 KAT)
+    #      doğru%         89.20      95.05
+    #      yanlış%        10.80       4.95
+    #      görsel faz     27.15 s    38.40 s
+    #      roll p90       12.60°      5.55°
+    #   ARALIKLAR HİÇ ÖRTÜŞMÜYOR: kontrol [1.55-5.14], deney [0.56-0.82].
+    #   İlan edilen birincil ölçüt (tespit%) +30 PUAN; her geçerlilik eşi
+    #   de aynı yönde -> kazanç junk kutudan gelmiyor.
+    #   MEKANİZMA: kamera GÖVDEYE SABİT. Dikey komut throttle'ı sıçratıyor,
+    #   araç dikeyde savruluyor ve 70 px'lik hedef bulanıklaşıyor. İlk
+    #   oturumda ölçülmüştü: |throttle| 0.300 (tespit VAR) / 0.669 (YOK) —
+    #   2.2 kat, ölçülen EN BÜYÜK ayırıcı. Tavan tam o büyüklüğü kısıyor.
+    VZ_TAVAN_AKTIF = _b_i("DOW_VZ_TAVAN", True)
+
+    # T5 · BBOX KÖPRÜSÜ (ölü-hesap) — Gazebo'da vardı, DoW'a taşınmamıştı.
+    #   Çıkarım 10 Hz; aradaki ~100 ms'de ve tespit boşluklarında güdüm
+    #   BAYAT kutuyla çalışıyor. Kutunun ATALET YÖNÜNÜ sabit tutup KENDİ
+    #   dönüşümüzü telafi ederek kutuyu kadrajda ileri taşırız.
+    #   ⭐ GİRDİ YALNIZ: son kutu + KENDİ IMU'muz. GPS YOK, menzil YOK.
+    #   KOPRU_S = köprünün geçerli kaldığı azami süre (s). 0 = kapalı.
+    # ⭐ GİRDİ 2026-08-22 gecesi — B2, n=4/kol, dönüşümlü A/B:
+    #      ölçüt            KOPRU=0    KOPRU=0.5
+    #      isabet             1/4        4/4
+    #      en_yakin medyan   5.44 m     1.94 m   (-64%)
+    #      tespit%           26.30      34.20
+    #      doğru%            76.35      80.25
+    #      yanlış%           23.65      19.75
+    #      roll p90          48.65°     27.05°   (-44%)
+    #   Geçerlilik eşleri (§5.2) tuttu: tespit% junk kutuyla yükselseydi
+    #   doğru% düşer / yanlış% artardı; ikisi de TERS yönde gitti.
+    #   Tek olumsuz sinyal kadraj% 97->90 idi; incelendi: kadraj dışı
+    #   kareler YAKINDA değil UZAKTA (medyan 14-18 m, ıska sonrası yeniden
+    #   yaklaşma) ve fark 390 karede 6 kare — gürültü.
+    #   MEKANİZMA: köprü kutuyu tazeleyince nişan hatası küçülüyor, yanal
+    #   talep düşüyor, çevirici daha az yatış üretiyor (roll p90 yarıya
+    #   iniyor) ve gövdeye sabit kamera daha az sallanınca dedektör de
+    #   iyileşiyor — tek değişiklik iki ölçütü birden düzeltiyor.
+    KOPRU_S       = _fi("DOW_KOPRU_S", 1.0)   # B5 taramasi: 0.3/0.5/1.0 -> 1.0 kazandi
+
+    # T4 · YERELLİK KAPISI — düşük eşik + "hedef nerede olmalı" kısıtı.
+    #   Görsel fazda hedefin kadrajda NEREDE olduğunu bir önceki kutumuzdan
+    #   (ve T5 köprüsünden) biliyoruz. O yüzden dedektör eşiğini düşürüp
+    #   (0.40 -> YEREL_CONF_MIN) adayları YERELLİKLE eleyebiliriz:
+    #     - merkez, beklenen yerin YEREL_KAPI_PX + 2*son_kutu içinde
+    #     - genişlik, son genişliğin 0.5-2.0 katı
+    #   Kazanç: 0.40 eşiğinin ALTINDA kalan soluk tespitler kurtarılır
+    #   (ölçüldü: eşik 0.10'da tespit %49 / 0.40'ta %40 — 9 puan orada).
+    #   Yanlış-pozitif riski: argmax'ı OSD çalıyordu; yerellik bunu keser.
+    #   ⭐ TAMAMEN KAMERA İÇİ — GPS yok (§10).  0 = kapalı.
+    # ⭐ GİRDİ 2026-08-23 gecesi — B3b+B3c havuzlanmış, n=5/kol, dönüşümlü:
+    #      ölçüt          YEREL=0    YEREL=60
+    #      isabet          4/5        5/5
+    #      en_yakin       1.84 m     1.87 m   (berabere)
+    #      tespit%        28.00      25.00    (aralıklar İÇ İÇE: 20-43 vs
+    #                                          23-31 -> AYIRT EDİLEMİYOR)
+    #      doğru%         74.50      79.70
+    #      yanlış%        25.50      20.30
+    #      kadraj%        96.40     100.00
+    #      roll p90       31.60°      8.30°   (-74%; 5 koşunun 4'ü ≤9.3)
+    #   İlan edilen birincil ölçüt (tespit%) FARK GÖSTERMEDİ; zaten kapı
+    #   açıkken "tespit" tanımı değişiyor (dedektör buldu VE yerellikten
+    #   geçti), yani kollar arası aynı şeyi ölçmüyor. Ölçüt sonradan
+    #   değiştirilmedi (§5.6) — ayırt edemediği söylendi. Kalan HER ölçüt
+    #   tek yönde. CLAUDE.md §4: salınan araç, aynı sonucu üretse bile kötüdür.
+    #   ⚠ İlk uygulamam ELENMİŞTİ (B3: isabet 1/4, görsel faz 4.85 s):
+    #     kapı bir kez kaybedince kilitleniyordu. YEREL_KURTAR ve "en yüksek
+    #     güvenli" seçim kuralı bunu çözdü.
+    YEREL_KAPI_PX = _fi("DOW_YEREL_KAPI", 60.0)
+    YEREL_CONF_MIN = _fi("DOW_YEREL_CONF", 0.20)
+    # ⛔ KİLİTLENME ÇARESİ (B3'te ölçüldü): referans bayatlayınca hiçbir aday
+    #   kapıdan geçmiyor, kapı asla yeniden yakalayamıyor ve görsel faz
+    #   ~5 s'de düşüyordu (tespit %33 -> %15-18, isabet 2/2 -> 0/4).
+    #   Bu kadar ardışık başarısızlıktan sonra kapı AÇILIR ve düz argmax'a
+    #   dönülür; ilk yeni tespit referansı tazeler.
+    YEREL_KURTAR  = 5
 
     # --- geçerlilik ---
     CONF_MIN      = 0.40    # ÖLÇÜLDÜ (dow/gorus/dedektor.py)
@@ -169,7 +221,7 @@ class IbvsCfg:
 
 
 def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
-          hiz_I, dt, cfg=IbvsCfg, los_hiz_deg_s=0.0):
+          hiz_I, dt, cfg=IbvsCfg):
     """IBVS kontrol yasası.
 
     GİRDİ (hedefin GPS'i YOK — yapısal garanti):
@@ -177,7 +229,6 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
       own_*         : KENDİ yönelimimiz (derece) — kendi IMU'muz
       hiz_I         : hız integralinin o anki değeri (m/s); çağıran taşır
       dt            : adım süresi (s)
-      los_hiz_deg_s : LOS'un dönüş hızı (°/s) — lead için; kameradan türetilir
 
     ÇIKTI: (v_ned, vz, yaw_hedef_deg, hiz_I_yeni, tani)
       v_ned = (vx, vy) m/s DÜNYA yatay düzleminde (NED: x kuzey, y doğu)
@@ -196,16 +247,8 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     tani["ibvs_azimut"] = azimut
     tani["ibvs_yukselis"] = yukselis
 
-    # --- 3) LEAD: nişanı LOS dönüş hızıyla öne al; yakında söner ---
-    lead_olcek = 1.0
-    if R and R > 0:
-        lead_olcek = _kirp(R / cfg.LEAD_MENZIL_M, 0.0, 1.0)
-    lead = _kirp(cfg.LEAD_SURE * lead_olcek * los_hiz_deg_s,
-                 -cfg.LEAD_MAX_DEG, cfg.LEAD_MAX_DEG)
-    tani["ibvs_lead"] = lead
-
     # --- 4) YAW: burnu hedefe çevir (+ lead) ---
-    eps_yaw = azimut + lead
+    eps_yaw = azimut
     if abs(eps_yaw) < cfg.YAW_OLU_BAND:
         eps_yaw = 0.0
     yaw_hedef = own_yaw_deg + cfg.K_YAW * eps_yaw
@@ -224,24 +267,11 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     v_istek = cfg.K_FWD * hata_px + hiz_I
     v = _kirp(v_istek, cfg.V_MIN, cfg.V_HUCUM)
 
-    # MERKEZ FRENİ: İSTENEN kadraj yerinden ne kadar sapmışsa o kadar yavaşla.
-    # ⚠ Dikeyde referans KADRAJ MERKEZİ DEĞİL, cy_ref'tir: hedefi bilerek
-    #   merkezin üstünde tutuyoruz (alttan yaklaşma), bu SAPMA SAYILMAZ.
-    rx = (cx - KAM.CX) / KAM.CX
-    ry = (cy - cy_ref) / KAM.CY
-    r = math.hypot(rx, ry)
-    fren = max(cfg.FREN_TABAN, 1.0 - cfg.MERKEZ_FREN * r) if cfg.MERKEZ_FREN > 0 else 1.0
-    v *= fren
     tani["ibvs_hata_px"] = hata_px
     tani["ibvs_v"] = v
-    tani["ibvs_sapma"] = r
-    tani["ibvs_fren"] = fren
 
-    # --- 6) YATAY: SAKİN KAMERA -> hız BURUN yönünde ---
-    # LOS yönünde komut vermek, burun henüz dönmemişken YANAL hız ister;
-    # çevirici bunu ROLL'a çevirir ve kamera yatar (tespit ölür).
-    # Burun yönünde komut verince yanal talep ~0 -> roll ~0.
-    yon = math.radians(own_yaw_deg if cfg.SAKIN_KAMERA else yaw_hedef)
+    # --- 6) YATAY: hız LOS (nişan) yönünde ---
+    yon = math.radians(yaw_hedef)
     vx = v * math.cos(yon)
     vy = v * math.sin(yon)
 
@@ -249,8 +279,10 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     # Yakınlaştıkça nişan merkeze kayar: uzakta altta kal, yakında vur.
     e_cy = cy - cy_ref                      # + = hedef kadrajda AŞAĞIDA
     vz_yukari = -cfg.K_CY * e_cy            # aşağıdaysa ALÇAL
-    if cfg.SAKIN_KAMERA:
+    if cfg.VZ_TAVAN_AKTIF:                          # T6
+        _v0 = vz_yukari
         vz_yukari = _kirp(vz_yukari, -cfg.VZ_TAVAN_GORSEL, cfg.VZ_TAVAN_GORSEL)
+        tani["ibvs_vz_kirpildi"] = int(_v0 != vz_yukari)   # §5.1 mekanizma
     vz_yukari = _kirp(vz_yukari, -cfg.VZ_MAX_ALCAL, cfg.VZ_MAX_TIRMAN)
     vz_ned = -vz_yukari            # NED: pozitif = AŞAĞI
     tani["ibvs_vz_yukari"] = vz_yukari

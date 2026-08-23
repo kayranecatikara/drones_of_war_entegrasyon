@@ -30,12 +30,28 @@ class Kayit:
         "drone_x", "drone_y", "drone_z", "drone_roll", "drone_pitch", "drone_yaw",
         "drone_hiz", "yukseklik",
         "hedef_x", "hedef_y", "hedef_z", "hedef_hiz", "hedef_yon",
+        # Hedefin GERÇEK yönelimi (SDK indeks 14-16). `hedef_yon` bundan
+        # farklıdır: o, konum farkından türetilmiş EMA'lı ROTA'dır.
+        # Kullanıcı isteği (2026-08-22): "hedef aracın ve droneun konumu
+        # ROTASYONU ... her yarım saniyede bir kaydet".
+        "hedef_roll", "hedef_pitch", "hedef_yaw",
         "ist_x", "ist_y", "ist_z", "ist_hata_m", "ist_hata_yatay", "ist_hata_dikey",
         "hedef_menzil_m", "yaw_hata", "v_istek",
         # ⚠ ÖLÇÜM-ONLY (truth): gudume ASLA girmez, yalnız analiz için.
         "gercek_menzil", "gercek_dz", "gercek_elev",
         "thr", "pitch", "roll", "yaw",
         "vis_conf", "vis_cx", "vis_cy", "vis_w", "vis_h", "vis_menzil",
+        # kutunun YAŞI (s): çıkarım 5 Hz, kayıt 2 Hz -> kutu 0.2 s
+        # bayat olabilir. Bayat kutu hedefin gerisinde kalır ve
+        # "yanlış-pozitif" gibi görünür; ölçüt bunu ayırt edebilsin.
+        "vis_yas",
+        # tespit ANINDAKİ duruş+truth'tan öngörülen kadraj konumu. Kutu
+        # kontrol döngüsüne ~75-280 ms gecikmeyle ulaşıyor; ölçütü KAYIT
+        # anının duruşuyla kurmak, dik bakan kolları haksız cezalandırıyordu.
+        "bek_cx", "bek_cy", "bek_w", "bek_ufuk_cy",
+        # §5.1 MEKANİZMA SÜTUNLARI — özellik gerçekten devreye girdi mi?
+        # Deney kolunda bunlar sıfırsa o koşu veri noktası değil, GEÇERSİZ.
+        "kopru_kare", "yerel_aday", "yerel_uygun",
     ]
 
     def __init__(self, dizin, aralik=0.5, jpg_kalite=80):

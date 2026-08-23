@@ -35,9 +35,18 @@ class Bekci:
         self.cfg = cfg
         self.sifirla()
 
+    # ⛔ 2026-08-23: menzil kuralı ancak drone bir kez YAKINLAŞTIKTAN sonra
+    #   silahlanır. Kullanıcının kuralı "drone hedeften çok UZAKLAŞTIYSA"
+    #   idi; bu, bir kez yakın olmayı varsayar. Görev yeniden kurulunca
+    #   başlangıç ayrımı 800-970 m çıkabiliyor (ölçüldü: drone -393,-1606,
+    #   227 m / hedef -87,-2327, 86 m) ve kural MEŞRU YAKLAŞMAYI iptal
+    #   ediyordu — 12 koşuluk bir blok tamamen bu yüzden çöpe gitti.
+    MENZIL_SILAH_M = 200.0
+
     def sifirla(self):
         self._sayac = {}
         self._son_poz = None
+        self._yakinlasti = False
         self._son_degisim_t = None
         self.spawn = None
         self.ihlal = None          # iptal sebebi (str) ya da None
@@ -80,10 +89,13 @@ class Bekci:
         yuk = drone_p[2] - (zemin_z if zemin_z is not None else drone_p[2])
         self._say("irtifa_tavani", yuk > c.BEKCI_ALT_MAX_M, t)
 
-        # 4) hedeften uzaklaşma
+        # 4) hedeften UZAKLAŞMA — ancak bir kez YAKINLAŞTIKTAN sonra
         if hedef_p is not None:
+            d_hedef = math.dist(drone_p, hedef_p)
+            if d_hedef <= self.MENZIL_SILAH_M:
+                self._yakinlasti = True          # kural artık silahlı
             self._say("hedef_cok_uzak",
-                      math.dist(drone_p, hedef_p) > c.BEKCI_MENZIL_MAX_M, t)
+                      self._yakinlasti and d_hedef > c.BEKCI_MENZIL_MAX_M, t)
 
         # 5) spawn'dan uzaklaşma (saha 220 m; bunun 7 katı = kesin kaçak)
         if self.spawn is not None:

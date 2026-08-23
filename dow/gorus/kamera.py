@@ -97,6 +97,37 @@ def piksel_kerteriz(cx_px, cy_px, own_pitch_deg, own_roll_deg=0.0):
     return yat, yukselis
 
 
+def kerteriz_piksel(azimut_deg, yukselis_deg, own_pitch_deg, own_roll_deg=0.0):
+    """`piksel_kerteriz`in TAM TERSİ: gövde-bağımsız kerterizden kadraj
+    konumu (cx, cy).
+
+    ⭐ YARIŞMA KURALI AÇISINDAN TEMİZ: girdisi yalnız AÇI + KENDİ IMU'muz.
+      Menzil, hedef konumu, GPS — hiçbiri yok. (`beklenen_kadraj` bundan
+      farklıdır: o menzil ve truth geometri ister, güdümde KULLANILMAZ.)
+
+    KULLANIM: bbox köprüsü. İki çıkarım arasında (10 Hz -> 100 ms) ve tespit
+    boşluklarında, son kutunun ATALET YÖNÜNÜ sabit tutup KENDİ dönüşümüzü
+    telafi ederek kutunun kadrajda nereye kaydığını hesaplarız. Araç
+    yattıkça (ölçüldü: roll p90 52.7°) hedef kadrajda hızla kayıyor;
+    köprü bu kaymayı kapatır.
+    """
+    # ⚠ SIRA ÖNEMLİ. İleri dönüşüm (piksel_kerteriz) şunu yapıyor:
+    #      dik  = piksel açısı
+    #      yuk  = dik + TILT + pitch          <- ÖNCE kaydır
+    #      (yat, yuk) roll ile +r döndürülür  <- SONRA döndür
+    #   Tersi bu yüzden ÖNCE −r döndürüp SONRA kaydırmayı geri almalı.
+    #   (İlk yazımımda sıra terstim: yatışlıyken 30° girdide 3.9° hata
+    #    veriyordu — yani köprünün EN ÇOK gerektiği anda bozuluyordu.
+    #    Bekçi B26'nın gidiş-dönüş kimlik sınaması yakaladı.)
+    yat, yuk = azimut_deg, yukselis_deg
+    if own_roll_deg:
+        r = math.radians(own_roll_deg); c, s_ = math.cos(r), math.sin(r)
+        yat, yuk = yat*c + yuk*s_, -yat*s_ + yuk*c
+    dik = yuk - TILT_DEG - own_pitch_deg
+    return (CX + F_PX*math.tan(math.radians(yat)),
+            CY - F_PX*math.tan(math.radians(dik)))
+
+
 def beklenen_kadraj(menzil_m, yukselis_deg, azimut_deg, own_pitch_deg, own_roll_deg=0.0):
     """TERS yön (yalnız DOĞRULAMA/ölçüm için; güdümde KULLANILMAZ çünkü
     hedefin GPS'ini gerektirir). (cx, cy, beklenen_kutu_px)"""

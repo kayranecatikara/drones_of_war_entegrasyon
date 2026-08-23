@@ -114,6 +114,23 @@ class DowBaglanti:
         x, y, z = _sdk.get_target_location()
         return x * CM, y * CM, z * CM
 
+    def hedef_yonelim(self):
+        """Hedefin (roll, pitch, yaw) DERECE. SDK indeksi 14-16.
+
+        ⚠ NEDEN AYRI: `hedef_yon` diye kullandığımız büyüklük, hedefin
+          KONUM FARKINDAN türetilmiş EMA'lı ROTA'dır — gerçek yönelim değil.
+          Virajda EMA geride kalır ve istasyon noktası yanlış yere kurulur.
+          Ayrıca hedefin YATIŞI (roll) ve PITCH'i orada hiç yoktur; oysa
+          kadrajda gördüğümüz kutunun genişliği hedefin BAKIŞ AÇISINA bağlı.
+
+        ⚠ BU KANAL BOZULMUŞ OLABİLİR. `telemetry["target"]` jammer'lı
+          kanaldır; konum orada bozuluyor. Rotasyonun bozulup bozulmadığı
+          ÖLÇÜLMEDİ -> şimdilik YALNIZ KAYIT/ANALİZ için okunur, güdüme
+          GİRMEZ. (truth kanalında hedef rotasyonu YOK; indeks 23-26 sadece
+          konum ve hız veriyor.)
+        """
+        return _sdk.get_target_rotation()
+
     # ---------------- ölçüm/debug (yarışmada YOK) ----------------
     def truth(self):
         """Bozulmamış gerçek değerler; YALNIZ zarf ölçümü ve doğrulama için.

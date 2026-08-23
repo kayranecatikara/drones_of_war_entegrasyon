@@ -113,22 +113,105 @@ def test_B12_dev_yanlis_pozitif_elenir():
     assert ok
 
 
-def test_B13_devir_kapisi_YALNIZ_KAMERA():
-    """YARISMA KURALI (kullanici 2026-08-22): gorsel gudum sirasinda GPS
-    kullanmak DISKALIFIYE sebebi. Devir kapisi da GPS e bakmamali.
-    Onceki surum GPS menzilini kapi olarak kullaniyordu; kural netlesince
-    KALDIRILDI. Yerine: ardisik kare sayaci + kamera-ici gecerlilik kapisi."""
+def test_B13_devir_kapisi_YARISMADA_YALNIZ_KAMERA():
+    """⛔ YARISMA KURALI (kullanici 2026-08-22): "gorsel gudum sirasinda GPS
+    verisini asla kullanma; gorsel gudum algoritmasina GPS verisini dahil
+    etmek diskalifiye sebebi."
+
+    Kullanici 2026-08-22'de GELISTIRME icin bir istisna ONAYLADI: devir
+    kapisi (faz gecisi) istasyona oturma + ~15 m menzil kullanabilir, AMA
+    "ayri bir anahtarla ve yarisma kipinde otomatik kapanacak sekilde".
+    Bu bekci tam o sozlesmeyi sinar:
+      1) YARISMA_KIPI=1 -> gelistirme_devri() False
+      2) o durumda GPS'e bakan metot HIC CAGRILMAZ (kaynak kosulu)
+      3) metodun tek cagri yeri gelistirme_devri() bayraginin arkasinda
+      4) kamera-tek kapi (ardisik DEVIR_KARE tespit) HALA duruyor
+      5) GORSEL fazda GPS okunmaz (B18 ayrica sinar)
+    """
     import inspect
     from dow import ana
     from dow.ayarlar import Ayar
+
+    # 1) yarisma kipi bayragi kapatiyor mu
+    eski = Ayar.YARISMA_KIPI
+    try:
+        Ayar.YARISMA_KIPI = True
+        assert Ayar.gelistirme_devri() is False, \
+            "YARISMA_KIPI=1 iken gelistirme devir kapisi HALA acik"
+        Ayar.YARISMA_KIPI = False
+        assert Ayar.gelistirme_devri() is True
+    finally:
+        Ayar.YARISMA_KIPI = eski
+
     k = inspect.getsource(ana.Beyin.adim)
-    bas = k.index("kilit_kare")
-    devir = k[max(0, bas-900):bas+300]
-    for y in ("hedef_konumu", "truth", "get_target", "gps_menzil"):
-        assert y not in devir, f"devir kapisinda GPS izi: {y}"
+
+    # 2+3) GPS'e bakan metodun TEK cagri yeri var ve bayragin arkasinda
+    assert k.count("_gelistirme_devir_hazir") == 1, \
+        "gelistirme devir kapisi birden fazla yerden cagriliyor"
+    i = k.index("_gelistirme_devir_hazir")
+    civar = k[i:i + 260]
+    assert "gelistirme_devri()" in civar, \
+        "GPS'li devir kapisi gelistirme_devri() bayraginin ARKASINDA degil"
+
+    # 4) kamera-tek kapi duruyor
+    assert "self._kilit >= self.cfg.DEVIR_KARE" in k, \
+        "kamera-tek devir kapisi (ardisik tespit) kaybolmus"
     assert Ayar.DEVIR_KARE >= 10, "devir 10 ardisik kare olmali"
     assert Ayar.KAYIP_KARE >= 20, "kayip 20 ardisik kare olmali"
 
+    # 5) adim() govdesinde GPS'e bakan BASKA bir devir izi olmasin:
+    #    hedefin konumu yalnizca (a) durum != GORSEL korumali hedef_konumu()
+    #    ve (b) ayrilmis _gelistirme_devir_hazir metodu uzerinden gelir.
+    for y in ("get_target", "debug_truth", "truth("):
+        assert y not in k, f"adim() icinde dogrudan GPS erisimi: {y}"
+
+
+def test_B25_yarisma_kipinde_kapi_GPS_E_DOKUNMAZ():
+    """FONKSIYONEL kanit: YARISMA_KIPI=1 iken devir kapisi hedefin konumuna
+    DOKUNAMAZ. Hedef konumu yerine, herhangi bir erisimde patlayan bir
+    nesne veriyoruz; kapi cagrilirsa test AssertionError ile duser.
+
+    Metin bekcisi (B13) kodun SEKLINI sinar; bu bekci DAVRANISI sinar."""
+    from dow.ayarlar import Ayar
+    from dow import ana
+
+    class Mayin:
+        """Herhangi bir sekilde okunursa patlar."""
+        def __getitem__(self, i): raise AssertionError(
+            "YARISMA KIPINDE HEDEF GPS'I OKUNDU - DISKALIFIYE RISKI")
+        def __iter__(self): raise AssertionError(
+            "YARISMA KIPINDE HEDEF GPS'I OKUNDU - DISKALIFIYE RISKI")
+        def __len__(self): raise AssertionError("hedef GPS okundu")
+
+    b = ana.Beyin.__new__(ana.Beyin)      # __init__ SDK ister; atliyoruz
+    b.cfg = Ayar
+    b.tani = {}
+    b._ist_kare = 0
+    b._kilit = 999
+    class _Izl: yon_deg = 0.0
+    b.izleyici = _Izl()
+
+    eski = Ayar.YARISMA_KIPI
+    try:
+        # --- yarisma kipi: kapi cagrilmamali -> mayin patlamamali ---
+        Ayar.YARISMA_KIPI = True
+        assert Ayar.gelistirme_devri() is False
+        # adim() icindeki kosul birebir: bayrak False -> cagri YOK
+        dev = (b._gelistirme_devir_hazir((0., 0., 0.), Mayin())
+               if Ayar.gelistirme_devri() else False)
+        assert dev is False
+
+        # --- gelistirme kipi: kapi cagrilir ve GERCEKTEN GPS okur ---
+        Ayar.YARISMA_KIPI = False
+        patladi = False
+        try:
+            b._gelistirme_devir_hazir((0., 0., 0.), Mayin())
+        except AssertionError:
+            patladi = True
+        assert patladi, ("gelistirme kipinde kapi hedef konumunu OKUMUYOR - "
+                         "kapi ise yaramiyor demektir")
+    finally:
+        Ayar.YARISMA_KIPI = eski
 
 def test_B18_gorsel_fazda_gps_OKUNMAZ():
     """En kati hali: GORSEL fazda hedefin GPS i OKUNMAZ bile.
@@ -156,24 +239,33 @@ def test_B19_ibvs_girdisi_yalniz_goruntu():
         assert y not in src, f"ibvs modulunde GPS erisimi: {y}"
 
 
-def test_B20_lead_terimi_bagli():
-    """OLCULDU (GV02): lead terimi ibvs.komut() a HIC gecilmiyordu.
-    Saf takip capraz hedefin gerisinde kaldi: cx 991 -> 1292 (merkez 960),
-    sonra tespit koptu. LOS hizi YALNIZ kameradan turetilmeli."""
-    import inspect, ast as A, textwrap as T
+def test_B20_olu_anahtar_birakilmadi():
+    """CLAUDE.md §5.12 — ELENEN OZELLIK TAMAMEN SILINIR.
+    Bu bekci, 2026-08-23 gecesinde ELENEN ya da SONUCA BAGLANMAYAN
+    anahtarlarin geri sizmadigini sinar:
+      SAKIN_KAMERA / LEAD_* / MERKEZ_FREN / FREN_TABAN  (onceki oturumda
+        n=3 ile elenmisti, kill-switch olarak olu duruyordu)
+      ROLL_TAVAN  (bu gece eklendi, A/B'si tamamlanmadi -> silindi;
+        roll p90 zaten 51° -> 4°'ye indigi icin kazanacak yeri kalmamisti)
+      los_hiz_deg_s / _los_hizi  (LEAD_SURE=0 iken ciktiya HIC etki
+        etmedigi 216/216 girdide kanitlandi, sonra silindi)
+    Eski test 'lead terimi bagli mi' diye sinardi; lead SILINDIGI icin
+    bekcinin gorevi tersine cevrildi."""
+    import inspect
+    from dow.gudum import ibvs as I
     from dow import ana
-    assert "los_hiz_deg_s=" in inspect.getsource(ana.Beyin.adim), \
-        "ibvs.komut() lead terimi ALMIYOR"
-    fn = A.parse(T.dedent(inspect.getsource(ana.Beyin._los_hizi))).body[0]
-    fn.body = [n for n in fn.body if not (isinstance(n, A.Expr)
-               and isinstance(n.value, A.Constant)
-               and isinstance(n.value.value, str))]
-    kod = A.dump(fn)
-    for y in ("hedef_konum", "truth", "get_target"):
-        assert y not in kod, f"LOS hizi KODU GPS e erisiyor: {y}"
-    assert list(inspect.signature(ana.Beyin._los_hizi).parameters)[1:] == \
-        ["azimut_deg", "t"], "LOS hizi fazladan girdi aliyor"
-
+    C = I.IbvsCfg
+    for ad in ("SAKIN_KAMERA", "LEAD_SURE", "LEAD_MENZIL_M", "LEAD_MAX_DEG",
+               "MERKEZ_FREN", "FREN_TABAN", "ROLL_TAVAN", "YAW_KAZANC",
+               "YAW_HIZ_TAVAN"):
+        assert not hasattr(C, ad), f"olu anahtar geri gelmis: IbvsCfg.{ad}"
+    assert not hasattr(ana.Beyin, "_los_hizi"), "_los_hizi geri gelmis"
+    assert "los_hiz_deg_s" not in inspect.signature(I.komut).parameters
+    for kaynak in (inspect.getsource(I), inspect.getsource(ana)):
+        for y in ("SAKIN_KAMERA", "MERKEZ_FREN", "ROLL_TAVAN", "_los_hizi"):
+            for satir in kaynak.splitlines():
+                cikari = satir.split("#")[0]      # tarihsel yorum serbest
+                assert y not in cikari, f"olu atif kodda kaldi: {y}"
 
 def test_B14_kalkis_zemine_goreli():
     """⛔ ÖLÇÜLDÜ: get_drone_altitude() DÜNYA Z'si döndürür ve zemin ~48 m.
@@ -264,6 +356,110 @@ def test_B22_gorev_seviyesi_yeniden_kurulum():
     assert hasattr(kosu, "_gorevi_yeniden_kur")
     k = inspect.getsource(kosu._yeni_gorev)
     assert "_gorevi_yeniden_kur" in k, "E yetmediginde gorev kurulmuyor"
+
+
+def test_B23_hybridsort_tamamen_silindi():
+    """CLAUDE.md 5.12 — ELENEN OZELLIK TAMAMEN SILINIR.
+    Kullanici (2026-08-22): "hybridsort tracking algoritmasini komple
+    denklemden cikart; su an detection kotu oldugu icin tracking bir ise
+    yaramiyor ve rastgele yerlere track atabiliyor."
+    Olu kill-switch / okunmayan alan / yarim kalan import BIRAKILMAZ:
+    bir sonraki degisiklik onlardan birine carpar."""
+    import subprocess
+    kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    assert not os.path.exists(os.path.join(kok, "dow/gorus/tracker.py")), \
+        "tracker.py hala duruyor"
+    from dow.ayarlar import Ayar
+    assert not hasattr(Ayar, "TAKIP_AKTIF"), "olu kill-switch TAKIP_AKTIF duruyor"
+    from dow.gorus import dedektor
+    assert not hasattr(dedektor, "TakipliDedektor"), "TakipliDedektor duruyor"
+    # kod govdesinde (tarihsel yorum HARIC) tek bir atif bile kalmamali
+    r = subprocess.run(
+        ["grep", "-rn", "TalonTracker\\|boxmot\\|TAKIP_AKTIF\\|TakipliDedektor",
+         "--include=*.py", "dow/", "araclar/"],
+        cwd=kok, capture_output=True, text=True)
+    kalan = r.stdout.splitlines()
+    assert not kalan, "takipci atiflari kaldi:\n" + "\n".join(kalan)
+
+
+def test_B24_ekran_kopyalama_tavanli():
+    """OLCULDU 2026-08-22 (GA04 vs GV11) — ARAYUZ UCUSU BOZUYORDU.
+    izleyici.py ekrani saniyede 180-330 kez kopyaliyordu (1920x1080) ve
+    ayni GPU'da YOLO'yu tam hizda kosuyordu. Oyun (UE5/Vulkan) ayni GPU +
+    ayni X sunucusunda oldugu icin:
+        istasyon hatasi 5.3 m -> 25.3 m,  <=15 m orani %88 -> %2,
+        v_istek 120 s boyunca 33 m/s TAVANINDA doyumda kaldi.
+    Bu yuzden hem yakalama hem cikarim TAVANLI olmak ZORUNDA; ve
+    kontrol dongusu artik tam kare KOPYALAMAZ (gorus is parcacigindan alir)."""
+    import inspect
+    from dow.ayarlar import Ayar
+    assert 0 < Ayar.PANEL_YAKALA_HZ <= 60, "yakalama tavani makul degil"
+    assert 0 < Ayar.PANEL_DET_HZ <= 30, "dedektor tavani makul degil"
+    for mod, fn in (("araclar.izleyici", "_yakala"), ("araclar.kosu", "_gorus_isi")):
+        m = __import__(mod, fromlist=["x"])
+        k = inspect.getsource(getattr(m, fn))
+        assert "PANEL_YAKALA_HZ" in k and "time.sleep" in k, \
+            f"{mod}.{fn} icinde hiz tavani yok"
+    from araclar import kosu
+    kk = inspect.getsource(kosu.kosu_yap)
+    assert "sct.grab" not in kk, \
+        "kontrol dongusu hala kendisi ekran kopyaliyor (cift kopyalayici)"
+
+
+def test_B26_bbox_koprusu_YALNIZ_KAMERA_VE_KENDI_IMU():
+    """T5 bbox koprusu, GORSEL FAZDA calisir -> ustun kural gecerli (§10):
+    hedefin GPS'i/menzili KULLANILAMAZ. Koprunun girdileri yalnizca
+    son bbox pikselleri + KENDI yonelimimiz olmali."""
+    import inspect
+    from dow import ana
+    from dow.gorus import kamera as KAM
+
+    # ters donusum saf: aci + kendi IMU. Menzil/hedef girdisi YOK.
+    par = list(inspect.signature(KAM.kerteriz_piksel).parameters)
+    for ad in par:
+        assert not any(y in ad.lower() for y in
+                       ("menzil", "range", "hedef", "target", "gps", "truth")), \
+            f"kerteriz_piksel() yasak girdi aliyor: {ad}"
+
+    for fn in (ana.Beyin._kopru_kaydet, ana.Beyin._kopru_kutu):
+        k = inspect.getsource(fn)
+        for y in ("hedef_konumu", "get_target", "debug_truth", "truth(",
+                  "istasyon_noktasi", "GPS."):
+            assert y not in k, f"{fn.__name__} icinde GPS izi: {y}"
+
+    # kopru, gorsel dalda KULLANILIYOR olmali (olu kod birakma - 5.12)
+    a = inspect.getsource(ana.Beyin.adim)
+    assert "_kopru_kutu(" in a, "kopru yazildi ama gudumde kullanilmiyor"
+
+    # ters donusum, ileri donusumun TERSI mi (sayisal kimlik)
+    for az in (-30.0, 0.0, 17.5):
+        for el in (-12.0, 0.0, 28.0):
+            for p_, r_ in ((0.0, 0.0), (-15.0, 20.0)):
+                cx, cy = KAM.kerteriz_piksel(az, el, p_, r_)
+                a2, e2 = KAM.piksel_kerteriz(cx, cy, p_, r_)
+                assert abs(a2 - az) < 1e-6 and abs(e2 - el) < 1e-6, \
+                    f"kerteriz_piksel, piksel_kerteriz'in tersi degil: {az},{el}"
+
+
+def test_B27_bekci_menzil_kurali_YAKLASMAYI_IPTAL_ETMEZ():
+    """OLCULDU 2026-08-23: gorev yeniden kurulunca baslangic ayrimi 800-970 m
+    cikabiliyor (drone -393,-1606,227 m / hedef -87,-2327,86 m). Bekcinin
+    "hedeften 500 m uzak" kurali o durumda MESRU YAKLASMAYI iptal ediyordu
+    ve 12 kosuluk bir blok tamamen bu yuzden cope gitti.
+    Kullanicinin kurali "drone hedeften cok UZAKLASTIYSA" idi; bu, bir kez
+    YAKIN olmayi varsayar. Kural artik ancak yaklasma sonrasi silahlanir."""
+    from araclar.bekci import Bekci
+    b = Bekci(); b.sifirla()
+    for i in range(10):
+        assert b.kontrol(i * 0.1, (0, 0, 100), 0.0, (900, 0, 100), True) is None, \
+            "uzaktan BASLAYAN kosu iptal ediliyor - yaklasma imkansiz"
+    b.sifirla()
+    for i in range(5):                      # once yaklas
+        b.kontrol(i * 0.1, (0, 0, 100), 0.0, (50, 0, 100), True)
+    ihlaller = [b.kontrol(1 + i * 0.1, (0, 0, 100), 0.0, (900, 0, 100), True)
+                for i in range(10)]
+    assert "hedef_cok_uzak" in ihlaller, \
+        "yaklastiktan SONRA kacan drone yakalanmiyor - bekci is gormuyor"
 
 
 if __name__ == "__main__":
