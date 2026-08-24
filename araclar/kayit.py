@@ -45,7 +45,8 @@ class Kayit:
         # kutunun YAŞI (s): çıkarım 5 Hz, kayıt 2 Hz -> kutu 0.2 s
         # bayat olabilir. Bayat kutu hedefin gerisinde kalır ve
         # "yanlış-pozitif" gibi görünür; ölçüt bunu ayırt edebilsin.
-        "vis_yas",
+        "vis_yas", "vis_yas_tam", "det_ms", "det_pencere",
+        "red_konum", "red_boyut", "yerel_kayip",
         # tespit ANINDAKİ duruş+truth'tan öngörülen kadraj konumu. Kutu
         # kontrol döngüsüne ~75-280 ms gecikmeyle ulaşıyor; ölçütü KAYIT
         # anının duruşuyla kurmak, dik bakan kolları haksız cezalandırıyordu.

@@ -81,6 +81,11 @@ class Ayar:
     #   Yani dedektörün hızı GÜDÜMÜ bozuyor. Güdüm zaten son kutuyu
     #   tutuyor; çıkarımı tavanlamak kontrol bant genişliğini de ARTIRIR.
     GORSEL_DET_HZ   = _f("DOW_GORSEL_DET_HZ", 10.0)
+    # ⭐ KOL C — çıkarımı ZAMANLAYICI yerine YENİ KARE olayına bağla.
+    #   Yakalama 15 Hz iken 10 Hz zamanlayıcı, karelerin bir kısmını İKİNCİ
+    #   KEZ tarar (aynı piksel, aynı sonuç, tam bedel). Kapı açıkken çıkarım
+    #   yalnız yeni kare geldiğinde koşar; GORSEL_DET_HZ üst sınır kalır.
+    DET_YENI_KARE   = _b("DOW_DET_YENI_KARE", False)
     PANEL_OLCEK     = _f("DOW_PANEL_OLCEK", 0.5)   # JPEG'e giden küçültme
 
     # ================= KALKIŞ =================

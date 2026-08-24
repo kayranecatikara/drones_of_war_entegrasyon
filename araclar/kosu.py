@@ -121,7 +121,7 @@ def gorus_durdur(sure=2.0):
 
 def _son_kare():
     with _gorus_kilit:
-        return _gorus["img"], _gorus["hud"]
+        return _gorus["img"], _gorus["hud"], _gorus["n"], _gorus["t"]
 
 
 def _tespit_yaz(d):
@@ -279,6 +279,8 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
     _g_kesinti = 0; _g_kesinti_s = 0.0; _g_kesik_bas = None
     ist_hatalar = []; oturma_t = None
     ihlal = None; tespit = None
+    son_kare_n = -1; det_tekrar = 0
+    _g_yas = []; _g_det_ms = []; _g_det_n = 0; _g_pencere_n = 0
     dt_hedef = 1.0 / Ayar.LOOP_HZ
 
     while time.time() - t0 < sure:
@@ -287,7 +289,7 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
         # ---- KARE: görüş iş parçacığından AL (kopyalama YOK) ----
         # Uçuş kapısı da oradan gelen HUD parlaklığıdır (sol alt batarya
         # bloğu; ölçüldü: yerde 0.151 | uçuşta 0.155 | spawn-bekler 0.000).
-        img, hud_pk = _son_kare()
+        img, hud_pk, kare_n, kare_t = _son_kare()
         if img is None:
             time.sleep(0.005); continue
         if hud_pk <= 0.05:
@@ -296,9 +298,19 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
             # ⛔ ÇIKARIM TAVANLI (bkz. Ayar.GORSEL_DET_HZ). Aradaki tiklerde
             #   güdüm son kutuyu kullanır (Beyin._son_tespit zaten öyle
             #   çalışıyor) ve kontrol döngüsü tam hızda döner.
-            if (t - son_gt) >= 1.0 / max(0.1, Ayar.GORSEL_DET_HZ):
-                son_gt = t
-                tespit = beyin.gorsel_tik(img, t)
+            # ⭐ KOL C — YENİ KARE KAPISI (DOW_DET_YENI_KARE):
+            #   Yakalama 15 Hz, çıkarım tavanı 10 Hz. Zamanlayıcıyla
+            #   koşturmak AYNI kareyi ikinci kez taramaya yol açar: bedava
+            #   değil, bedelli hiçlik. Kapı açıkken çıkarım YALNIZ yeni bir
+            #   kare geldiğinde koşar; tavan üst sınır olarak kalır.
+            #   Mekanizma sütunu: det_tekrar (aynı kareyi kaç kez taradık).
+            _sure_doldu = (t - son_gt) >= 1.0 / max(0.1, Ayar.GORSEL_DET_HZ)
+            _yeni = (kare_n != son_kare_n)
+            _kos = (_sure_doldu and _yeni) if Ayar.DET_YENI_KARE else _sure_doldu
+            if _kos:
+                if not _yeni: det_tekrar += 1
+                son_gt = t; son_kare_n = kare_n
+                tespit = beyin.gorsel_tik(img, t, kare_t)
                 beyin._cikarim_yapildi = True
                 tespit_yas = 0.0 if tespit else -1.0
                 _tespit_yaz(tespit)
@@ -362,6 +374,15 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                                    math.degrees(_yon[2])), _hp))
         if beyin.durum == "GORSEL":
             gorsel_tik_say += 1
+            # ⭐ BİRİNCİL ÖLÇÜT — güdümün kullandığı kutunun GERÇEK yaşı.
+            #   Karenin YAKALANDIĞI andan sayılır (çıkarımın koştuğu andan
+            #   değil); aradaki fark yakalama tavanı kadardır ve yanlılıktır.
+            if beyin._son_tespit and beyin._son_tespit_kare_t:
+                _g_yas.append(t - beyin._son_tespit_kare_t)
+            if beyin._cikarim_yapildi:
+                _g_det_n += 1
+                _g_det_ms.append(beyin._det_ms)
+                if beyin._det_pencere > 0: _g_pencere_n += 1
             if beyin._bu_kare_tespit:
                 tespit_say += 1
                 if _g_kesik_bas is not None:
@@ -443,6 +464,7 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                       "ist_hata_m", "ist_hata_yatay", "ist_hata_dikey",
                       "hedef_menzil_m", "yaw_hata", "v_istek",
                       "kopru_kare", "bayat_birak", "yerel_aday", "yerel_uygun",
+                      "det_ms", "det_pencere", "red_konum", "red_boyut", "yerel_kayip",
                       "ibvs_nisan_elev", "ibvs_vz_kirpildi", "ibvs_e_cy",
                       "ibvs_vz_yukari"):
                 if k in ti: sat[k] = round(ti[k], 2) if isinstance(ti[k], float) else ti[k]
@@ -450,7 +472,10 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                 sat.update({"vis_cx": round(tespit[0], 1), "vis_cy": round(tespit[1], 1),
                             "vis_w": round(tespit[2], 1), "vis_h": round(tespit[3], 1),
                             "vis_conf": round(tespit[4], 3),
-                            "vis_yas": round(tespit_yas, 3)})
+                            "vis_yas": round(tespit_yas, 3),
+                            "vis_yas_tam": round(
+                                t - beyin._son_tespit_kare_t, 3)
+                            if beyin._son_tespit_kare_t else -1.0})
                 # tespit ANINDAKİ duruş+truth -> öngörülen kadraj konumu
                 bg = _gecmis_beklenen(_halka, t - max(0.0, tespit_yas))
                 if bg:
@@ -541,6 +566,19 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                     else float("nan"),
         "yaw_dev_s": round(float(np.median(_g_yaw_dev)), 3) if len(_g_yaw_dev) > 5
                      else float("nan"),
+        # --- ⭐ GÖRÜŞ ZİNCİRİ (2026-08-23 kampanyası) ---
+        # kutu_yasi_p90 BİRİNCİL; gercek tespit% GEÇERLİLİK EŞİ (§5.2):
+        # yaş, kutuyu ATARAK da düşer — tespit oranı yanında okunmalı.
+        "kutu_yasi_med": round(float(np.median(_g_yas)), 3) if len(_g_yas) > 5
+                         else float("nan"),
+        "kutu_yasi_p90": round(float(np.percentile(_g_yas, 90)), 3)
+                         if len(_g_yas) > 5 else float("nan"),
+        "det_ms": round(float(np.median(_g_det_ms)), 1) if len(_g_det_ms) > 3
+                  else float("nan"),
+        "det_hz": round(_g_det_n / max(1e-6, gorsel_tik_say / _tik_hz), 1)
+                  if gorsel_tik_say > 5 else float("nan"),
+        "pencere_yuzde": round(100.0 * _g_pencere_n / max(1, _g_det_n), 1),
+        "det_tekrar": det_tekrar,
         "kesinti_n": _g_kesinti,
         "kesinti_s": round(_g_kesinti_s, 1),
         "ist_hata_medyan": round(float(np.nanmedian(a)), 2),

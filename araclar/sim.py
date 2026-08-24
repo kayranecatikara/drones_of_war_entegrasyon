@@ -64,12 +64,29 @@ def _gorev_kur(zaman_asimi=420):
     return _bekle(20)
 
 
+def _odakla():
+    """⛔ HER DENEMEDEN ÖNCE OYUN PENCERESİNİ ÖNE AL.
+
+    YAŞANDI İKİ KEZ (2026-08-23 ve 24): `goreve_gir.sh` menü tuşlarını
+    xdotool ile gönderiyor, ama tuşlar ODAKTAKİ pencereye gider. Bir
+    tarayıcı/editör penceresi öndeyse tuşlar oraya düşer ve sim
+    "❌ HAZIRLANAMADI" der — oyun aslında sapasağlam açıktır, sadece
+    başlık ekranında bekler. Bir kampanya bu yüzden hiç koşmadı.
+    """
+    try:
+        from araclar.kadraj import oyunu_one_al
+        oyunu_one_al(); time.sleep(1.0)
+    except Exception:
+        pass
+
+
 def hazir_ol(deneme=3):
     """Sim hazır olana kadar yükseltilerek dener. True/False döner."""
     for i in range(deneme):
         if _port_acik():
             return True
         if _oyun_var():
+            _odakla()
             print(f"  [sim {i+1}/{deneme}] port kapalı, 'E' deneniyor", flush=True)
             _e_bas()
             if _bekle(8):

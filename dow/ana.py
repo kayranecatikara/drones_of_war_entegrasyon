@@ -37,6 +37,10 @@ class Beyin:
         self.izleyici = GPS.HedefIzleyici()
         self.filtre = GNSSDuzeltici()        # KULLANICININ kodu — DEĞİŞTİRİLMEDİ
         self.det = dedektor                  # yalnız GORSEL_AKTIF iken
+        self._det_ms = 0.0                   # §5.1 mekanizma sütunları
+        self._det_pencere = 0
+        self._son_tespit_kare_t = 0.0        # ÖLÇÜM-ONLY (güdüme girmez)
+        self._red_konum = 0; self._red_boyut = 0   # ÖLÇÜM-ONLY (kapı teşhisi)
         self.durum = "KALKIS"
         self._zemin_z = None
         self._son_tespit = None
@@ -90,13 +94,25 @@ class Beyin:
         return (temiz[0] / 100.0, temiz[1] / 100.0, temiz[2] / 100.0)
 
     # ---------------- görsel ----------------
-    def gorsel_tik(self, img_rgb, t):
-        """Bir kamera karesini işle. GİRDİ YALNIZ GÖRÜNTÜ — GPS yok."""
+    def gorsel_tik(self, img_rgb, t, kare_t=None):
+        """Bir kamera karesini işle. GİRDİ YALNIZ GÖRÜNTÜ — GPS yok.
+
+        `kare_t` SADECE ÖLÇÜMDÜR (karenin ekrandan alındığı an). Güdüm ve
+        köprü `_son_tespit_t`yi kullanmaya devam eder — bu parametre güdüm
+        davranışını DEĞİŞTİRMEZ. Neden gerekti: `vis_yas` çıkarımın koştuğu
+        andan sayıyordu, oysa kutu KARENİN yakalandığı anın dünyasını
+        anlatır. Aradaki fark yakalama tavanı kadar (15 Hz -> 0-67 ms) ve
+        birincil ölçütümüz kutu yaşı olduğu için bu yanlılık kabul edilemez."""
         self._bu_kare_tespit = False
         if not self.cfg.GORSEL_AKTIF or self.det is None:
             return None
         d = self._yerel_bul(img_rgb, t) if ibvs.IbvsCfg.YEREL_KAPI_PX > 0 \
-            else self.det.bul(img_rgb)
+            else self.det.bul(img_rgb, merkez=(self._son_tespit[0],
+                                               self._son_tespit[1])
+                              if self._son_tespit else None)
+        # §5.1 MEKANİZMA SÜTUNLARI — özellik gerçekten çalıştı mı
+        self._det_ms = self.det.son_ms
+        self._det_pencere = self.det.son_pencere
         if d is None:
             return None
         cx, cy, w, h, conf = d
@@ -105,6 +121,7 @@ class Beyin:
             return None
         self._son_tespit = d
         self._son_tespit_t = t
+        self._son_tespit_kare_t = kare_t if kare_t else t   # ÖLÇÜM-ONLY
         self._bu_kare_tespit = True
         self._kopru_kaydet(d, t)
         return d
@@ -127,7 +144,12 @@ class Beyin:
         #   kaybedince bir daha asla bulamıyordu.)
         if self._yerel_kayip >= C.YEREL_KURTAR:
             ref = None
-        adaylar = self.det.bul_hepsi(img_rgb, C.YEREL_CONF_MIN)
+        # ⭐ NATİF PENCERE (ROI) MERKEZİ = ref. Aynı referans hem pencereyi
+        #   konumlandırır hem adayları eler. ref None ise (kurtarma) pencere
+        #   de kapanır ve TAM KADRAJ taranır — kaybetmişken duyarlılık şart.
+        #   Girdi yalnız kamera + kendi IMU'muz; GPS YOK (§10).
+        adaylar = self.det.bul_hepsi(img_rgb, C.YEREL_CONF_MIN,
+                                     merkez=(ref[0], ref[1]) if ref else None)
         self._yerel_aday = len(adaylar)
         self._yerel_uygun = 0
         if not adaylar:
@@ -137,6 +159,17 @@ class Beyin:
             self._yerel_kayip = 0
             return max(adaylar, key=lambda a: a[4])
         rx, ry, rw = ref[0], ref[1], max(ref[2], 1.0)
+        # ⭐ ÖLÇÜM-ONLY (2026-08-24): kapı adayları HANGİ filtreyle eliyor?
+        #   ÖLÇÜLDÜ (HZ2, 148 kare): kutu yaşı >0.3 s olan karelerin
+        #   %71.4'ünde model kutu BULMUŞ ama kapı HEPSİNİ elemiş. Yani
+        #   "gecikme"nin baskın sebebi dedektör değil, BİZİM kapımız.
+        #   Hangi filtrenin elediğini bilmeden düzeltme körlemesine olur.
+        self._red_konum = self._red_boyut = 0
+        for _a in adaylar:
+            _k = math.hypot(_a[0]-rx, _a[1]-ry) <= C.YEREL_KAPI_PX + 2.0*rw
+            _b = 0.5 <= _a[2]/rw <= 2.0
+            if not _k: self._red_konum += 1
+            if _k and not _b: self._red_boyut += 1
         yaricap = C.YEREL_KAPI_PX + 2.0 * rw
         uygun = [a for a in adaylar
                  if math.hypot(a[0]-rx, a[1]-ry) <= yaricap
@@ -252,7 +285,12 @@ class Beyin:
             hp = self.hedef_konumu(t)
             hv = self.izleyici.guncelle(hp, t) if hp else (0.0, 0.0, 0.0)
 
-        self.tani = {"durum": self.durum, "yukseklik": yukseklik,
+        self.tani = {"det_ms": round(self._det_ms, 2),
+                     "det_pencere": self._det_pencere,
+                     "red_konum": self._red_konum,
+                     "red_boyut": self._red_boyut,
+                     "yerel_kayip": self._yerel_kayip,
+                     "durum": self.durum, "yukseklik": yukseklik,
                      "hedef_var": int(hp is not None),
                      # §5.1 mekanizma sütunları — tani her tik SIFIRDAN
                      # kurulduğu için gorsel_tik'in yazdıkları siliniyordu;

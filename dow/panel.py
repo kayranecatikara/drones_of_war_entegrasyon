@@ -188,6 +188,9 @@ body{margin:0;background:var(--bg);color:var(--y);
     <button id=k_gps    onclick="kip('gps')">GPS</button>
     <button id=k_gorsel onclick="kip('gorsel')">Görsel</button>
   </div>
+  <div class=kip>
+    <button id=o_hizli onclick="ozellik('hizli')">⚡ Hızlı Görüş</button>
+  </div>
   <div class=fps>
     <div><b id=f1>—</b><span>yakalama</span></div>
     <div><b id=f2>—</b><span>dedektör</span></div>
@@ -232,6 +235,16 @@ function kipGoster(k){
     b.className = (ad===k) ? ('on '+snf) : '';
   }
 }
+async function ozellik(a){
+  const r=await (await fetch('/ozellik',{method:'POST',
+                 body:JSON.stringify({ad:a})})).json();
+  ozellikGoster(r.acik);
+}
+function ozellikGoster(v){
+  const b=document.getElementById('o_hizli');
+  b.className = v ? 'on v' : '';
+  b.textContent = v ? '⚡ Hızlı Görüş: AÇIK' : '⚡ Hızlı Görüş: kapalı';
+}
 function fps(el,v,tav){
   document.getElementById(el).innerHTML =
     (v||0).toFixed(1) + (tav ? ' <em>/ '+tav.toFixed(0)+'</em>' : '');
@@ -252,6 +265,7 @@ async function tik(){
     s.map(x=>`<i class="${x===1?'d':''}"></i>`).join('');
   document.getElementById('or1').textContent='%'+(d._oran_tespit||0).toFixed(0);
   if(d.kip) kipGoster(d.kip);
+  if(d._hizli!==undefined) ozellikGoster(d._hizli);
  }catch(e){}
 }
 setInterval(tik,220);
@@ -283,6 +297,8 @@ class _H(BaseHTTPRequestHandler):
                 t = dict(_K["telem"])
             from dow.ayarlar import kip_oku
             t["kip"] = kip_oku()
+            from dow.gorus.dedektor import DetCfg
+            t["_hizli"] = int(DetCfg.FP16 and DetCfg.PENCERE_PX > 0)
             t.update({"_serit": serit, "_oran_tespit": o1,
                       "_fps_yakala": _hz(_fps["yakala"]),
                       "_fps_dedektor": _hz(_fps["dedektor"]),
@@ -335,6 +351,29 @@ class _H(BaseHTTPRequestHandler):
                 telem_yaz({"kip": k})
                 print(f"[panel] GÜDÜM KİPİ -> {k.upper()}", flush=True)
                 self._gonder(json.dumps({"ok": True, "kip": k}).encode(),
+                             "application/json")
+            except Exception as e:
+                self._gonder(json.dumps({"ok": False, "hata": str(e)}).encode(),
+                             "application/json", 400)
+            return
+        if self.path == "/ozellik":
+            # ⚡ HIZLI GÖRÜŞ — üçü BİRLİKTE açılır/kapanır (fp16 + natif
+            #   pencere + yeni-kare kapısı). Tek düğme, çünkü kullanıcı
+            #   "aç/kapa, farkı gör" istiyor (§6); kampanya tek değişkenli
+            #   kademeleri env ile ayrı ayrı koşar (§4).
+            n = int(self.headers.get("Content-Length", 0))
+            try:
+                self.rfile.read(n)
+                from dow.gorus.dedektor import DetCfg
+                from dow.ayarlar import Ayar
+                acik = not (DetCfg.FP16 and DetCfg.PENCERE_PX > 0)
+                DetCfg.FP16 = acik
+                DetCfg.PENCERE_PX = 640 if acik else 0
+                Ayar.DET_YENI_KARE = acik
+                telem_yaz({"_hizli": int(acik)})
+                print("[panel] HIZLI GÖRÜŞ -> %s" % ("AÇIK" if acik else "kapalı"),
+                      flush=True)
+                self._gonder(json.dumps({"ok": True, "acik": int(acik)}).encode(),
                              "application/json")
             except Exception as e:
                 self._gonder(json.dumps({"ok": False, "hata": str(e)}).encode(),

@@ -33,6 +33,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 SUT = [("n", None), ("temas", "sum"), ("sekme", "sum"), ("imha", "sum"),
        ("en_yakin_m", "med"),
+       # ⭐ 2026-08-23 GÖRÜŞ ZİNCİRİ KAMPANYASI — koşmadan ÖNCE ilan edildi
+       ("kutu_yasi_p90", "med"),   # BİRİNCİL
+       ("kutu_yasi_med", "med"),
+       ("det_ms", "med"),          # §5.1 mekanizma (fp16 + pencere)
+       ("pencere%", "med"),        # §5.1 mekanizma (pencere gerçekten koştu mu)
+       ("det_hz", "med"), ("det_tekrar", "med"),
        ("tespit%", "med"), ("dogru%", "med"), ("yanlis%", "med"),
        ("kadraj%", "med"), ("manevra%", "med"), ("hedef_w", "med"),
        ("gorsel_s", "med"), ("cx_donus_s", "med"), ("roll_p90", "med"),
@@ -76,6 +82,7 @@ def _oku(yol):
     R2 = []
     for r in R:
         r = dict(r); r["tespit%"] = r.get("gorsel_tespit_yuzde")
+        r["pencere%"] = r.get("pencere_yuzde")
         R2.append(r)
     return R2
 

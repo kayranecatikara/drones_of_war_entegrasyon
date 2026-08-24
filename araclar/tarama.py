@@ -35,12 +35,18 @@ from araclar.tespit_olcu import olc
 
 
 def _ayarla(alan, v):
-    """`IBVS.X` -> IbvsCfg.X, aksi halde Ayar.X. Bool alanlar 0/1 ile verilir."""
+    """`IBVS.X` -> IbvsCfg.X, `DET.X` -> DetCfg.X, aksi halde Ayar.X.
+    Bool alanlar 0/1 ile verilir."""
     from dow.gudum import ibvs as _I
-    hedef, ad = (_I.IbvsCfg, alan[5:]) if alan.startswith("IBVS.") else (Ayar, alan)
+    from dow.gorus.dedektor import DetCfg as _D
+    if alan.startswith("IBVS."):   hedef, ad = _I.IbvsCfg, alan[5:]
+    elif alan.startswith("DET."):  hedef, ad = _D, alan[4:]
+    else:                          hedef, ad = Ayar, alan
     assert hasattr(hedef, ad), f"bilinmeyen alan: {alan}"
     eski = getattr(hedef, ad)
-    setattr(hedef, ad, bool(v) if isinstance(eski, bool) else v)
+    if isinstance(eski, bool):  setattr(hedef, ad, bool(v))
+    elif isinstance(eski, int): setattr(hedef, ad, int(v))
+    else:                       setattr(hedef, ad, v)
 
 
 def main():

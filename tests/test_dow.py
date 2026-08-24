@@ -624,3 +624,123 @@ if __name__ == "__main__":
             print(f"  ❌ {ad}: {traceback.format_exc().splitlines()[-1]}")
     print(f"\n{gecti}/{len(ad_listesi)} bekçi geçti")
     sys.exit(0 if gecti == len(ad_listesi) else 1)
+
+# ============================================================================
+# B32 — GÖRÜŞ ZİNCİRİ (2026-08-23): fp16 + natif pencere + yeni-kare kapısı
+# ============================================================================
+def test_b32_gorus_zinciri_anahtarlari_var():
+    """⛔ 2026-08-22'de KOPRU_S ve BAYAT_BIRAK'ı yanlışlıkla silmiştim ve
+    29 bekçinin hiçbiri yakalamadı. Aynı hata tekrar etmesin: benimsenen
+    ayarların VARLIĞI ve makul aralıkta olduğu sınanır."""
+    from dow.gorus.dedektor import DetCfg
+    from dow.ayarlar import Ayar
+    for ad in ("FP16", "PENCERE_PX", "ISKA_TAM"):
+        assert hasattr(DetCfg, ad), "DetCfg.%s SİLİNMİŞ" % ad
+    assert hasattr(Ayar, "DET_YENI_KARE"), "Ayar.DET_YENI_KARE SİLİNMİŞ"
+    assert DetCfg.PENCERE_PX == 0 or 256 <= DetCfg.PENCERE_PX <= 1280
+
+
+def test_b33_pencere_tam_kadraj_koordinati_dondurur():
+    """Pencere kutuları TAM KADRAJ koordinatında dönmeli. Yanlış haritalama
+    güdümü sessizce sola-yukarı nişan aldırır — en sinsi hata sınıfı."""
+    import numpy as np
+    from dow.gorus import dedektor as D
+
+    class SahteKutu:
+        def __init__(self, xyxy, c):
+            self.xyxy = [np.array(xyxy, dtype=float)]; self.conf = c
+
+    class SahteSonuc:
+        def __init__(self, kutular): self.boxes = kutular
+
+    class SahteModel:
+        def predict(self, im, **kw):
+            # pencere içinde (10,20)-(30,40) -> merkez (20,30)
+            return [SahteSonuc([SahteKutu([10, 20, 30, 40], 0.9)])]
+
+    d = D.Dedektor.__new__(D.Dedektor)
+    d.m = SahteModel(); d.conf = 0.4; d.uyarlanabilir = True
+    d.yakin_esik = 55.0; d._son_w = 0.0; d._isindi = True
+    d.son_imgsz = 1920; d.son_pencere = 0; d.son_ms = 0.0
+    d.pencere_say = d.tam_say = d.iska_tam = 0
+    d._fp16 = False
+    d._model_yuklu = D.DetCfg.MODEL
+
+    eski = D.DetCfg.PENCERE_PX
+    try:
+        D.DetCfg.PENCERE_PX = 640
+        img = np.zeros((1080, 1920, 3), np.uint8)
+        k = d.bul(img, merkez=(1000.0, 500.0))
+        # x0 = 1000-320 = 680, y0 = 500-320 = 180
+        assert abs(k[0] - (20 + 680)) < 1e-6, k
+        assert abs(k[1] - (30 + 180)) < 1e-6, k
+        assert d.son_pencere == 640
+        # merkez YOKKEN pencere KAPALI kalmalı (kaybetmişken tam kadraj şart)
+        d.son_pencere = -1
+        d.bul(img, merkez=None)
+        assert d.son_pencere == 0
+        # REJİM: kutu >= YAKIN_ESIK ise YAKIN pencere (448) seçilmeli
+        d._son_w = 120.0
+        d.bul(img, merkez=(1000.0, 500.0))
+        assert d.son_pencere == D.DetCfg.PENCERE_YAKIN, d.son_pencere
+        d._son_w = 20.0
+        d.bul(img, merkez=(1000.0, 500.0))
+        assert d.son_pencere == 640, d.son_pencere
+    finally:
+        D.DetCfg.PENCERE_PX = eski
+
+
+def test_b34_pencere_kenarda_kadraj_disina_tasmaz():
+    """Kadraj kenarındaki hedefte pencere sınırlara KIRPILIR; negatif ya da
+    taşan dilim numpy'da SESSİZCE boş dizi döner ve tespit sıfırlanır."""
+    import numpy as np
+    from dow.gorus import dedektor as D
+    kayit = {}
+
+    class SahteSonuc:
+        boxes = []
+
+    class SahteModel:
+        def predict(self, im, **kw):
+            kayit["sekil"] = im.shape; return [SahteSonuc()]
+
+    d = D.Dedektor.__new__(D.Dedektor)
+    d.m = SahteModel(); d.conf = 0.4; d.uyarlanabilir = True
+    d.yakin_esik = 55.0; d._son_w = 0.0; d._isindi = True
+    d.son_imgsz = 1920; d.son_pencere = 0; d.son_ms = 0.0
+    d.pencere_say = d.tam_say = d.iska_tam = 0
+    d._fp16 = False
+    d._model_yuklu = D.DetCfg.MODEL
+    eski_p, eski_i = D.DetCfg.PENCERE_PX, D.DetCfg.ISKA_TAM
+    try:
+        D.DetCfg.PENCERE_PX = 640; D.DetCfg.ISKA_TAM = False
+        img = np.zeros((1080, 1920, 3), np.uint8)
+        for mx, my in ((0, 0), (1919, 1079), (5, 1075), (1915, 3)):
+            d.bul(img, merkez=(float(mx), float(my)))
+            assert kayit["sekil"] == (640, 640, 3), (mx, my, kayit["sekil"])
+    finally:
+        D.DetCfg.PENCERE_PX = eski_p; D.DetCfg.ISKA_TAM = eski_i
+
+
+def test_b35_pencere_merkezi_gpsten_gelmez():
+    """§10 BEKÇİSİ: pencere merkezi YALNIZ kameradan+kendi IMU'muzdan gelen
+    `ref`tir. `_yerel_bul` içinde hedef GPS'i okunuyorsa YARIŞMA İHLALİ."""
+    import inspect, re
+    from dow import ana
+    kaynak = inspect.getsource(ana.Beyin._yerel_bul)
+    for yasak in ("hedef_konumu", "hedef_hiz", "self.b.hedef", "izleyici"):
+        assert yasak not in kaynak, "YARIŞMA İHLALİ: _yerel_bul içinde %s" % yasak
+    assert "merkez=" in kaynak, "pencere merkezi ref'ten verilmiyor"
+
+
+def test_b36_kutu_yasi_kare_aninda_sayilir():
+    """Birincil ölçüt yanlılığa karşı: kutunun yaşı KARENİN yakalandığı
+    andan sayılmalı, çıkarımın koştuğu andan değil (aradaki fark yakalama
+    tavanı kadar, 15 Hz'de 0-67 ms)."""
+    import inspect
+    from dow import ana
+    from araclar import kosu
+    assert "kare_t" in inspect.signature(ana.Beyin.gorsel_tik).parameters
+    k = inspect.getsource(kosu)
+    assert "_son_tespit_kare_t" in k, "gerçek kutu yaşı ölçülmüyor"
+    assert "kutu_yasi_p90" in k, "BİRİNCİL ölçüt özete yazılmıyor"
