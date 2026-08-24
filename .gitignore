@@ -26,3 +26,7 @@ gizli*
 
 # panel <-> kampanya arasi calisma-zamani kip dosyasi
 .gudum_kipi
+
+# TensorRT motorlari — GPU/surucu/TRT surumune OZEL, TASINMAZ (her makinede uretilir)
+*.engine
+*.onnx

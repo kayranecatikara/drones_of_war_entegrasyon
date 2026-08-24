@@ -400,8 +400,36 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
 
 
 def gecerli(cx, cy, w, h, conf, cfg=IbvsCfg):
-    """Bu tespit güdüme girebilir mi? (§5.1 mekanizma kapısı için ayrı tutuldu)"""
-    if conf < cfg.CONF_MIN: return False, "conf"
+    """Bu tespit güdüme girebilir mi? (§5.1 mekanizma kapısı için ayrı tutuldu)
+
+    ⭐ GÜVEN EŞİĞİ TAKİPÇİ AÇIKKEN DEĞİŞİR (2026-08-24).
+
+    Takipçinin TÜM FİKRİ şudur: zayıf kutuyu tek karede eşikle atmak yerine,
+    KARELER ARASI TUTARLILIKLA süzmek. Dedektör bu yüzden 0.10'da koşuyor.
+    Ama burada 0.40 eşiğini TEKRAR uygulamak, takipçinin yaşattığı her zayıf
+    kutuyu alt akışta öldürür — yani özelliği kendi tasarım zarfının DIŞINDA
+    sınamış oluruz (§5.13).
+
+    ÖLÇÜLDÜ (duman testi, 30 kare): takipçi 19 kutu döndürdü (3 eşleşme +
+    16 öngörü), `gecerli()` bunların 14'ünü ELEDİ — güdüme yalnız 5'i ulaştı.
+
+    KİMLİK KARARINI TAKİPÇİ VERİR: `TargetLock` kilitlenmek için zaten
+    conf >= KILIT_CONF (0.40) arıyor; kilit kurulduktan SONRA izi düşük
+    güvenli kutuyla sürdürmek BYTE mantığının ta kendisi. Bu yüzden takipçi
+    açıkken eşik TakipCfg.CONF_MIN'e iner.
+
+    ⚠ GEOMETRİK KONTROLLER AYNEN KALIR (boyut, menzil, kadraj) — onlar
+    güven değil FİZİK kontrolü; takipçi onları geçersiz kılmaz.
+
+    ⛔ TAKİPÇİ KAPALIYKEN DAVRANIŞ BİT BİT AYNI (bekçi B48)."""
+    esik = cfg.CONF_MIN
+    try:
+        from dow.gorus.tracker import TakipCfg as _TC
+        if _TC.AKTIF:
+            esik = _TC.CONF_MIN
+    except Exception:
+        pass
+    if conf < esik: return False, "conf"
     boyut = max(w, h)
     if boyut < cfg.BOYUT_MIN_PX: return False, "boyut"
     R = KAM.menzil(boyut)

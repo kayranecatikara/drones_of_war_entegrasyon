@@ -20,11 +20,14 @@ FAZLAR
 ================================================================================
 """
 import math
+import threading
 
 from dow.ayarlar import Ayar
 from dow.sdk.baglanti import DowBaglanti
 from dow.gudum.cevirici import HizCubukCevirici
 from dow.gudum import gps as GPS
+from dow.gorus.iz import Iz, IzCfg
+from dow.gorus.tracker import TalonTracker, TargetLock, TakipCfg
 from dow.gudum import ibvs
 from dow.fusion.gnss_filtre import GNSSDuzeltici
 
@@ -41,6 +44,20 @@ class Beyin:
         self._det_pencere = 0
         self._son_tespit_kare_t = 0.0        # ÖLÇÜM-ONLY (güdüme girmez)
         self._red_konum = 0; self._red_boyut = 0   # ÖLÇÜM-ONLY (kapı teşhisi)
+        self.iz = Iz()                       # tek hedefli iz (dow/gorus/iz.py)
+        # ⭐ HYBRIDSORT TAKİPÇİSİ (2026-08-24) — TENBEL kurulur: boxmot ağır
+        #   import, ve takip KAPALIYKEN hiç yüklenmemeli. `_takip_kur()` ilk
+        #   kullanımda kurar; kurulamazsa takip sessizce KAPALI kalır ve
+        #   sistem eski kapı yoluyla çalışmaya DEVAM eder (zarif bozulma).
+        # ⭐ GÖRÜŞ KİLİDİ (Ayar.GORUS_ISP): çıkarım ayrı iş parçacığında
+        #   koşarken görüş durumunu (son kutu, köprü, iz, takipçi) İKİ iş
+        #   parçacığı birden ellemesin. RLock, çünkü gorsel_tik içinden
+        #   çağrılan yardımcılar da aynı kilidi isteyebilir.
+        #   ⚠ Kilit KAPALI kipte de vardır ama çekişme olmaz (tek iş parçacığı).
+        self._kilit_g = threading.RLock()
+        self.takip = None; self.kilit = None; self._takip_hata = None
+        self._takip_id = -1; self._takip_kaynak = ""; self._takip_coast = -1
+        self._takip_n = 0                    # §5.1 mekanizma: kaç izle döndü
         self.durum = "KALKIS"
         self._zemin_z = None
         self._son_tespit = None
@@ -51,6 +68,7 @@ class Beyin:
         self._yerel_aday = 0           # §5.1 mekanizma (T4)
         self._yerel_kayip = 0          # ardışık kapı başarısızlığı
         self._yerel_uygun = 0
+        if hasattr(self, "iz"): self.iz.sifirla()
         self._kopru_say = 0            # §5.1 mekanizma sütunu
         self._bayat_birak_say = 0      # §5.1 mekanizma sütunu (B)
         self._kilit = 0
@@ -74,6 +92,7 @@ class Beyin:
         self._yerel_aday = 0           # §5.1 mekanizma (T4)
         self._yerel_kayip = 0          # ardışık kapı başarısızlığı
         self._yerel_uygun = 0
+        if hasattr(self, "iz"): self.iz.sifirla()
         self._kopru_say = 0            # §5.1 mekanizma sütunu
         self._bayat_birak_say = 0      # §5.1 mekanizma sütunu (B)
         self._kilit = 0; self._kayip = 0
@@ -103,13 +122,21 @@ class Beyin:
         andan sayıyordu, oysa kutu KARENİN yakalandığı anın dünyasını
         anlatır. Aradaki fark yakalama tavanı kadar (15 Hz -> 0-67 ms) ve
         birincil ölçütümüz kutu yaşı olduğu için bu yanlılık kabul edilemez."""
+        with self._kilit_g:
+            return self._gorsel_tik_kilitli(img_rgb, t, kare_t)
+
+    def _gorsel_tik_kilitli(self, img_rgb, t, kare_t=None):
         self._bu_kare_tespit = False
         if not self.cfg.GORSEL_AKTIF or self.det is None:
             return None
-        d = self._yerel_bul(img_rgb, t) if ibvs.IbvsCfg.YEREL_KAPI_PX > 0 \
-            else self.det.bul(img_rgb, merkez=(self._son_tespit[0],
-                                               self._son_tespit[1])
-                              if self._son_tespit else None)
+        if TakipCfg.AKTIF and self._takip_kur():
+            d = self._takip_bul(img_rgb, t)
+        elif ibvs.IbvsCfg.YEREL_KAPI_PX > 0:
+            d = self._yerel_bul(img_rgb, t)
+        else:
+            d = self.det.bul(img_rgb, merkez=(self._son_tespit[0],
+                                              self._son_tespit[1])
+                             if self._son_tespit else None)
         # §5.1 MEKANİZMA SÜTUNLARI — özellik gerçekten çalıştı mı
         self._det_ms = self.det.son_ms
         self._det_pencere = self.det.son_pencere
@@ -124,7 +151,79 @@ class Beyin:
         self._son_tespit_kare_t = kare_t if kare_t else t   # ÖLÇÜM-ONLY
         self._bu_kare_tespit = True
         self._kopru_kaydet(d, t)
+        self.iz.guncelle(d, t)          # iz YALNIZ kabul edilen kutuyla tazelenir
         return d
+
+    # ---------------- TAKİP: HYBRIDSORT + KİLİTLİ KİMLİK ----------------
+    def _takip_kur(self):
+        """Takipçiyi TENBEL kur. Dönüş: kullanılabilir mi."""
+        if self.takip is not None:
+            return True
+        if self._takip_hata is not None:
+            return False                       # bir kez denendi, olmadı
+        try:
+            self.takip = TalonTracker()
+            self.kilit = TargetLock(self.takip,
+                                    lock_conf=TakipCfg.KILIT_CONF,
+                                    max_coast=TakipCfg.MAX_COAST)
+            return True
+        except Exception as e:                 # boxmot yok / sürüm uyumsuz
+            self._takip_hata = repr(e)
+            print("[TAKİP] kurulamadı (%s) -> KAPI yoluna dönülüyor." % self._takip_hata)
+            return False
+
+    def _takip_bul(self, img_rgb, t):
+        """Kapı YERİNE zamansal takip. Girdi YALNIZ görüntü (§10 temiz — GPS yok).
+
+        AKIŞ
+          1. Dedektör DÜŞÜK eşikte (TakipCfg.CONF_MIN, ör. 0.10) TÜM kutuları
+             verir. Kapıdan farkı: zayıf kutu ATILMAZ, takipçiye sunulur.
+          2. HybridSort kutuları kareler arası eşleştirir. Zayıf kutu YENİ iz
+             açamaz (BYTE ikinci turu) ama mevcut izi YAŞATIR.
+          3. TargetLock kilitli kimliğin kutusunu döndürür; o karede eşleşme
+             yoksa en fazla MAX_COAST kare Kalman ÖNGÖRÜSÜYLE köprüler.
+
+        NEDEN KAPIDAN İYİ OLABİLİR: kapı, kutuyu SON KUTUYA olan uzaklığına
+        bakarak eler ve bir kez kaybedince referans bayatlar — reddettikçe
+        daha çok reddeder (ölçüldü: kutu yaşı >0.3 s olan karelerin %24.5'i).
+        Takipçide referans, ivmesiyle birlikte ÖNGÖRÜLEN bir Kalman durumudur
+        ve düşük güvenli kutu onu tazeleyebilir.
+
+        ⚠ NEDEN BOZULABİLİR: takipçi yanlış-pozitife kilitlenirse hatayı
+        SİLMEZ, MAX_COAST kare boyunca UZATIR. 22 Ağustos'ta tam bu yaşandı.
+        Çare TargetLock'un iki koruması: (a) güçlü tespit sürekli başka
+        yerdeyse kilit bırakılır, (b) kutu tek karede fiziksel olmayan
+        mesafeye sıçrarsa kimlik şüpheli sayılır ve o kare çıktı verilmez.
+        """
+        import numpy as _np
+        adaylar = self.det.bul_hepsi(img_rgb, TakipCfg.CONF_MIN, merkez=None)
+        self._yerel_aday = len(adaylar)
+        self._yerel_uygun = 0
+        self._red_konum = self._red_boyut = 0      # kapı sütunları takipte boş
+        if adaylar:
+            dets = _np.array([[a[0]-a[2]/2.0, a[1]-a[3]/2.0,
+                               a[0]+a[2]/2.0, a[1]+a[3]/2.0, a[4], 0.0]
+                              for a in adaylar], dtype=_np.float32)
+            _b = max(adaylar, key=lambda a: a[4])
+            best = {"bbox": (_b[0]-_b[2]/2.0, _b[1]-_b[3]/2.0,
+                             _b[0]+_b[2]/2.0, _b[1]+_b[3]/2.0), "conf": _b[4]}
+        else:
+            dets = _np.empty((0, 6), dtype=_np.float32)
+            best = None
+        izler = self.takip.update(dets, img_rgb)
+        self._takip_n = int(len(izler))
+        o = self.kilit.step(izler, best)
+        if o is None:
+            self._takip_id = -1; self._takip_kaynak = ""; self._takip_coast = -1
+            self._yerel_kayip += 1
+            return None
+        self._takip_id = int(o["id"])
+        self._takip_kaynak = o["kaynak"]           # "eslesme" | "tahmin"
+        self._takip_coast = int(o["coast"])
+        self._yerel_uygun = 1
+        self._yerel_kayip = 0
+        x1, y1, x2, y2 = o["bbox"]
+        return ((x1+x2)/2.0, (y1+y2)/2.0, x2-x1, y2-y1, float(o["conf"]))
 
     # ---------------- T4: YERELLİK KAPISI ----------------
     def _yerel_bul(self, img_rgb, t):
@@ -142,7 +241,14 @@ class Beyin:
         #   geçmediyse referans bayatlamış demektir; kapıyı AÇ ve düz
         #   argmax'la yeniden yakala. (B3'te bu yoktu ve kapı bir kere
         #   kaybedince bir daha asla bulamıyordu.)
-        if self._yerel_kayip >= C.YEREL_KURTAR:
+        # ⭐ YAŞAM DÖNGÜSÜ. İZ AÇIKKEN sayı yerine SÜRE tabanlı: kilitlenmenin
+        #   kaynağı "5 ıska görmeden açılma" kuralıydı (9 Hz'de 0.55 s
+        #   TASARLANMIŞ körlük). Süre tabanlı kural, çıkarım hızından
+        #   bağımsızdır ve kapı zaten yaşla genişlediği için nadiren gerekir.
+        if IzCfg.AKTIF:
+            if self.iz.yas(t) > IzCfg.OMUR_S:
+                ref = None
+        elif self._yerel_kayip >= C.YEREL_KURTAR:
             ref = None
         # ⭐ NATİF PENCERE (ROI) MERKEZİ = ref. Aynı referans hem pencereyi
         #   konumlandırır hem adayları eler. ref None ise (kurtarma) pencere
@@ -159,6 +265,20 @@ class Beyin:
             self._yerel_kayip = 0
             return max(adaylar, key=lambda a: a[4])
         rx, ry, rw = ref[0], ref[1], max(ref[2], 1.0)
+        # ⭐ İZ: boyutu 1/w üzerinden ÖNGÖR, kapıyı YAŞLA GENİŞLET.
+        #   Konum DONDURULMUŞ kalır (ölçüldü: ileri taşımak 1.5 s'de hatayı
+        #   İKİ KATINA çıkarıyor). Eşikler dow/gorus/iz.py başlığında.
+        _iz_yas = -1.0
+        if IzCfg.AKTIF and self.iz.var:
+            _o = self.iz.ongor(t)
+            if _o:
+                rw = max(_o[2], 1.0); _iz_yas = _o[3]
+            _yaricap_iz, _b_alt, _b_ust = self.iz.kapi(t, rw)
+        else:
+            _yaricap_iz = C.YEREL_KAPI_PX + 2.0 * rw
+            _b_alt, _b_ust = 0.5, 2.0
+        self._iz_yas = _iz_yas
+        self._iz_w = round(rw, 1)
         # ⭐ ÖLÇÜM-ONLY (2026-08-24): kapı adayları HANGİ filtreyle eliyor?
         #   ÖLÇÜLDÜ (HZ2, 148 kare): kutu yaşı >0.3 s olan karelerin
         #   %71.4'ünde model kutu BULMUŞ ama kapı HEPSİNİ elemiş. Yani
@@ -166,14 +286,14 @@ class Beyin:
         #   Hangi filtrenin elediğini bilmeden düzeltme körlemesine olur.
         self._red_konum = self._red_boyut = 0
         for _a in adaylar:
-            _k = math.hypot(_a[0]-rx, _a[1]-ry) <= C.YEREL_KAPI_PX + 2.0*rw
-            _b = 0.5 <= _a[2]/rw <= 2.0
+            _k = math.hypot(_a[0]-rx, _a[1]-ry) <= _yaricap_iz
+            _b = _b_alt <= _a[2]/rw <= _b_ust
             if not _k: self._red_konum += 1
             if _k and not _b: self._red_boyut += 1
-        yaricap = C.YEREL_KAPI_PX + 2.0 * rw
+        yaricap = _yaricap_iz
         uygun = [a for a in adaylar
                  if math.hypot(a[0]-rx, a[1]-ry) <= yaricap
-                 and 0.5 <= a[2]/rw <= 2.0]
+                 and _b_alt <= a[2]/rw <= _b_ust]
         self._yerel_uygun = len(uygun)
         if not uygun:
             self._yerel_kayip += 1
@@ -287,6 +407,15 @@ class Beyin:
 
         self.tani = {"det_ms": round(self._det_ms, 2),
                      "det_pencere": self._det_pencere,
+                     # §5.1 TAKİP MEKANİZMA SÜTUNLARI — "özellik gerçekten
+                     # çalıştı mı" sorusunu bunlar cevaplar. takip_n=0 olan
+                     # bir DENEY koşusu veri noktası değil, GEÇERSİZ koşudur.
+                     "takip_id": self._takip_id,
+                     "takip_kaynak": self._takip_kaynak,   # eslesme|tahmin|""
+                     "takip_coast": self._takip_coast,     # kaç kare öngörü
+                     "takip_n": self._takip_n,             # aktif iz sayısı
+                     "iz_yas": round(getattr(self, "_iz_yas", -1.0), 3),
+                     "iz_w": getattr(self, "_iz_w", 0.0),
                      "red_konum": self._red_konum,
                      "red_boyut": self._red_boyut,
                      "yerel_kayip": self._yerel_kayip,
@@ -375,7 +504,16 @@ class Beyin:
             # "gorsel" kipinde GERİ DÖNÜLMEZ; yalnız "hibrit"te geri dönüş var
             elif (kip == "hibrit" and self.durum == "GORSEL"
                     and self._kayip >= self.cfg.KAYIP_KARE):
-                self.durum = "ISTASYON"; self._son_tespit = None
+                self.durum = "ISTASYON"
+                # ⚠ GÖRÜŞ KİLİDİ: bu satırlar KONTROL iş parçacığında koşar,
+                #   gorsel_tik ise (GORUS_ISP açıkken) GÖRÜŞ iş parçacığında.
+                #   Kilitsiz sıfırlamak, takipçi kendini güncellerken içini
+                #   boşaltmak demektir.
+                with self._kilit_g:
+                    self._son_tespit = None
+                    self.iz.sifirla()   # temas koptu: eski iz yeni yakalamayı ELEMESİN
+                    if self.kilit is not None:
+                        self.kilit.reset()   # ve eski KİMLİK yeni yakalamayı ELEMESİN
 
         if self.durum == "GORSEL":
             if self._son_tespit is None:

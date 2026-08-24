@@ -100,14 +100,106 @@ def yeniden_dogur(bekle=6.0):
     time.sleep(bekle)
     return True
 
+def gorev_bitti_mi(img):
+    """Ekranda 'MISSION COMPLETED' görev-sonu ekranı var mı?
+
+    NEDEN GEREKLİ (2026-08-24): sistem hedefi VURUNCA görev tamamlanıyor,
+    oyun bu ekrana düşüyor ve **SDK 12345 portunu dinlemeyi bırakıyor**.
+    'E' burada işe yaramaz; PLAY AGAIN gerekir. Kampanyada her koşu AYRI
+    SÜREÇ olduğu için sonraki süreç `hazirla()`da takılır ve
+    "hazırlık: BAŞARISIZ" der — ISP kampanyasının ilk denemesinde 4 koşu
+    üst üste böyle düştü.
+
+    ⛔⛔⛔ ÜÇ KEZ YANLIŞ YAZDIM. Hepsi öğretici, o yüzden duruyorlar:
+      1. "ortada parlak yazı bandı" — MISSION COMPLETED yazısı kum rengi
+         arazi üstünde DÜŞÜK kontrastlı. Hiç yakalamadı.
+      2. "üst pusula bandında koyu piksel oranı" — SAHNEYE bağlı: bir
+         karede üst bant gökyüzüydü (0.000 geçti), diğerinde koyu tepeler
+         (0.193 kaldı). Kamera nereye bakarsa değişiyor.
+      3. "PLAY AGAIN bölgesinde >195 parlak piksel" — doğru ÖĞEYE bakıyordu
+         ama EŞİK YANLIŞTI: ham piksellerde düğme yazısı en fazla **191**.
+         Kaydedilmiş JPEG'de sıkıştırma artefaktı 195'i aşırıyor, canlı ham
+         karede aşmıyordu. Yani test GEÇİYOR, canlı DÜŞÜYORDU.
+
+    ⭐ DOĞRUSU — FARK TABANLI, arayüz öğesine bakan kural:
+    PLAY AGAIN düğmesinin bölgesi ile AYNI YÜKSEKLİKTEKİ boş şerit kıyaslanır.
+    Ölçüldü (3 görev-sonu + 5 negatif kare, eşik 170):
+
+        ekran        sag_btn   bos_serit   fark    alt_std
+        GÖREV-SONU 1  0.091      0.000    +0.091     15.4
+        GÖREV-SONU 2  0.091      0.000    +0.091     16.0
+        GÖREV-SONU 3  0.091      0.000    +0.091     16.6
+        PRESS-E       0.000      0.005    -0.004     11.6
+        FPV 1         0.011      0.324    -0.313     38.2
+        FPV 2         0.402      0.807    -0.404     40.4
+        FPV 3         0.000      0.021    -0.021     35.8
+        FPV 4         0.114      0.266    -0.152     42.9
+
+    Fark tabanlı olması ŞART: FPV'de düğme bölgesi de parlak olabiliyor
+    (0.40), ama o zaman YANINDAKİ ŞERİT DE parlak. Görev-sonunda ise
+    yalnız düğmenin olduğu yer parlak. Sahne parlaklığı ikisini eşit
+    etkiler, fark sabit kalır.
+
+    KURAL: uçuşta DEĞİLİZ (alt_std < 25) VE düğme bölgesi komşusundan
+    belirgin parlak (fark > 0.03).
+    """
+    import numpy as _np
+    if img is None:
+        return False
+    h, w = img.shape[:2]
+    g = _np.asarray(img, dtype=_np.float32).mean(axis=2)
+    alt = g[int(0.78 * h):, :int(0.20 * w)]          # sol alt HUD bloğu
+    btn = g[int(0.845 * h):int(0.895 * h), int(0.71 * w):int(0.89 * w)]
+    bos = g[int(0.845 * h):int(0.895 * h), int(0.40 * w):int(0.62 * w)]
+    if alt.size == 0 or btn.size == 0 or bos.size == 0:
+        return False
+    fark = float((btn > 170).mean()) - float((bos > 170).mean())
+    return float(alt.std()) < 25.0 and fark > 0.03
+
+
+def gorev_yeniden_oyna(sct=None, bekle=8.0):
+    """Görev-sonu ekranından HIZLI kurtarma: PLAY AGAIN -> E.
+
+    ÖLÇÜLDÜ 2026-08-24: bu yol ~15 s sürüyor; alternatifi olan tam oyun
+    yeniden başlatma (`calistirma_betikleri/goreve_gir.sh`) ~2 dakika.
+    PLAY AGAIN düğmesi 1920x1080'de (1530, 940) — ekran görüntüsüyle
+    doğrulandı, tıklama sonrası 'Press E' ekranı geldi ve E ile SDK portu
+    açıldı."""
+    import time
+    w = oyunu_one_al()
+    if not w: return False
+    time.sleep(1.0)
+    subprocess.run(["xdotool", "mousemove", "1530", "940", "click", "1"], timeout=5)
+    time.sleep(bekle)
+    oyunu_one_al(); time.sleep(1.0)
+    subprocess.run(["xdotool", "key", "--window", w, "e"], timeout=5)
+    time.sleep(6.0)
+    return True
+
+
 def hazirla(sct, dene=4):
     """Ölçüm öncesi: pencereyi öne al, gerekiyorsa drone'u yeniden doğur,
-    kadraj HUD'lı (uçuşta) olana kadar dener. (ok, img)"""
+    kadraj HUD'lı (uçuşta) olana kadar dener. (ok, img)
+
+    ⭐ GÖREV-SONU EKRANI BURADA DA SINANIR (2026-08-24).
+    Kampanyada HER KOŞU AYRI SÜREÇTİR; `kosu.py::_yeni_gorev` yalnız tek
+    sürecin İÇİNDEKİ koşular arası çalışır. Sistem hedefi vurup görev
+    bitince sonraki SÜREÇ burada, `hazirla()`da takılır ve
+    "hazırlık: BAŞARISIZ" der. ISP kampanyasının ilk denemesinde 4 koşu
+    üst üste böyle düştü ve kurtarma hiç tetiklenmedi — çünkü yanlış yere
+    bağlanmıştı. 'E' bu ekranda işe yaramaz; PLAY AGAIN gerekir."""
     import time
     for i in range(dene):
         img = np.array(sct.grab(BOLGE))[:,:,:3]
         if ucusta_mi(img):
             return True, img[:,:,::-1]
+        if gorev_bitti_mi(img):
+            print("  [görev-sonu ekranı — PLAY AGAIN ile yeniden oynanıyor]",
+                  flush=True)
+            gorev_yeniden_oyna()
+            img = np.array(sct.grab(BOLGE))[:,:,:3]
+            if ucusta_mi(img):
+                return True, img[:,:,::-1]
         oyunu_one_al(); time.sleep(1.0)
         img = np.array(sct.grab(BOLGE))[:,:,:3]
         if ucusta_mi(img):

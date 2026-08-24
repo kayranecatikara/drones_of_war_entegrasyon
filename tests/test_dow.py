@@ -369,28 +369,32 @@ def test_B22_gorev_seviyesi_yeniden_kurulum():
     assert "_gorevi_yeniden_kur" in k, "E yetmediginde gorev kurulmuyor"
 
 
-def test_B23_hybridsort_tamamen_silindi():
-    """CLAUDE.md 5.12 — ELENEN OZELLIK TAMAMEN SILINIR.
-    Kullanici (2026-08-22): "hybridsort tracking algoritmasini komple
-    denklemden cikart; su an detection kotu oldugu icin tracking bir ise
-    yaramiyor ve rastgele yerlere track atabiliyor."
-    Olu kill-switch / okunmayan alan / yarim kalan import BIRAKILMAZ:
-    bir sonraki degisiklik onlardan birine carpar."""
-    import subprocess
+def test_B23_takipci_geri_ve_kill_switch_kapali():
+    """⭐ 2026-08-24 — HybridSORT GERI GELDI (kullanici karari).
+
+    22 Agustos'ta 5.12'ye gore TAMAMEN silinmisti; silme sarti "duzgun
+    detection modeli gelince tekrardan entegre edebiliriz"di ve talon_v5
+    ile gerceklesti. Bu bekci artik TERSINI sinar:
+      1. tracker.py var ve TalonTracker/TargetLock/TakipCfg iceriyor,
+      2. kill-switch VARSAYILAN KAPALI (olcum karar verene kadar; §4),
+      3. takip yolu GPS'e DOKUNMUYOR (§10 ustun kisit).
+    """
     kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    assert not os.path.exists(os.path.join(kok, "dow/gorus/tracker.py")), \
-        "tracker.py hala duruyor"
-    from dow.ayarlar import Ayar
-    assert not hasattr(Ayar, "TAKIP_AKTIF"), "olu kill-switch TAKIP_AKTIF duruyor"
-    from dow.gorus import dedektor
-    assert not hasattr(dedektor, "TakipliDedektor"), "TakipliDedektor duruyor"
-    # kod govdesinde (tarihsel yorum HARIC) tek bir atif bile kalmamali
-    r = subprocess.run(
-        ["grep", "-rn", "TalonTracker\\|boxmot\\|TAKIP_AKTIF\\|TakipliDedektor",
-         "--include=*.py", "dow/", "araclar/"],
-        cwd=kok, capture_output=True, text=True)
-    kalan = r.stdout.splitlines()
-    assert not kalan, "takipci atiflari kaldi:\n" + "\n".join(kalan)
+    assert os.path.exists(os.path.join(kok, "dow/gorus/tracker.py"))
+    from dow.gorus.tracker import TalonTracker, TargetLock, TakipCfg
+    assert TakipCfg.AKTIF is False, \
+        "yeni ozellik VARSAYILAN KAPALI girer -- olcum karar verir (§4)"
+    assert 0.0 < TakipCfg.CONF_MIN < TakipCfg.KILIT_CONF, \
+        "predict esigi kilit esiginden DUSUK olmali (BYTE ikinci turu)"
+    assert TakipCfg.MAX_COAST == 5, \
+        "coast=5 GT'li deneyde olculdu; degistirmek yeni olcum ister"
+    # §10: takip yolunda hedef GPS'i OKUNAMAZ
+    import inspect
+    from dow import ana
+    kaynak = inspect.getsource(ana.Beyin._takip_bul)
+    for yasak in ("hedef_konumu", "get_target", "izleyici", "self.b."):
+        assert yasak not in kaynak, \
+            "takip yolu GPS'e dokunuyor (§10 ihlali): " + yasak
 
 
 def test_B24_ekran_kopyalama_tavanli():
@@ -646,9 +650,15 @@ def test_b33_pencere_tam_kadraj_koordinati_dondurur():
     import numpy as np
     from dow.gorus import dedektor as D
 
-    class SahteKutu:
-        def __init__(self, xyxy, c):
-            self.xyxy = [np.array(xyxy, dtype=float)]; self.conf = c
+    class SahteKutular:
+        """ultralytics Boxes sözleşmesi: .xyxy (N,4) ve .conf (N,) DİZİ.
+        (2026-08-24: _cikar kutu başına .tolist() yerine TEK numpy aktarımı
+        yapıyor; sahte de gerçek API'yi taklit etmeli, yoksa test üretimde
+        olmayan bir yolu sınar.)"""
+        def __init__(self, xyxy, conf):
+            self.xyxy = np.array(xyxy, dtype=float)
+            self.conf = np.array(conf, dtype=float)
+        def __len__(self): return len(self.xyxy)
 
     class SahteSonuc:
         def __init__(self, kutular): self.boxes = kutular
@@ -656,7 +666,7 @@ def test_b33_pencere_tam_kadraj_koordinati_dondurur():
     class SahteModel:
         def predict(self, im, **kw):
             # pencere içinde (10,20)-(30,40) -> merkez (20,30)
-            return [SahteSonuc([SahteKutu([10, 20, 30, 40], 0.9)])]
+            return [SahteSonuc(SahteKutular([[10, 20, 30, 40]], [0.9]))]
 
     d = D.Dedektor.__new__(D.Dedektor)
     d.m = SahteModel(); d.conf = 0.4; d.uyarlanabilir = True
@@ -744,3 +754,303 @@ def test_b36_kutu_yasi_kare_aninda_sayilir():
     k = inspect.getsource(kosu)
     assert "_son_tespit_kare_t" in k, "gerçek kutu yaşı ölçülmüyor"
     assert "kutu_yasi_p90" in k, "BİRİNCİL ölçüt özete yazılmıyor"
+
+
+# ============================================================================
+# B37-B40 — TEK HEDEFLİ İZ (2026-08-24, kapının yerine)
+# ============================================================================
+def test_b37_iz_kapisi_eski_kapinin_UST_KUMESI():
+    """⭐ YAPISAL GÜVENCE: yeni kapı, eski kapının kabul ettiği HİÇBİR adayı
+    reddedemez. Böylece "kapı elemesi" kaynaklı bayatlık (ölçüldü: bayat
+    karelerin %24.5'i) yalnız AZALABİLİR — bu bir regresyon testi değil,
+    MATEMATİKSEL güvencedir (CLAUDE.md §5.10 'en iyisi yapısal garanti')."""
+    from dow.gorus.iz import Iz, IzCfg
+    iz = Iz()
+    for w in (8.0, 20.0, 55.0, 120.0, 300.0):
+        iz.sifirla()
+        iz.guncelle((960.0, 540.0, w, w * 0.6, 0.8), 0.0)
+        for yas in (0.0, 0.05, 0.2, 0.5, 1.0, 2.0):
+            t = yas
+            o = iz.ongor(t)
+            rw = max(o[2], 1.0)
+            yaricap, alt, ust = iz.kapi(t, rw)
+            eski_yaricap = 60.0 + 2.0 * w          # bugünkü kapı
+            assert yaricap >= eski_yaricap - 1e-9, (w, yas, yaricap, eski_yaricap)
+            assert alt <= 0.5 + 1e-9, (w, yas, alt)
+            assert ust >= 2.0 - 1e-9, (w, yas, ust)
+
+
+def test_b38_iz_konumu_ILERI_TASIMAZ():
+    """ÖLÇÜLDÜ 2026-08-24: konumu sabit hızla ileri taşımak hatayı 1.5 s'de
+    İKİ KATINA çıkarıyor (79 px -> 157 px). Bu yüzden `ongor` konumu
+    DONDURULMUŞ döndürmeli. Biri 'iyileştirme' diye hız eklerse bu bekçi
+    yakalar."""
+    from dow.gorus.iz import Iz
+    iz = Iz()
+    # hedef kadrajda hızla sağa kayıyor olsun
+    for i, cx in enumerate((400.0, 600.0, 800.0)):
+        iz.guncelle((cx, 540.0, 60.0, 36.0, 0.8), i * 0.2)
+    for yas in (0.1, 0.5, 1.0, 2.0):
+        o = iz.ongor(0.4 + yas)
+        assert abs(o[0] - 800.0) < 1e-9, ("konum ileri taşınmış!", yas, o[0])
+        assert abs(o[1] - 540.0) < 1e-9
+
+
+def test_b39_iz_boyut_ongorusu_kirpilir():
+    """1/w sıfıra yaklaşırsa w patlar (ölçümde kırpmasız p95 999748'e
+    çıkmıştı). Öngörü her koşulda ONGORU_KAT ile sınırlı kalmalı."""
+    from dow.gorus.iz import Iz, IzCfg
+    iz = Iz()
+    # kutu ÇOK hızlı büyüyor -> 1/w hızla küçülüyor, kırpma şart
+    for i, w in enumerate((20.0, 60.0, 200.0)):
+        iz.guncelle((960.0, 540.0, w, w * 0.6, 0.8), i * 0.1)
+    for yas in (0.1, 0.5, 1.0, 3.0, 10.0):
+        o = iz.ongor(0.2 + yas)
+        assert o[2] > 0.0 and o[2] < 200.0 * IzCfg.ONGORU_KAT * 1.001, (yas, o[2])
+        assert o[2] >= 200.0 / IzCfg.ONGORU_KAT * 0.999, (yas, o[2])
+
+
+def test_b40_iz_gpsten_beslenmez():
+    """§10 BEKÇİSİ: iz YALNIZ kabul edilmiş kameradan gelen kutuyla tazelenir.
+    `Iz` sınıfı hedef GPS'ine dair hiçbir şey bilmemeli."""
+    import inspect
+    from dow.gorus import iz as M
+    kaynak = inspect.getsource(M)
+    for yasak in ("hedef_konumu", "hedef_hiz", "gps", "GPS_KAYNAK", "truth"):
+        assert yasak not in kaynak, "YARIŞMA İHLALİ: iz.py içinde %s" % yasak
+    from dow import ana
+    # gorsel_tik artik yalniz KILIT sarmalayicisi (Ayar.GORUS_ISP mimarisi);
+    # is `_gorsel_tik_kilitli`de. Bekci ZAYIFLAMASIN diye IKISI de sinanir:
+    # sarmalayici gercekten delege ediyor mu, ve govde izi tazeliyor mu.
+    sar = inspect.getsource(ana.Beyin.gorsel_tik)
+    assert "_gorsel_tik_kilitli" in sar and "self._kilit_g" in sar, \
+        "gorsel_tik kilitli govdeye delege etmiyor"
+    k = inspect.getsource(ana.Beyin._gorsel_tik_kilitli)
+    assert "self.iz.guncelle(d, t)" in k, "iz kabul edilen kutuyla tazelenmiyor"
+    # §10: gorus yolunun HICBIR parcasi hedef GPS'ine dokunmaz
+    for yasak in ("hedef_konumu", "get_target", "izleyici"):
+        assert yasak not in k, "YARISMA IHLALI: gorus yolunda %s" % yasak
+
+
+def test_b41_iz_kapaliyken_eski_davranis_BIREBIR():
+    """Kill-switch kapalıyken `_yerel_bul` ESKİ eşikleri kullanmalı
+    (yarıçap 60+2w, boyut 0.5-2.0) ve yaşam döngüsü SAYI tabanlı kalmalı.
+    §5.12: kapalı anahtar davranışı değiştirmez."""
+    import inspect
+    from dow import ana
+    k = inspect.getsource(ana.Beyin._yerel_bul)
+    assert "_yaricap_iz = C.YEREL_KAPI_PX + 2.0 * rw" in k, "kapalı yol değişmiş"
+    assert "_b_alt, _b_ust = 0.5, 2.0" in k, "kapalı yol boyut eşiği değişmiş"
+    assert "elif self._yerel_kayip >= C.YEREL_KURTAR:" in k, \
+        "kapalıyken sayı tabanlı yaşam döngüsü korunmalı"
+    # eleme ve teşhis sayaçları AYNI eşikleri kullanmalı (yoksa mekanizma
+    # sütunu yalan söyler — §5.1)
+    assert k.count("_yaricap_iz") >= 3 and k.count("_b_alt") >= 2
+
+
+def test_b42_cikarim_kaydi_olcum_only_ve_gudumden_ayri():
+    """§10 + §5.3 BEKÇİSİ: `cikarim.csv` her ÇIKARIMDA yazılır (meta.csv
+    2 Hz; boşlukların çoğu 0.2 s, yani meta'nın altında kalıyor). truth
+    sütunları YALNIZ bu dosyaya gider, güdüme değil."""
+    import inspect
+    from araclar import kosu
+    k = inspect.getsource(kosu)
+    assert "class CikarimKaydi" in k
+    for alan in ("basarili", "aspekt_deg", "menzil_m", "bek_cx", "iz_yas"):
+        assert alan in kosu.CikarimKaydi.ALANLAR, "eksik sütun: %s" % alan
+    # truth YALNIZ ölçüm satırında kullanılmalı: gorsel_tik'e hedef bilgisi
+    # sızmamalı
+    from dow import ana
+    g = inspect.getsource(ana.Beyin.gorsel_tik)
+    for yasak in ("truth", "hedef_konumu", "hedef_yonelim"):
+        assert yasak not in g, "YARIŞMA İHLALİ: gorsel_tik içinde %s" % yasak
+
+
+def test_B43_gorus_isp_varsayilan_kapali_ve_tek_yolo():
+    """⭐ GÖRÜŞ İŞ PARÇACIĞI (2026-08-24) — yer-kontrol `model-fps` mimarisi.
+
+    ÖLÇÜLDÜ (kampanya HZ4): çıkarım kontrol döngüsünün İÇİNDEYKEN 9.3 -> 16.2 Hz
+    yapmak kontrol döngüsünü 40.3 -> 22.3 Hz'e düşürdü, istasyon hatası
+    8.3 -> 16.5 m, görsel devir HİÇ olmadı, isabet 1 -> 0.
+
+    Bu bekçi üç seyi sinar:
+      1. kill-switch VARSAYILAN KAPALI (olcum karar verir, §4),
+      2. kapaliyken ESKI yol kosar (bit bit ayni davranis, §5.12),
+      3. IKI YOLO ayni anda kosmaz (bu hata 22 Agu'da oyunu ac birakmisti).
+    """
+    from dow.ayarlar import Ayar
+    assert Ayar.GORUS_ISP is False, "yeni ozellik VARSAYILAN KAPALI girer"
+
+    kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    kaynak = open(os.path.join(kok, "araclar/kosu.py"), encoding="utf-8").read()
+
+    # 2) kapaliyken eski yol: `elif Ayar.GORSEL_AKTIF:` kolu DURUYOR
+    assert "if Ayar.GORSEL_AKTIF and Ayar.GORUS_ISP:" in kaynak
+    assert "elif Ayar.GORSEL_AKTIF:" in kaynak, "eski yol silinmis"
+
+    # 3) panel dedektoru GORSEL_AKTIF iken kosmaz -> tek YOLO
+    assert "and not Ayar.GORSEL_AKTIF" in kaynak, \
+        "panel dedektoru gorsel fazda da kosuyor -> IKI YOLO"
+
+
+def test_B44_gorus_isp_sdk_tek_is_parcaciginda():
+    """⛔ SDK SOKETI TEK IS PARCACIGINA AIT.
+
+    Gorus is parcacigi YALNIZ `beyin.gorsel_tik` cagirir (girdi: goruntu).
+    `beyin.b` (DoW baglantisi: truth/konum/yonelim) ve `ckayit` ORADAN
+    KULLANILMAZ -- cikarim.csv satirini kontrol dongusu kurar. Iki is
+    parcacigi ayni sokete yazarsa telemetri bozulur ve sebebi bulunamaz.
+    """
+    import inspect
+    from araclar import kosu
+    k = inspect.getsource(kosu._gorus_isi)
+    assert "gorsel_tik" in k, "gorus is parcacigi cikarimi kosmuyor"
+    for yasak in ("beyin.b.", "_beyin.b.", "ckayit", ".truth()"):
+        assert yasak not in k, \
+            "gorus is parcacigi SDK/CSV'ye dokunuyor: %s" % yasak
+
+
+def test_B45_gorus_durumu_kilitli():
+    """⛔ YARIS KOSULU BEKCISI: gorus durumu (son kutu, kopru, iz, takipci)
+    iki is parcacigi tarafindan elleniyor -> her ikisi de KILIT altinda olmali.
+    Kilitsiz sifirlama, takipci kendini guncellerken icini bosaltmak demektir."""
+    import inspect
+    from dow import ana
+    sar = inspect.getsource(ana.Beyin.gorsel_tik)
+    assert "with self._kilit_g:" in sar, "gorsel_tik kilitsiz"
+    kom = inspect.getsource(ana.Beyin.komut) if hasattr(ana.Beyin, "komut") else ""
+    adm = inspect.getsource(ana.Beyin.adim)
+    hepsi = kom + adm
+    if "self.iz.sifirla()" in hepsi:
+        assert "with self._kilit_g:" in hepsi, \
+            "faz gecisindeki sifirlama kilitsiz -- yaris kosulu"
+
+
+def test_B46_gorev_sonu_ekrani_taninir():
+    """⛔ GOREV-SONU EKRANI TANIMA — UC KEZ YANLIS YAZILDI, bekci sart.
+
+    Sistem hedefi vurunca oyun 'MISSION COMPLETED' ekranina duser ve SDK
+    12345 portunu KAPATIR. Kampanyada her kosu ayri surectir; taninmazsa
+    sonraki tum kosular "hazirlik: BASARISIZ" verir (ISP kampanyasinin ilk
+    denemesinde 4 kosu ust uste boyle dustu).
+
+    Yanlis yazma bicimleri (hepsi yasandi):
+      1. sahne-bagimli ozellik (orta bantta parlak yazi)  -> hic yakalamadi
+      2. sahne-bagimli ozellik (ust bantta koyu piksel)   -> kamera yonune gore degisti
+      3. dogru oge, YANLIS ESIK (>195) -> kayitli JPEG'de geciyor, CANLI ham
+         karede dusuyor (ham piksellerde dugme yazisi en fazla 191)
+
+    Bu bekci GERCEK karelerle sinar: 3 gorev-sonu + 5 negatif.
+    """
+    import cv2
+    from araclar.kadraj import gorev_bitti_mi
+    kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ornek = os.path.join(kok, "tests/ekranlar")
+    if not os.path.isdir(ornek):
+        import pytest
+        pytest.skip("ornek ekranlar yok (tests/ekranlar)")
+    hata = []
+    for ad in sorted(os.listdir(ornek)):
+        if not ad.endswith(".jpg"):
+            continue
+        bekle = ad.startswith("sonu")          # sonu_*.jpg = gorev-sonu
+        im = cv2.imread(os.path.join(ornek, ad))
+        if im is None:
+            continue
+        if gorev_bitti_mi(im) != bekle:
+            hata.append(ad)
+    assert not hata, "gorev-sonu tanima yanlis: %s" % hata
+
+
+def test_B47_kutu_anlami_iki_kolda_ayni():
+    """⛔ ÖLÇÜT ANLAMI KOLLAR ARASINDA KAYMAMALI (§5.2).
+
+    ISP3'te yasandi: GORUS_ISP acikken kutu `_gorus["tespit"]`ten
+    okunuyordu ve o HER cikarimda uzerine yaziliyordu (iskada None).
+    Eski yolda ise `beyin._son_tespit` KALICI -- yalniz BASARILI cikarimda
+    guncellenir. Sonuc: iki kol FARKLI SEY olcuyordu.
+
+        kor sure  %31.5 -> %0.00    (kutu bayatlayamadan siliniyor)
+        tespit%   %94.4 -> %50.0    (ayni seyin diger yuzu)
+
+    Ikisi de KAZANC DEGIL, ARTEFAKT. Gudum etkilenmiyordu (o zaten
+    `beyin._son_tespit` kullaniyor) ama OLCUT ve PANEL bozuktu.
+    Bu bekci, iki kolun da AYNI kaynagi okudugunu sinar.
+    """
+    kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    k = open(os.path.join(kok, "araclar/kosu.py"), encoding="utf-8").read()
+
+    # GORUS_ISP kolu: kutu beyin._son_tespit'ten okunur
+    i = k.index("if Ayar.GORSEL_AKTIF and Ayar.GORUS_ISP:")
+    j = k.index("elif Ayar.GORSEL_AKTIF:")
+    # YORUMLARI AYIKLA: bu bekcinin gerekcesi kodun yaninda yorum olarak
+    # duruyor ve icinde `_gorus["tespit"]` gecıyor; yorumu KOD sanmasin.
+    kol = "\n".join(ln for ln in k[i:j].splitlines()
+                    if not ln.lstrip().startswith("#"))
+    assert '_gorus["tespit"]' in kol, "GORUS_ISP kolu kutuyu okumuyor"
+    # ⛔ BEYIN KILIDI KULLANILMAZ: gorus is parcacigi onu CIKARIM BOYUNCA
+    #   (~50 ms) tutar; kontrol dongusu beklerse ozellik iptal olur.
+    #   Olculdu: 46.0 -> 39.8 Hz.
+    assert "beyin._kilit_g" not in kol, \
+        "GORUS_ISP kolu BEYIN KILIDINI bekliyor -- ozellik iptal olur (46->39.8 Hz)"
+
+    # gorus is parcacigi: panel kutusunu YALNIZ basarili cikarimda gunceller
+    import inspect
+    from araclar import kosu
+    g = inspect.getsource(kosu._gorus_isi)
+    assert "if _g_kostu and _g_tespit is not None:" in g, \
+        "gorus is parcacigi iskada panel kutusunu SILIYOR -- panel titrer"
+
+
+def test_B48_takip_kapaliyken_gecerli_BIT_BIT_AYNI():
+    """⛔ YAPISAL GARANTI (§5.10): `gecerli()` takipci KAPALIYKEN eski
+    davranisi BIT BIT korumali.
+
+    2026-08-24'te `gecerli()`ye takipci-farkindaligi eklendi: takipci
+    acikken guven esigi 0.40 -> 0.10'a iner (yoksa takipcinin yasattigi
+    zayif kutular alt akista olur ve ozellik kendi tasarim zarfinin
+    DISINDA sinanmis olur, §5.13). Bu bekci, kill-switch KAPALIYKEN
+    hicbir sey degismedigini 480 girdi kombinasyonunda kanitlar.
+    """
+    from dow.gudum.ibvs import gecerli, IbvsCfg
+    from dow.gorus.tracker import TakipCfg
+    eski = TakipCfg.AKTIF
+    try:
+        TakipCfg.AKTIF = False
+        fark = []
+        for conf in (0.0, 0.05, 0.1, 0.2, 0.39, 0.4, 0.41, 0.7, 1.0):
+            for w in (4.0, 8.0, 20.0, 60.0, 200.0):
+                for cx, cy in ((0, 0), (960, 540), (1919, 1079), (-1, 540),
+                               (960, 1080)):
+                    ok, sebep = gecerli(cx, cy, w, w * 0.7, conf)
+                    # ESKI davranisin BIREBIR yeniden hesabi (kopya degil,
+                    # bagimsiz ifade): esik DAIMA IbvsCfg.CONF_MIN
+                    bek_ok = conf >= IbvsCfg.CONF_MIN
+                    if bek_ok and not ok and sebep == "conf":
+                        fark.append((conf, w, cx, cy, sebep))
+                    if not bek_ok and ok:
+                        fark.append((conf, w, cx, cy, "gecmemeliydi"))
+        assert not fark, "takipci KAPALIYKEN davranis degisti: %s" % fark[:5]
+    finally:
+        TakipCfg.AKTIF = eski
+
+
+def test_B49_takip_acikken_geometri_korunur():
+    """Takipci acikken GUVEN esigi iner ama GEOMETRI kontrolleri (boyut,
+    menzil, kadraj) AYNEN kalir. Onlar guven degil FIZIK kontrolu:
+    4 px'lik bir kutu, takipci ne derse desin gecerli bir hedef degildir."""
+    from dow.gudum.ibvs import gecerli, IbvsCfg
+    from dow.gorus.tracker import TakipCfg
+    eski = TakipCfg.AKTIF
+    try:
+        TakipCfg.AKTIF = True
+        assert gecerli(960, 540, 60, 40, 0.25)[0] is True, \
+            "takipci acikken 0.25 guven GECMELI (esik 0.10'a indi)"
+        assert gecerli(960, 540, 60, 40, 0.05)[0] is False, \
+            "TakipCfg.CONF_MIN altindaki kutu yine ELENMELI"
+        assert gecerli(960, 540, 4, 3, 0.9)[1] == "boyut", \
+            "BOYUT kontrolu takipciyle birlikte kaybolmus"
+        assert gecerli(-5, 540, 60, 40, 0.9)[1] == "kadraj", \
+            "KADRAJ kontrolu kaybolmus"
+    finally:
+        TakipCfg.AKTIF = eski

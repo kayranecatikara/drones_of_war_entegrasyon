@@ -50,6 +50,7 @@ def _telem_gonder(tel, port=8801):
 from araclar.bekci import Bekci
 from araclar.kayit import Kayit
 from araclar.kadraj import (BOLGE, grab_rgb, hud_parlak, ucusta_mi,
+                            gorev_bitti_mi, gorev_yeniden_oyna,
                             oyunu_one_al, yeniden_dogur, hazirla)
 
 
@@ -68,13 +69,25 @@ _gorus_dur = threading.Event()
 _gorus_isp = [None]              # iş parçacığı tutamağı (temiz kapanış için)
 _gorus_kilit = threading.Lock()
 _gorus = {"img": None, "t": 0.0, "n": 0, "tespit": None,
-          "tespit_t": 0.0, "hud": 0.0}
+          "tespit_t": 0.0, "hud": 0.0,
+          # ⭐ Ayar.GORUS_ISP için: beyin tutamacı (iş parçacığı beyinden ÖNCE
+          #   başlıyor, bu yüzden sonradan konur) ve kontrol döngüsünün
+          #   boşaltacağı çıkarım kuyruğu. CSV'yi TEK iş parçacığı yazsın diye
+          #   satır burada KURULMAZ, yalnız ham sonuç biriktirilir.
+          "beyin": None, "bekleyen": []}
 
 
 def _gorus_isi(det):
-    """Ekranı sabit hızda kopyala, dedektörü sabit hızda koştur, panele bas."""
+    """Ekranı sabit hızda kopyala, dedektörü koştur, panele bas.
+
+    ⭐ Ayar.GORUS_ISP AÇIKKEN görsel güdüm çıkarımı da BURADA koşar
+    (yer-kontrol `model-fps` mimarisi: `dedektor_dongusu` ayrı iş parçacığı).
+    Kontrol döngüsü artık YOLO'yu beklemez, son kutuyu okur.
+    ÖLÇÜLDÜ (HZ4): çıkarım kontrol döngüsünün içindeyken 16 Hz'e çıkarmak
+    kontrolü 40.3 -> 22.3 Hz'e düşürüyor ve araç istasyonu tutamıyor."""
     sct = mss.mss()
     son_det = 0.0
+    son_gt = 0.0                       # görsel güdüm çıkarımı zamanlayıcısı
     dt_yak = 1.0 / max(1.0, Ayar.PANEL_YAKALA_HZ)
     while not _gorus_dur.is_set():
         t = time.time()
@@ -90,7 +103,27 @@ def _gorus_isi(det):
             tespit = det.bul(img)
             PANEL.fps_isaretle("dedektor")
             PANEL.tespit_isaretle(tespit is not None)   # şerit YALNIZ burada
+        # ⭐ GÖRSEL GÜDÜM ÇIKARIMI — GORUS_ISP açıkken kontrol döngüsü yerine
+        #   BURADA. GORSEL_DET_HZ üst sınır olarak kalır (sınırsız değil).
+        _beyin = _gorus["beyin"]
+        _g_kostu = (Ayar.GORUS_ISP and Ayar.GORSEL_AKTIF and _beyin is not None
+                    and (t - son_gt) >= 1.0 / max(0.1, Ayar.GORSEL_DET_HZ))
+        _g_tespit = None
+        if _g_kostu:
+            son_gt = t
+            _g_tespit = _beyin.gorsel_tik(img, t, t)
+            PANEL.fps_isaretle("dedektor")
+            PANEL.tespit_isaretle(_g_tespit is not None)
         with _gorus_kilit:
+            if _g_kostu and _g_tespit is not None:
+                # ⛔ YALNIZ BAŞARILI çıkarımda güncelle — `beyin._son_tespit`
+                #   ile AYNI anlam. Iskada silmek paneli titretiyor ve
+                #   ölçütü bozuyordu (bkz. kontrol döngüsündeki not).
+                _gorus["tespit"] = _g_tespit
+                _gorus["tespit_t"] = t
+            if _g_kostu:
+                # tani ANLIK GÖRÜNTÜSÜ — kontrol döngüsü CSV satırını kurar
+                _gorus["bekleyen"].append((t, _g_tespit, dict(_beyin.tani)))
             _gorus["img"] = img; _gorus["t"] = t; _gorus["n"] += 1
             _gorus["hud"] = pk
             # ⛔ TESPİT YAŞAR: yakalama 15 Hz, çıkarım 5 Hz. Çıkarımın
@@ -155,7 +188,28 @@ def _gorevi_yeniden_kur(zaman_asimi=240):
 
 
 def _yeni_gorev(beyin=None):
-    """Drone'u yeniden doğur; olmazsa GÖREVİ baştan kur."""
+    """Drone'u yeniden doğur; olmazsa GÖREVİ baştan kur.
+
+    ⭐ SIRA ÖNEMLİ (2026-08-24, HZ4'te yaşandı): önce GÖREV-SONU ekranı
+    sınanır. Sistem hedefi VURUNCA oyun 'MISSION COMPLETED' ekranına düşüyor
+    ve SDK 12345 portunu KAPATIYOR; orada 'E' hiçbir şey yapmaz. Eskiden
+    4 kez boşuna 'E' denenip 2 dakikalık tam yeniden başlatmaya gidiliyordu
+    ve kampanya yine de ölüyordu — HZ4'ün ilk denemesinde 8 uçuşun 7'si
+    koşulamadı. PLAY AGAIN yolu ~15 s ve doğrudan çalışıyor."""
+    with mss.mss() as sct:
+        img0 = np.array(sct.grab(BOLGE))[:, :, :3]
+    if gorev_bitti_mi(img0):
+        print("  [görev-sonu ekranı — PLAY AGAIN ile yeniden oynanıyor]", flush=True)
+        gorev_yeniden_oyna()
+        for _ in range(3):
+            with mss.mss() as sct:
+                img = np.array(sct.grab(BOLGE))[:, :, :3]
+            if ucusta_mi(img):
+                if beyin is not None:
+                    try: beyin.b.yeniden_bagla()
+                    except Exception: pass
+                return True
+            yeniden_dogur(); time.sleep(1.0)
     for _ in range(4):
         yeniden_dogur()
         with mss.mss() as sct:
@@ -170,6 +224,72 @@ def _yeni_gorev(beyin=None):
         try: beyin.b.yeniden_bagla()
         except Exception: pass
     return True
+
+
+def _truth_aspekt(beyin, dp, hp):
+    """Hedefin O ANDA bize gösterdiği yüz + menzil. ÖLÇÜM-ONLY.
+
+    aspekt: 0° = tam KUYRUK (bizden uzaklaşıyor), 90° = yandan,
+            180° = kafa kafaya.
+    ÖLÇÜLDÜ 2026-08-24 (2763 kare): tespit oranı kuyrukta %95, yandan %35.
+    Model kuyruk görüntüsüyle eğitilmiş; aspekt tespiti belirleyen EN GÜÇLÜ
+    etken (r = -0.45; hedefin yatışı -0.15, bizim yatışımız -0.23)."""
+    out = {}
+    if not hp or not dp: return out
+    dx, dy = hp[0] - dp[0], hp[1] - dp[1]
+    out["menzil_m"] = round(math.hypot(dx, dy), 1)
+    try:
+        out["drone_roll"] = round(math.degrees(beyin.b.yonelim()[0]), 1)
+    except Exception:
+        pass
+    try:
+        hr = beyin.b.hedef_yonelim()          # (roll, pitch, yaw) derece
+        out["hedef_roll"] = round(hr[0], 1)
+        los = math.degrees(math.atan2(dy, dx))          # bizden hedefe
+        out["aspekt_deg"] = round(abs(((hr[2] - los + 180.0) % 360.0) - 180.0), 1)
+    except Exception:
+        pass
+    return out
+
+
+class CikarimKaydi:
+    """⭐ HER ÇIKARIMI ayrı ayrı yazar (meta.csv 2 Hz; bu, çıkarım hızında).
+
+    NEDEN GEREKTİ (2026-08-24): tespit boşluklarının süresini ölçmek
+    istedim ama meta.csv 0.5 s aralıklı. 9 Hz çıkarımda %54 başarıyla
+    ortalama boşluk 1.85 çıkarım ≈ 0.2 s — yani ASIL OLAY meta.csv'nin
+    örnekleme aralığının ALTINDA kalıyor ve görünmüyor (§5.3: ölçütün
+    örnekleme hızı, ölçtüğü şeyin en az 5 katı olmalı).
+
+    Bu kayıt şunu cevaplayacak: kutu kaybolunca KISA boşluklarda (0.1-0.4 s)
+    konumu ileri taşımak mı dondurmak mı daha isabetli? 0.5 s ve üstünde
+    dondurma kazanıyordu (ölçüldü), ama gerçek boşluklar oradan kısa.
+
+    ⚠ ÖLÇÜM-ONLY: truth sütunları (bek_*) analiz içindir, güdüme GİRMEZ.
+    """
+    ALANLAR = ["t", "kare_t", "basarili", "durum",
+               "vis_cx", "vis_cy", "vis_w", "vis_conf",
+               "bek_cx", "bek_cy", "bek_w",
+               "yerel_aday", "yerel_uygun", "red_konum", "red_boyut",
+               "iz_yas", "iz_w", "det_ms", "det_pencere",
+               "takip_id", "takip_kaynak", "takip_coast", "takip_n",
+               "menzil_m", "aspekt_deg", "hedef_roll", "drone_roll"]
+
+    def __init__(self, dizin):
+        os.makedirs(dizin, exist_ok=True)
+        self._f = open(os.path.join(dizin, "cikarim.csv"), "w", newline="")
+        self._w = csv.DictWriter(self._f, fieldnames=self.ALANLAR,
+                                 extrasaction="ignore")
+        self._w.writeheader()
+        self.n = 0
+
+    def yaz(self, sat):
+        self._w.writerow(sat); self.n += 1
+        if self.n % 40 == 0: self._f.flush()
+
+    def kapat(self):
+        try: self._f.close()
+        except Exception: pass
 
 
 def _gecmis_beklenen(halka, t_hedef):
@@ -229,6 +349,7 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
     """Tek koşu. Döner: özet sözlüğü."""
     os.makedirs(dizin, exist_ok=True)
     kayit = Kayit(dizin, Ayar.KAYIT_ARALIK) if Ayar.KAYIT_AKTIF else None
+    ckayit = CikarimKaydi(dizin) if Ayar.KAYIT_AKTIF else None
     bekci = Bekci(); bekci.sifirla()
     beyin.spawn_sifirla()
     if not beyin.b.canli():
@@ -294,7 +415,79 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
             time.sleep(0.005); continue
         if hud_pk <= 0.05:
             ihlal = "drone_yok"; break
-        if Ayar.GORSEL_AKTIF:
+        # ---- ÇIKARIM SATIRI (ölçüm-only) — TEK yerde kurulur ----
+        def _cikarim_satiri(ct, ctespit, cti, ckare_t):
+            """cikarim.csv satırı. TRUTH kanalına (beyin.b) dokunduğu için
+            YALNIZ kontrol iş parçacığından çağrılır — SDK soketi tek
+            iş parçacığına ait kalsın (GORUS_ISP'te görüş yalnız ham sonucu
+            kuyruğa koyar, satırı buradan kurarız)."""
+            _c = {"t": round(ct - t0, 3),
+                  "kare_t": round(ckare_t - t0, 3) if ckare_t else -1,
+                  "basarili": int(ctespit is not None),
+                  "durum": beyin.durum,
+                  "yerel_aday": cti.get("yerel_aday"),
+                  "yerel_uygun": cti.get("yerel_uygun"),
+                  "red_konum": cti.get("red_konum"),
+                  "red_boyut": cti.get("red_boyut"),
+                  "takip_id": cti.get("takip_id"),
+                  "takip_kaynak": cti.get("takip_kaynak"),
+                  "takip_coast": cti.get("takip_coast"),
+                  "takip_n": cti.get("takip_n"),
+                  "iz_yas": cti.get("iz_yas"),
+                  "iz_w": cti.get("iz_w"),
+                  "det_ms": cti.get("det_ms"),
+                  "det_pencere": cti.get("det_pencere")}
+            if ctespit:
+                _c.update({"vis_cx": round(ctespit[0], 1),
+                           "vis_cy": round(ctespit[1], 1),
+                           "vis_w": round(ctespit[2], 1),
+                           "vis_conf": round(ctespit[4], 3)})
+            _bg = _gecmis_beklenen(_halka, ckare_t if ckare_t else ct)
+            if _bg:
+                _c.update({"bek_cx": round(_bg[0], 1),
+                           "bek_cy": round(_bg[1], 1),
+                           "bek_w": round(_bg[2], 1)})
+            # ⚠ ÖLÇÜM-ONLY truth kanalı; GÜDÜME girmez, yalnız bu CSV'ye.
+            try:
+                _trc = beyin.b.truth()
+                if _trc:
+                    _c.update(_truth_aspekt(beyin, beyin.b.konum(), _trc["hedef_m"]))
+            except Exception:
+                pass
+            return _c
+
+        if Ayar.GORSEL_AKTIF and Ayar.GORUS_ISP:
+            # ⭐ ÇIKARIM GÖRÜŞ İŞ PARÇACIĞINDA KOŞTU — burada YALNIZ OKU.
+            #   Kontrol döngüsü YOLO'yu BEKLEMEZ; bu değişikliğin tamamı budur.
+            #
+            # ⛔ KUTU ANLAMI İKİ KOLDA AYNI OLMALI (2026-08-24, ISP3).
+            #   `_gorus["tespit"]` eskiden HER çıkarımda üzerine yazılıyordu;
+            #   ıskada None oluyordu. Eski yolda `beyin._son_tespit` KALICI.
+            #   İki kol farklı şey ölçüyordu:
+            #     kör süre  %31.5 -> %0.00 | tespit% %94.4 -> %50.0
+            #   İkisi de KAZANÇ DEĞİL, ARTEFAKT. Çare görüş iş parçacığında:
+            #   `_gorus["tespit"]` artık YALNIZ BAŞARILI çıkarımda güncellenir,
+            #   yani `beyin._son_tespit` ile BİREBİR aynı anlam taşır.
+            #
+            # ⛔⛔ BURADA `beyin._kilit_g` KULLANMA. Bir ara öyle yapmıştım ve
+            #   ÖZELLİĞİN TAMAMINI İPTAL ETTİ: o kilidi görüş iş parçacığı
+            #   ÇIKARIM BOYUNCA (~50 ms) tutuyor; kontrol döngüsü onu
+            #   beklerken yine YOLO'ya bağlanıyor. Ölçüldü: kontrol döngüsü
+            #   46.0 -> 39.8 Hz. `_gorus_kilit` ise mikrosaniyeler tutulur.
+            with _gorus_kilit:
+                tespit = _gorus["tespit"]
+                tespit_yas = (t - _gorus["tespit_t"]) if tespit else -1.0
+                _bekleyen = _gorus["bekleyen"]; _gorus["bekleyen"] = []
+            beyin._cikarim_yapildi = bool(_bekleyen)
+            if ckayit is not None:
+                for (_bt, _bd, _bti) in _bekleyen:
+                    ckayit.yaz(_cikarim_satiri(_bt, _bd, _bti, _bt))
+            for (_bt, _bd, _bti) in _bekleyen:      # §5.1 mekanizma sayaçları
+                _g_det_n += 1
+                _dm = _bti.get("det_ms")
+                if _dm: _g_det_ms.append(_dm)
+                if _bti.get("det_pencere"): _g_pencere_n += 1
+        elif Ayar.GORSEL_AKTIF:
             # ⛔ ÇIKARIM TAVANLI (bkz. Ayar.GORSEL_DET_HZ). Aradaki tiklerde
             #   güdüm son kutuyu kullanır (Beyin._son_tespit zaten öyle
             #   çalışıyor) ve kontrol döngüsü tam hızda döner.
@@ -316,6 +509,9 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                 _tespit_yaz(tespit)
                 PANEL.tespit_isaretle(tespit is not None)
                 PANEL.fps_isaretle("dedektor")
+                # ⭐ HER ÇIKARIMI YAZ (ölçüm-only, güdüme dokunmaz)
+                if ckayit is not None:
+                    ckayit.yaz(_cikarim_satiri(t, tespit, beyin.tani, kare_t))
             else:
                 beyin._cikarim_yapildi = False
                 tespit = beyin._son_tespit
@@ -379,7 +575,11 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
             #   değil); aradaki fark yakalama tavanı kadardır ve yanlılıktır.
             if beyin._son_tespit and beyin._son_tespit_kare_t:
                 _g_yas.append(t - beyin._son_tespit_kare_t)
-            if beyin._cikarim_yapildi:
+            # ⚠ GORUS_ISP açıkken bu sayaçlar ÇIKARIM KUYRUĞUNDAN sayılır
+            #   (yukarıda, her gerçek çıkarım için bir kez). Burada da saymak
+            #   ÇİFT SAYIM olurdu — mekanizma sütunu §5.1 için kullanılıyor,
+            #   şişmiş bir sayı "özellik çalıştı" yanılsaması verir.
+            if beyin._cikarim_yapildi and not Ayar.GORUS_ISP:
                 _g_det_n += 1
                 _g_det_ms.append(beyin._det_ms)
                 if beyin._det_pencere > 0: _g_pencere_n += 1
@@ -427,6 +627,29 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                    for k, v in ti.items() if isinstance(v, (int, float, str))}
             tel["drone_hiz"] = round(beyin.b.hiz(), 2)
             tel["bekci"] = bekci.rapor()
+            # ⭐ YER-KONTROL ARAYÜZÜ İÇİN GENİŞ TELEMETRİ (2026-08-24).
+            #   `dow/web/index.html` (arkadaşın `model-fps` branch'inden) iç içe
+            #   bir şema bekliyor; `dow/panel.py::_api_telemetry` bu düz alanları
+            #   o şekle çeviriyor. Buraya YALNIZ GÖSTERİM verisi konur.
+            #   ⛔ §10: truth kanalı GÜDÜME girmez — meta.csv'de olduğu gibi
+            #      burada da yalnız EKRANA gider (görsel güdüm `gorsel_tik`
+            #      içinde bu alanların hiçbirini görmez).
+            tel["d_x"], tel["d_y"], tel["d_z"] = [round(v, 2) for v in dp]
+            tel["d_roll"] = round(math.degrees(_yon[0]), 2)
+            tel["d_pitch"] = round(math.degrees(_yon[1]), 2)
+            tel["d_yaw"] = round(math.degrees(_yon[2]), 2)
+            if hp:
+                tel["h_x"], tel["h_y"], tel["h_z"] = [round(v, 2) for v in hp]
+                tel["mesafe_m"] = round(math.dist(dp, hp), 2)
+            if np.isfinite(_R):
+                tel["gercek_mesafe_m"] = round(float(_R), 2)
+            if tespit:
+                tel["vis_cx"], tel["vis_cy"] = round(tespit[0], 1), round(tespit[1], 1)
+                tel["vis_w"], tel["vis_h"] = round(tespit[2], 1), round(tespit[3], 1)
+                tel["vis_conf"] = round(tespit[4], 3)
+                tel["vis_yas"] = round(tespit_yas, 3)
+            tel["kare_w"], tel["kare_h"] = 1920, 1080
+            tel["gorsel_aktif"] = int(Ayar.GORSEL_AKTIF)
             _telem_gonder(tel)
 
         # ---- kayıt (0.5 s) ----
@@ -465,6 +688,8 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                       "hedef_menzil_m", "yaw_hata", "v_istek",
                       "kopru_kare", "bayat_birak", "yerel_aday", "yerel_uygun",
                       "det_ms", "det_pencere", "red_konum", "red_boyut", "yerel_kayip",
+                      "iz_yas", "iz_w",
+                      "takip_id", "takip_kaynak", "takip_coast", "takip_n",
                       "ibvs_nisan_elev", "ibvs_vz_kirpildi", "ibvs_e_cy",
                       "ibvs_vz_yukari"):
                 if k in ti: sat[k] = round(ti[k], 2) if isinstance(ti[k], float) else ti[k]
@@ -529,8 +754,12 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
         ihlal = None
     _sure_ger = max(1e-6, time.time() - t0)
     _tik_hz = n / _sure_ger          # ⚠ GERÇEK döngü hızı: görsel fazda YOLO
+    # det_hz paydasi: sayacin sayildigi pencere (bkz. det_hz notu)
+    _det_pencere_s = (_sure_ger if Ayar.GORUS_ISP
+                      else gorsel_tik_say / max(1e-9, _tik_hz))
                                      #   yüzünden ~19 Hz, nominal 50 DEĞİL.
     if kayit: kayit.kapat()
+    if ckayit: ckayit.kapat()
     beyin.b.komut(beyin.cev._vz_cubuk(0.0), 0.0, 0.0, 0.0, True)
     a = np.array(ist_hatalar) if ist_hatalar else np.array([np.nan])
     return {
@@ -575,8 +804,16 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                          if len(_g_yas) > 5 else float("nan"),
         "det_ms": round(float(np.median(_g_det_ms)), 1) if len(_g_det_ms) > 3
                   else float("nan"),
-        "det_hz": round(_g_det_n / max(1e-6, gorsel_tik_say / _tik_hz), 1)
-                  if gorsel_tik_say > 5 else float("nan"),
+        # ⚠ det_hz'nin PAYDASI KOLA GÖRE DEĞİŞİR — İKİ KEZ yanlış yazıldı:
+        #   1) `_g_det_n / (gorsel_tik_say / tik_hz)`: GORUS_ISP AÇIKKEN
+        #      şişiyordu (gerçek 11.2 Hz iken 80.4).
+        #   2) "duvar saatine böl" düzeltmesi NORMAL yolu bozdu: `_g_det_n`
+        #      YALNIZ `durum=="GORSEL"` iken sayılır ama toplam süreye
+        #      bölünüyordu. Kullanıcının izlediği koşuda gerçek 9.1 Hz iken
+        #      **1.3 Hz** yazdı ve "dedektör bozuldu" sanılmasına yol açtı.
+        #   DOĞRUSU: sayacın SAYILDIĞI pencereye böl (_det_pencere_s).
+        "det_hz": round(_g_det_n / max(1e-6, _det_pencere_s), 1)
+                  if _g_det_n > 5 and _det_pencere_s > 1.0 else float("nan"),
         "pencere_yuzde": round(100.0 * _g_pencere_n / max(1, _g_det_n), 1),
         "det_tekrar": det_tekrar,
         "kesinti_n": _g_kesinti,
@@ -622,8 +859,44 @@ def main():
         time.sleep(0.05)
 
     beyin = Beyin(dedektor=det)
-    if not beyin.b.baglan():
-        print("SDK bağlanamadı"); sys.exit(1)
+    # ⭐ GORUS_ISP: görüş iş parçacığı beyinden ÖNCE başlıyor; tutamacı şimdi ver.
+    with _gorus_kilit:
+        _gorus["beyin"] = beyin
+    # ⭐ SDK BAĞLANTISI YENİDEN DENENİR (2026-08-24, ISP5'te ölçüldü).
+    #   Görev-sonu kurtarmasından (PLAY AGAIN -> 'E') sonra drone doğuyor ve
+    #   HUD görünüyor — `hazirla()` "UÇUŞTA" diyor — ama oyunun SDK dinleyicisi
+    #   12345 portunu BİRKAÇ SANİYE SONRA açıyor. Süreç o aralıkta bağlanmaya
+    #   çalışıp "SDK bağlanamadı" ile ölüyordu.
+    #   BEDELİ ÖLÇÜLDÜ: ISP5'te 8 koşunun 2'si (%25) bu yüzden kayboldu ve
+    #   kampanya n=3'te kaldı — §5.4 gereği KARAR VERİLEMEZ hale geldi.
+    #   ⚠ Bu YALNIZ uçuş ÖNCESİ kurulum yoludur; güdüm davranışına dokunmaz.
+    #   ⚠ 24 s YETMEDİ (MODEL20 kampanyası): görev-sonu kurtarmasından sonra
+    #     port bazen daha geç açılıyor ve koşu düşüyor. Düşen koşu, kolların
+    #     n'ini eşitsizleştirir ve kıyası bozar (§5.9). 60 s'ye çıkarıldı.
+    #   ⚠ 24 s ve 60 s İKİSİ DE YETMEDİ (MODEL20): görev-sonu kurtarmasından
+    #     sonra port bazen hiç açılmıyor ve koşu DÜŞÜYOR. Düşen koşu kolların
+    #     n'ini eşitsizleştirir ve kıyası bozar (§5.9) — MODEL20'de v3 iki
+    #     koşu geride kaldı. Artık son çare olarak GÖREV BAŞTAN KURULUR.
+    def _sdk_bagla(sn=60):
+        for _d in range(int(sn / 2)):
+            if beyin.b.baglan():
+                return True
+            if _d == 0:
+                print("  [SDK portu henüz açık değil — bekleniyor]", flush=True)
+            time.sleep(2.0)
+        return False
+
+    if not _sdk_bagla(60):
+        print("  [SDK 60 s'de açılmadı — GÖREV BAŞTAN KURULUYOR (~2 dk)]",
+              flush=True)
+        _gorevi_yeniden_kur()
+        try:
+            beyin.b.yeniden_bagla()
+        except Exception:
+            pass
+        if not _sdk_bagla(90):
+            print("SDK bağlanamadı (görev yeniden kurulduktan sonra da)")
+            sys.exit(1)
 
     print(f"\n{adet} koşu x {sure:.0f} s | GPS={Ayar.GPS_KAYNAK} | "
           f"görsel={'AÇIK' if Ayar.GORSEL_AKTIF else 'KAPALI'}", flush=True)

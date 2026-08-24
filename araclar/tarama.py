@@ -39,8 +39,10 @@ def _ayarla(alan, v):
     Bool alanlar 0/1 ile verilir."""
     from dow.gudum import ibvs as _I
     from dow.gorus.dedektor import DetCfg as _D
+    from dow.gorus.iz import IzCfg as _Z
     if alan.startswith("IBVS."):   hedef, ad = _I.IbvsCfg, alan[5:]
     elif alan.startswith("DET."):  hedef, ad = _D, alan[4:]
+    elif alan.startswith("IZ."):   hedef, ad = _Z, alan[3:]
     else:                          hedef, ad = Ayar, alan
     assert hasattr(hedef, ad), f"bilinmeyen alan: {alan}"
     eski = getattr(hedef, ad)

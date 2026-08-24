@@ -46,7 +46,8 @@ class Kayit:
         # bayat olabilir. Bayat kutu hedefin gerisinde kalır ve
         # "yanlış-pozitif" gibi görünür; ölçüt bunu ayırt edebilsin.
         "vis_yas", "vis_yas_tam", "det_ms", "det_pencere",
-        "red_konum", "red_boyut", "yerel_kayip",
+        "red_konum", "red_boyut", "yerel_kayip", "iz_yas", "iz_w",
+        "takip_id", "takip_kaynak", "takip_coast", "takip_n",
         # tespit ANINDAKİ duruş+truth'tan öngörülen kadraj konumu. Kutu
         # kontrol döngüsüne ~75-280 ms gecikmeyle ulaşıyor; ölçütü KAYIT
         # anının duruşuyla kurmak, dik bakan kolları haksız cezalandırıyordu.

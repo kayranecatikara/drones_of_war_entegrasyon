@@ -86,6 +86,24 @@ class Ayar:
     #   KEZ tarar (aynı piksel, aynı sonuç, tam bedel). Kapı açıkken çıkarım
     #   yalnız yeni kare geldiğinde koşar; GORSEL_DET_HZ üst sınır kalır.
     DET_YENI_KARE   = _b("DOW_DET_YENI_KARE", False)
+    # ⭐ GÖRÜŞ İŞ PARÇACIĞI (2026-08-24) — yer-kontrol `model-fps` mimarisi.
+    #
+    #   SORUN (ÖLÇÜLDÜ, kampanya HZ4): bizde YOLO kontrol döngüsünün İÇİNDE
+    #   koşuyor. Çıkarım 9.3 -> 16.2 Hz'e çıkarılınca kontrol döngüsü
+    #   40.3 -> 22.3 Hz'e DÜŞTÜ; araç istasyonu tutamadı (hata 8.3 -> 16.5 m),
+    #   görsel devir HİÇ olmadı, isabet 1 -> 0.
+    #   Yani yukarıdaki tavanlar bir çözüm değil, bu blokajın SEMPTOMU.
+    #
+    #   ONLARDA: `kontrol_dongusu` 50 Hz kendi iş parçacığında (time.sleep(0.02)),
+    #   `dedektor_dongusu` AYRI iş parçacığında tavansız ("kare varsa inference
+    #   kendi hizinda pace'lenir; ekstra sleep YOK"). Güdüm, dedektörün son
+    #   çıktısını kilitli ANLIK GÖRÜNTÜDEN okur -> YOLO ne kadar sürerse sürsün
+    #   güdüm 50 Hz döner.
+    #
+    #   AÇIKKEN: çıkarım görüş iş parçacığında koşar, kontrol döngüsü yalnız
+    #   son kutuyu OKUR (bloke YOK). GORSEL_DET_HZ üst sınır olarak kalır.
+    #   ⚠ VARSAYILAN KAPALI — açılması ölçümle kararlaşır (§6).
+    GORUS_ISP       = _b("DOW_GORUS_ISP", False)
     PANEL_OLCEK     = _f("DOW_PANEL_OLCEK", 0.5)   # JPEG'e giden küçültme
 
     # ================= KALKIŞ =================
