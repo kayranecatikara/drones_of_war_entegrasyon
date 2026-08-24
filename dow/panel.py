@@ -12,10 +12,11 @@ TASARIM
     sayı yanıltmasın: "12.0 / 30" = tavan 30, ulaşılan 12.
   * TESPİT ŞERİDİ: son ~20 s'nin kare kare tespit haritası.
 
-⛔ HybridSORT TAKİPÇİSİ ÇIKARILDI (2026-08-22, kullanıcı kararı):
-   "şu an detection kötü olduğu için tracking bir işe yaramıyor ve rastgele
-    yerlere track atabiliyor." Panelden turuncu "öngörü" durumu, iz kimliği
-    ve "takiple birlikte" oranı da bu yüzden kaldırıldı.
+⭐ HybridSORT TAKİPÇİSİ GERİ (2026-08-24, kullanıcı kararı):
+   22 Ağustos'ta "detection kötü olduğu için tracking işe yaramıyor" diye
+   çıkarılmıştı; koşul "düzgün detection modeli gelince geri gelir"di ve
+   talon_v5 ile gerçekleşti. Panel yeniden iz kimliğini (ID), kutunun
+   kaynağını (eşleşme/öngörü) ve coast sayısını gösterir.
 
 ⚡ MALİYET (ölçüldü 2026-08-22 — arayüz UÇUŞU BOZUYORDU):
    Eski sürümde ekran saniyede 180-330 kez kopyalanıyordu ve MJPEG yazıcısı
@@ -25,6 +26,7 @@ TASARIM
 ================================================================================
 """
 import json
+import os
 import threading
 import time
 from collections import deque
@@ -35,6 +37,21 @@ import cv2
 _K = {"jpg": None, "zoom": None, "telem": {}, "sayac": 0}
 _kosul = threading.Condition()          # yeni kare bildirimi (boş bekleme YOK)
 _serit = deque(maxlen=400)              # (t, durum) 0=tespit yok, 1=tespit
+
+# ⭐ YARIŞMA KİLİT ÖLÇÜTÜ (2026-08-24) — BİZDE HİÇ YOKTU.
+#   Panelde "kutu var mı" gösteriyorduk ama yarışmanın PUAN verdiği şey o değil:
+#   hedefin kadrajın ORTA bölgesinde (AV dörtgeni) VE yeterince BÜYÜK görünmesi,
+#   ve bunun 10 saniyelik pencerede toplam 5 saniye sürmesi.
+#   ⚠ EŞİKLER yer-kontrol deposunun şartname okumasından alındı; BİZİM
+#     şartnameden DOĞRULANMALI.
+#   ⚠ ÇİZİMİ ARAYÜZ YAPAR (dow/web/index.html); burada YALNIZ HESAPLANIR —
+#     sunucu ikinci kez çizerse kutular üst üste biner.
+KILIT_PCT   = 0.06      # kutunun uzun ekseni / kadrajın o ekseni
+KILIT_AV_X  = 0.25      # yatay %25-%75 bandı
+KILIT_AV_Y  = 0.10      # dikey %10-%90 bandı
+KILIT_WIN_S = 10.0      # değerlendirme penceresi
+KILIT_GEREK = 5.0       # pencerede gereken kümülatif kilit
+_kilit_pencere = deque(maxlen=1200)     # (t, kilitli_mi)
 _fps = {"yakala": deque(maxlen=40), "dedektor": deque(maxlen=40),
         "ekran": deque(maxlen=40)}
 _TAVAN = {"yakala": 0.0, "dedektor": 0.0}
@@ -45,6 +62,150 @@ def _hz(d):
         return 0.0
     dt = d[-1] - d[0]
     return (len(d) - 1) / dt if dt > 1e-6 else 0.0
+
+
+def _api_telemetry():
+    """⭐ YER-KONTROL ARAYÜZÜ UYARLAYICISI (2026-08-24, kullanıcı isteği).
+
+    `dow/web/index.html` (kullanıcının attığı `model-fps` branch'inden AYNEN
+    alındı) İÇ İÇE bir telemetri şeması bekliyor; bizim güdüm telemetrimiz DÜZ
+    bir sözlük (`beyin.tani` + `kosu.py`'nin eklediği gösterim alanları).
+    Bu fonksiyon düzü o şekle çevirir.
+
+    ⛔ BİZDE OLMAYAN ALANLAR UYDURULMAZ. Onların sistemi PnP poz kestirimi,
+    GNSS J-filtre kıyası ve olay günlüğü de yayınlıyor; bizde o modüller YOK.
+    O alanlar boş/None bırakılır ve arayüz "—" gösterir. Sahte sayı, boş
+    hücreden kötüdür.
+
+    ⛔ §10 (YARIŞMA KISITI): buradaki hedef konumu/mesafesi YALNIZ EKRANA
+    gider. Görsel güdüm (`Beyin._gorsel_tik_kilitli`) bu alanların hiçbirini
+    görmez — girdisi yalnız görüntüdür. meta.csv'deki truth sütunlarıyla aynı
+    statüdedir: ölçüm/gösterim kanalı.
+    """
+    with _kosul:
+        t = dict(_K["telem"])
+    from dow.ayarlar import kip_oku, Ayar
+    from dow.gorus.tracker import TakipCfg
+
+    def g(k, d=None):
+        v = t.get(k, d)
+        return d if v is None else v
+
+    W = float(g("kare_w", 1920) or 1920)
+    H = float(g("kare_h", 1080) or 1080)
+    durum = str(g("durum", "-"))
+
+    tespit = None
+    cx, cy, bw = t.get("vis_cx"), t.get("vis_cy"), t.get("vis_w")
+    if cx is not None and bw:
+        bh = t.get("vis_h") or bw * 0.7
+        kaynak = str(g("takip_kaynak", "") or "")
+        tespit = {
+            "ex": (cx - W / 2.0) / (W / 2.0),      # + = hedef SAĞDA
+            "ey": (cy - H / 2.0) / (H / 2.0),      # + = hedef ALTTA
+            "cx": cx / W, "cy": cy / H,
+            "w": bw / W, "h": bh / H,
+            "conf": float(g("vis_conf", 0.0) or 0.0),
+            "cls": 0, "sinif": "talon",
+            "track_id": (None if g("takip_id", -1) in (-1, None)
+                         else int(g("takip_id"))),
+            "track_durumu": ("CONFIRMED" if kaynak == "eslesme"
+                             else ("COAST" if kaynak == "tahmin" else None)),
+            # ⭐ tespit_mi=False -> arayüz kutuyu KESİKLİ çizer. Bizde bu,
+            #   takipçinin Kalman ÖNGÖRÜSÜ demektir (o karede ÖLÇÜM YOK).
+            "tespit_mi": (kaynak != "tahmin"),
+        }
+
+    serit, oran = _serit_ozet()
+    kl_s = float(g("kilit_pencere_s", 0.0) or 0.0)
+    gorsel = {
+        "tespit": tespit,
+        "durum": durum,
+        "mod": kip_oku(),
+        "perf": {"fps": round(_hz(_fps["dedektor"]), 1),
+                 "det_ms": g("det_ms", 0.0),
+                 "det_p95": None, "poz_ms": None, "gpu": None,
+                 "yakala_fps": round(_hz(_fps["yakala"]), 1),
+                 "ekran_fps": round(_hz(_fps["ekran"]), 1)},
+        "conf_esik": (TakipCfg.CONF_MIN if TakipCfg.AKTIF else 0.40),
+        "n_lock": g("kilit_kare", 0),
+        "pos_count": g("kilit_kare", 0),
+        "kare_kaynak": "panel MJPEG (mss)",
+        "prop_maske": [],
+        "poz": None, "poz_hazir": False,           # PnP bizde YOK
+        "kopru": {"aktif": durum == "GORSEL_KOPRU", "kare": g("kopru_kare", 0)},
+        "kilit": {"anlik": bool(g("kilit_simdi", 0)),
+                  "sure": kl_s, "gerek": KILIT_GEREK, "pencere": KILIT_WIN_S,
+                  "ok": kl_s >= KILIT_GEREK, "esik_pct": KILIT_PCT,
+                  "kaplama_pct": g("kilit_kaplama", 0.0),
+                  "av": bool(g("kilit_av", 0))},
+        "serit": serit, "ham_tespit_oran": oran,
+    }
+
+    takip = {"aktif": bool(TakipCfg.AKTIF),
+             "id": (None if g("takip_id", -1) in (-1, None) else int(g("takip_id"))),
+             "kayip": g("yerel_kayip", 0), "yeniden": None,
+             "coast": g("takip_coast", -1), "iz_sayisi": g("takip_n", 0),
+             "kaynak": g("takip_kaynak", "")}
+
+    hedef = ({"x": t["h_x"], "y": t["h_y"], "z": t.get("h_z"),
+              "speed_ms": None, "speed_kmh": None}
+             if t.get("h_x") is not None else {})
+    return {
+        "connected": True,
+        "drone": {"x": g("d_x", 0.0), "y": g("d_y", 0.0), "z": g("d_z", 0.0),
+                  "altitude_m": g("yukseklik", 0.0),
+                  "speed_ms": g("drone_hiz", 0.0),
+                  "speed_kmh": (g("drone_hiz", 0.0) or 0.0) * 3.6,
+                  "roll": g("d_roll", 0.0), "pitch": g("d_pitch", 0.0),
+                  "yaw": g("d_yaw", 0.0),
+                  "cmd_throttle": None, "cmd_pitch": None},
+        "target": hedef,
+        "distance_m": t.get("mesafe_m"),
+        "gercek_mesafe_m": t.get("gercek_mesafe_m"),
+        "debug": {"available": False},             # bozuk-GNSS kıyası bizde YOK
+        "j": {}, "kiyas": {}, "gnss": {},          # J filtresi paneli bizde YOK
+        "gorev_aktif": bool(g("gorsel_aktif", 0)) or durum not in ("-", ""),
+        "manuel_aktif": False,
+        "kaynak": Ayar.GPS_KAYNAK,
+        "gorsel": gorsel,
+        "olaylar": [],                             # olay günlüğü bizde YOK
+        "gudum": {"faz": durum, "bekci": g("bekci", "")},
+        "takip": takip,
+        "gorev": {"faz": durum, "ist_hata_m": t.get("ist_hata_m")},
+    }
+
+
+def _kilit_suresi():
+    """Son KILIT_WIN_S saniyede KÜMÜLATİF kilitli süre (s)."""
+    if not _kilit_pencere:
+        return 0.0
+    simdi = _kilit_pencere[-1][0]
+    top = 0.0
+    onceki = None
+    for t, k in _kilit_pencere:
+        if simdi - t > KILIT_WIN_S:
+            onceki = t
+            continue
+        if onceki is not None and k:
+            top += min(t - onceki, 0.5)      # kare atlaması şişirmesin
+        onceki = t
+    return top
+
+
+def kilit_degerlendir(tespit, W=1920.0, H=1080.0):
+    """Bu karede yarışma kilidi var mı — HESAP, çizim YOK.
+    Dönüş: (kilitli_mi, av_icinde_mi, kaplama_yuzde)."""
+    if not tespit:
+        _kilit_pencere.append((time.time(), False))
+        return False, False, 0.0
+    cx, cy, w, h = tespit[0], tespit[1], tespit[2], tespit[3]
+    av = (KILIT_AV_X * W <= cx <= (1 - KILIT_AV_X) * W and
+          KILIT_AV_Y * H <= cy <= (1 - KILIT_AV_Y) * H)
+    kap = max(w / max(W, 1.0), h / max(H, 1.0))
+    kl = bool(av and kap >= KILIT_PCT)
+    _kilit_pencere.append((time.time(), kl))
+    return kl, av, 100.0 * kap
 
 
 def fps_isaretle(ad):
@@ -82,19 +243,54 @@ def kare_koy(img_rgb, tespit=None, telem=None, kalite=62, olcek=0.5):
         if tespit is not None:
             cx, cy, w, h = [v * o for v in tespit[:4]]
             conf = tespit[4]
-            renk = (60, 255, 60)
+            # ⭐ KUTU DURUMU RENKLE KODLANIR (yer-kontrol `model-fps` arayüzünden).
+            #   Sürekliliği GÖZLE ayırt edebilmek için: kutunun O KAREDE gerçekten
+            #   ölçülmüş mü yoksa öngörülmüş mü olduğunu görmeden "kesintisiz
+            #   takip" iddiası doğrulanamaz.
+            #     YEŞİL düz    = dedektör o karede GERÇEKTEN buldu (eşleşme)
+            #     TURUNCU kesik= takipçi Kalman ile ÖNGÖRDÜ (coast) — ölçüm YOK
+            kaynak = (_K["telem"] or {}).get("takip_kaynak", "")
+            ongoru = (kaynak == "tahmin")
+            renk = (60, 170, 255) if ongoru else (60, 255, 60)   # BGR
             x1, y1 = int(cx - w / 2), int(cy - h / 2)
             x2, y2 = int(cx + w / 2), int(cy + h / 2)
-            cv2.rectangle(im, (x1, y1), (x2, y2), renk, 2)
+            if ongoru:      # kesikli dikdörtgen (cv2'de yok — elle çiz)
+                adim = 9
+                for xx in range(x1, x2, adim * 2):
+                    cv2.line(im, (xx, y1), (min(xx + adim, x2), y1), renk, 2)
+                    cv2.line(im, (xx, y2), (min(xx + adim, x2), y2), renk, 2)
+                for yy in range(y1, y2, adim * 2):
+                    cv2.line(im, (x1, yy), (x1, min(yy + adim, y2)), renk, 2)
+                    cv2.line(im, (x2, yy), (x2, min(yy + adim, y2)), renk, 2)
+            else:
+                cv2.rectangle(im, (x1, y1), (x2, y2), renk, 2)
             # köşe işaretleri — küçük kutuyu gözle bulmayı kolaylaştırır
             L = max(10, int(0.6 * max(w, h)))
             for (px, py, dx, dy) in ((x1, y1, 1, 1), (x2, y1, -1, 1),
                                      (x1, y2, 1, -1), (x2, y2, -1, -1)):
                 cv2.line(im, (px, py), (px + dx * L, py), renk, 3)
                 cv2.line(im, (px, py), (px, py + dy * L), renk, 3)
-            cv2.putText(im, f"{conf:.2f}", (x2 + 6, max(18, int(cy))),
+            # ⭐ YARIŞMA KİLİDİ — yalnız HESAP; çizimi arayüz yapar.
+            _kl, _av, _kap = kilit_degerlendir(
+                (cx / o, cy / o, w / o, h / o), ww / o, hh / o)
+            _K["telem"]["kilit_simdi"] = int(_kl)
+            _K["telem"]["kilit_av"] = int(_av)
+            _K["telem"]["kilit_kaplama"] = round(_kap, 2)
+            _K["telem"]["kilit_pencere_s"] = round(_kilit_suresi(), 2)
+            _t = _K["telem"] or {}
+            _et = f"{conf:.2f}"
+            if _t.get("takip_id", -1) not in (-1, None):
+                _et += f"  ID{_t['takip_id']}"
+                if ongoru:
+                    _et += f"  ONGORU+{_t.get('takip_coast', 0)}"
+            cv2.putText(im, _et, (x2 + 6, max(18, int(cy))),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, renk, 2)
             odak = (cx, cy, renk)
+
+        if tespit is None:
+            kilit_degerlendir(None)              # kilitsiz kare de pencereye girer
+            _K["telem"]["kilit_simdi"] = 0
+            _K["telem"]["kilit_pencere_s"] = round(_kilit_suresi(), 2)
 
         # kadraj merkezi
         cv2.line(im, (ww // 2 - 14, hh // 2), (ww // 2 + 14, hh // 2), (255, 170, 0), 1)
@@ -189,7 +385,7 @@ body{margin:0;background:var(--bg);color:var(--y);
     <button id=k_gorsel onclick="kip('gorsel')">Görsel</button>
   </div>
   <div class=kip>
-    <button id=o_hizli onclick="ozellik('hizli')">⚡ Hızlı Görüş</button>
+    <button id=o_hizli onclick="ozellik('takip')">🎯 TAKİP (kapı yerine)</button>
   </div>
   <div class=fps>
     <div><b id=f1>—</b><span>yakalama</span></div>
@@ -206,6 +402,7 @@ body{margin:0;background:var(--bg);color:var(--y);
       <div class=açk>
         <span><s style="background:#4ade80"></s>dedektör bir kutu verdi</span>
         <span><s style="background:#25303f"></s>kutu yok</span>
+        <span><s style="background:#ffaa3c"></s>turuncu KESİK kutu = takipçi öngörüsü (ölçüm yok)</span>
         <span>⚠ bu oran HAM tespittir — kutunun DOĞRU yerde olup olmadığını
         söylemez, gözle bak</span>
       </div>
@@ -221,7 +418,11 @@ body{margin:0;background:var(--bg);color:var(--y);
 <script>
 const AL=[["kip","güdüm kipi"],["durum","faz"],
   ["vis_conf","güven"],["vis_kutu_px","kutu px"],["vis_menzil","menzil (kutu)"],
-  ["imgsz","çıkarım boyu"],["ist_hata_m","istasyon hata"],
+  ["imgsz","çıkarım boyu"],
+  ["takip_id","iz kimliği"],["takip_kaynak","kutu kaynağı"],
+  ["takip_coast","öngörü karesi"],["takip_n","aktif iz"],
+  ["det_ms","çıkarım ms"],
+  ["ist_hata_m","istasyon hata"],
   ["ist_hata_dikey","istasyon hata dikey"],["hedef_menzil_m","hedefe menzil"],
   ["drone_hiz","hız m/s"],["v_istek","istenen hız"],["bekci","bekçi"]];
 let son=0;
@@ -243,7 +444,7 @@ async function ozellik(a){
 function ozellikGoster(v){
   const b=document.getElementById('o_hizli');
   b.className = v ? 'on v' : '';
-  b.textContent = v ? '⚡ Hızlı Görüş: AÇIK' : '⚡ Hızlı Görüş: kapalı';
+  b.textContent = v ? '🎯 TAKİP: AÇIK' : '🎯 TAKİP: kapalı';
 }
 function fps(el,v,tav){
   document.getElementById(el).innerHTML =
@@ -290,15 +491,34 @@ class _H(BaseHTTPRequestHandler):
     def do_GET(self):
         yol = self.path.split("?")[0]
         if yol == "/":
+            # ⭐ YER-KONTROL ARAYÜZÜ (2026-08-24, kullanıcı isteği): kullanıcının
+            #   attığı `avci-drone-yer-kontrol` deposunun `model-fps` branch'indeki
+            #   `web/index.html` AYNEN kullanılır. Dosya varsa o servis edilir;
+            #   yoksa sade panele (`_HTML`) düşülür — arayüz dosyası eksikse
+            #   uçuş yine izlenebilsin (zarif bozulma).
+            _y = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "web", "index.html")
+            if os.path.exists(_y):
+                with open(_y, "rb") as f:
+                    return self._gonder(f.read(), "text/html; charset=utf-8")
             return self._gonder(_HTML.encode(), "text/html; charset=utf-8")
+        if yol == "/sade":                    # eski sade panel (kıyas/yedek)
+            return self._gonder(_HTML.encode(), "text/html; charset=utf-8")
+        if yol == "/api/telemetry":
+            return self._gonder(json.dumps(_api_telemetry()).encode(),
+                                "application/json")
+        if yol in ("/api/tune_rapor", "/api/tune"):
+            # Canlı kaydırıcı paneli bizde YOK (panel tasarım kararı: ayarları
+            # yapay zekâ değiştirir). Boş dönülür, arayüz listeyi boş çizer.
+            return self._gonder(b"{}", "application/json")
         if yol == "/telem":
             serit, o1 = _serit_ozet()
             with _kosul:
                 t = dict(_K["telem"])
             from dow.ayarlar import kip_oku
             t["kip"] = kip_oku()
-            from dow.gorus.dedektor import DetCfg
-            t["_hizli"] = int(DetCfg.FP16 and DetCfg.PENCERE_PX > 0)
+            from dow.gorus.tracker import TakipCfg
+            t["_hizli"] = int(TakipCfg.AKTIF)
             t.update({"_serit": serit, "_oran_tespit": o1,
                       "_fps_yakala": _hz(_fps["yakala"]),
                       "_fps_dedektor": _hz(_fps["dedektor"]),
@@ -339,6 +559,56 @@ class _H(BaseHTTPRequestHandler):
         self.send_response(404); self.send_header("Content-Length", "0"); self.end_headers()
 
     def do_POST(self):
+        # ⭐ YER-KONTROL ARAYÜZÜNÜN UÇLARI (dow/web/index.html)
+        if self.path == "/api/command":
+            n = int(self.headers.get("Content-Length", 0))
+            try:
+                d = json.loads(self.rfile.read(n) or b"{}")
+            except Exception:
+                d = {}
+            cmd = str(d.get("cmd", ""))
+            if cmd == "vismode":
+                # Onların kipi -> bizimki. OTO = hibrit (GPS ile yaklaş,
+                # görsel temas kurulunca devret) — bizde karşılığı budur.
+                esle = {"OTO": "hibrit", "GPS": "gps", "GORSEL": "gorsel"}
+                k = esle.get(str(d.get("mode", "")).upper())
+                if k:
+                    from dow.ayarlar import Ayar, kip_yaz
+                    Ayar.GUDUM_KIPI = k
+                    kip_yaz(k)
+                    telem_yaz({"kip": k})
+                    print("[panel] GÜDÜM KİPİ -> %s" % k.upper(), flush=True)
+                    return self._gonder(
+                        json.dumps({"ok": True, "msg": "Güdüm: %s" % k}).encode(),
+                        "application/json")
+            if cmd == "takip":
+                from dow.gorus.tracker import TakipCfg
+                TakipCfg.AKTIF = not TakipCfg.AKTIF
+                telem_yaz({"_hizli": int(TakipCfg.AKTIF)})
+                print("[panel] TAKİP -> %s"
+                      % ("AÇIK" if TakipCfg.AKTIF else "kapalı"), flush=True)
+                return self._gonder(json.dumps(
+                    {"ok": True, "acik": int(TakipCfg.AKTIF),
+                     "msg": "Takipçi: %s" % ("AÇIK" if TakipCfg.AKTIF else "kapalı")
+                     }).encode(), "application/json")
+            # ⛔ Görev başlat/durdur onların sunucusunda var, bizde YOK:
+            #    uçuşu `araclar/kosu.py` süreci yönetir. Uydurma cevap
+            #    vermek yerine açıkça söylüyoruz.
+            return self._gonder(json.dumps(
+                {"ok": False,
+                 "msg": "'%s' bu sistemde yok — uçuşu kosu.py yönetir" % cmd
+                 }).encode(), "application/json")
+        if self.path in ("/api/manuel", "/api/tune"):
+            # Manuel RC ve canlı kaydırıcılar bizde YOK (ayarları yapay zekâ
+            # değiştirir — panel tasarım kararı). Sessizce yutulur ki arayüz
+            # hata vermesin.
+            n = int(self.headers.get("Content-Length", 0))
+            try:
+                self.rfile.read(n)
+            except Exception:
+                pass
+            return self._gonder(b'{"ok":false,"msg":"bu sistemde yok"}',
+                                "application/json")
         if self.path == "/kip":
             n = int(self.headers.get("Content-Length", 0))
             try:
@@ -357,21 +627,17 @@ class _H(BaseHTTPRequestHandler):
                              "application/json", 400)
             return
         if self.path == "/ozellik":
-            # ⚡ HIZLI GÖRÜŞ — üçü BİRLİKTE açılır/kapanır (fp16 + natif
-            #   pencere + yeni-kare kapısı). Tek düğme, çünkü kullanıcı
-            #   "aç/kapa, farkı gör" istiyor (§6); kampanya tek değişkenli
-            #   kademeleri env ile ayrı ayrı koşar (§4).
+            # 🎯 TAKİP — yerellik kapısı YERİNE HybridSort + kilitli kimlik.
+            #   Uçuş sırasında canlı açılır/kapanır (§6): kullanıcı farkı
+            #   anında görsün. Kampanya A/B'si yine env + tam restart (§4).
             n = int(self.headers.get("Content-Length", 0))
             try:
                 self.rfile.read(n)
-                from dow.gorus.dedektor import DetCfg
-                from dow.ayarlar import Ayar
-                acik = not (DetCfg.FP16 and DetCfg.PENCERE_PX > 0)
-                DetCfg.FP16 = acik
-                DetCfg.PENCERE_PX = 640 if acik else 0
-                Ayar.DET_YENI_KARE = acik
+                from dow.gorus.tracker import TakipCfg
+                acik = not TakipCfg.AKTIF
+                TakipCfg.AKTIF = acik
                 telem_yaz({"_hizli": int(acik)})
-                print("[panel] HIZLI GÖRÜŞ -> %s" % ("AÇIK" if acik else "kapalı"),
+                print("[panel] TAKİP -> %s" % ("AÇIK" if acik else "kapalı"),
                       flush=True)
                 self._gonder(json.dumps({"ok": True, "acik": int(acik)}).encode(),
                              "application/json")
