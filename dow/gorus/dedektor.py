@@ -54,7 +54,36 @@ import numpy as np
 #     v5      %22.7     %0.7    %22.3    %54.3
 # -> uzak tespit belirgin daha iyi; OSD zaten %1'di, %0.7'ye indi.
 # Geri dönüş: DOW_MODEL=talon_v3
-MODEL_YOLU = "modeller/%s.pt" % os.environ.get("DOW_MODEL", "talon_v5")
+# ⛔ VARSAYILAN talon_v5 -> talon_v3'E DÖNDÜ (2026-08-24, ÖLÇÜMLE).
+#
+# KULLANICI GÖZLEMİ: "önceden detection bu kadar iyi değilken hedef aracı çok
+# daha iyi vurduğumuz zaman vardı... direkt 20 saniyede falan, ama şu an full
+# kaçıyor." DOĞRU ÇIKTI.
+#
+# KAMPANYA MAB (n=4/kol, tek değişken model, dönüşümlü, düşen koşu yok):
+#     model     imha    süre (koşu koşu)        en yakın   devir@
+#     talon_v3  4/4     27, 34, 34, 14 s        0.43 m     10.6 s
+#     talon_v5  3/4     65, 65, 18, 100 s       0.94 m     13.9 s
+#   -> v3 İKİ KAT hızlı öldürüyor ve İKİ KAT yakın geçiyor.
+#
+# MEKANİZMA — ANGAJMAN BANDINDA TESPİT (görsel fazda, kutu yaşı < 0.3 s):
+#     menzil    v3 (n=274)   v5 (n=810)
+#     4- 8 m      %87-91       %55-74
+#     8-15 m      %88-93       %73-85
+#   v5 UZAĞI iyileştirmek için eğitildi (hard negatif + uzak uçak fotoğrafı)
+#   ve orada gerçekten daha iyi. Ama BİZİM VURUŞUMUZ 4-15 m'de oluyor ve
+#   orada v3 açık ara önde. Zincir: v5 terminalde temas kaybediyor ->
+#   GÖRSEL'den ISTASYON'a 2 KAT sık düşüyor (medyan 2 vs 1) -> devirden
+#   vuruşa 20 s yerine 51 s -> koşuların üçte biri hiç vuramıyor.
+#
+# ⛔ ÇÜRÜTÜLEN ÜÇ HİPOTEZ (hepsi ölçüldü, hiçbiri sebep değil):
+#   1. "v5 yanlış yere kutu atıyor"  -> GERÇEK tespit v3 %76 / v5 %95: v5 DAHA DOĞRU
+#   2. "v5'in kutu ölçeği kaymış"    -> kutu/beklenen 0.976 vs 0.957: %2, ihmal
+#   3. "hedef farklı davranıyor"     -> hız/manevra/irtifa tüm oturumlarda AYNI
+#   Güdüm de değişmemiş: istasyon hatası ve devir menzili iki dönemde de aynı.
+#
+# Geri dönüş: DOW_MODEL=talon_v5
+MODEL_YOLU = "modeller/%s.pt" % os.environ.get("DOW_MODEL", "talon_v3")
 IMGSZ_UZAK = 1920      # ÖLÇÜLDÜ: 960 kullanmak 40-60 m'de tespiti %56 -> %7 düşürür
 IMGSZ_YAKIN = 960      # yakında hız kazanmak için (24 ms vs 60 ms)
 CONF_MIN   = 0.40      # ÖLÇÜLDÜ: argmax'ı yanlış-pozitiften korur
@@ -222,14 +251,32 @@ class Dedektor:
         self._fp16 = ist
 
     def _cikar(self, im, imgsz, conf, x0=0, y0=0):
-        """Bir görüntüyü tara; kutuları TAM KADRAJ koordinatında döner."""
+        """Bir görüntüyü tara; kutuları TAM KADRAJ koordinatında döner.
+
+        ⭐ TOPLU AKTARIM (2026-08-24, yer-kontrol `model-fps` branch'inden).
+        ESKİDEN: `for b in r.boxes: b.xyxy[0].tolist(); float(b.conf)` —
+        her kutu için BEŞ ayrı GPU->CPU aktarımı. Her aktarım örtük bir
+        `cuda.synchronize()` demek: CPU, GPU'nun o ana kadarki TÜM işini
+        bitirmesini bekler ve bu sırada Python'un GIL'ini (global kilidi)
+        bırakıp geri alır. conf=0.10'da tipik 8-15 kutu -> kare başına
+        40-75 gidiş-dönüş; hepsi doğrudan `det_ms`'e biner.
+        ŞİMDİ: xyxy ve conf TEK SEFERDE numpy'a alınır, döngü CPU'da döner.
+
+        ÇIKTI BİT BİT AYNI — aynı tensörden aynı float'lar okunuyor,
+        yalnız aktarım sayısı değişiyor (tests/test_dow.py B43 bunu sınar)."""
         r = self.m.predict(im, imgsz=imgsz, conf=conf,
                            half=DetCfg.FP16, verbose=False)[0]
+        b = r.boxes
+        if b is None or len(b) == 0:
+            return []
+        xy = b.xyxy.cpu().numpy() if hasattr(b.xyxy, "cpu") else np.asarray(b.xyxy)
+        cf = b.conf.cpu().numpy() if hasattr(b.conf, "cpu") else np.asarray(b.conf)
         out = []
-        for b in r.boxes:
-            a1, b1, a2, b2 = b.xyxy[0].tolist()
+        for i in range(len(xy)):
+            a1, b1, a2, b2 = (float(xy[i][0]), float(xy[i][1]),
+                              float(xy[i][2]), float(xy[i][3]))
             out.append(((a1+a2)/2.0 + x0, (b1+b2)/2.0 + y0,
-                        a2-a1, b2-b1, float(b.conf)))
+                        a2-a1, b2-b1, float(cf[i])))
         return out
 
     def _tara(self, img, conf, merkez):
