@@ -35,6 +35,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from collections import deque
 
 from dow.ayarlar import Ayar
+
+
+def _b(anahtar, varsayilan=False):
+    """env bayrağı oku (kosu.py yerel yardımcısı)."""
+    return os.environ.get(anahtar, "1" if varsayilan else "0").strip() \
+        not in ("0", "", "false")
 from dow.ana import Beyin
 from dow import panel as PANEL
 from dow.gorus import kamera as _KAM
@@ -897,6 +903,20 @@ def main():
         if not _sdk_bagla(90):
             print("SDK bağlanamadı (görev yeniden kurulduktan sonra da)")
             sys.exit(1)
+
+    # ⭐ PANELDEN BAŞLATMA KAPISI (2026-08-25, kullanıcı isteği).
+    #   `DOW_PANELDEN=1` iken uçuş HEMEN başlamaz: panel ayağa kalkar, kullanıcı
+    #   arayüzü açıp "🚀 Görev Başlat"a basınca döngü koşar. Amaç, tek komutla
+    #   kurup uçuşu gözle takip ederek tetikleyebilmek.
+    #   ⚠ VARSAYILAN KAPALI: kampanya betikleri (araclar/*.sh) beklemeden
+    #     koşmalı, yoksa otomatik A/B'ler asılır.
+    if _b("DOW_PANELDEN", False):
+        print("\n⏸  PANEL BEKLİYOR — http://127.0.0.1:8801 açıp "
+              "'🚀 Görev Başlat'a bas", flush=True)
+        while not PANEL.baslat_istendi():
+            if not PANEL.baslat_bekle(1.0):
+                continue
+        print("▶  başlatıldı\n", flush=True)
 
     print(f"\n{adet} koşu x {sure:.0f} s | GPS={Ayar.GPS_KAYNAK} | "
           f"görsel={'AÇIK' if Ayar.GORSEL_AKTIF else 'KAPALI'}", flush=True)

@@ -53,6 +53,22 @@ KILIT_AV_Y  = 0.10      # dikey %10-%90 bandı
 KILIT_WIN_S = 10.0      # değerlendirme penceresi
 KILIT_GEREK = 5.0       # pencerede gereken kümülatif kilit
 _kilit_pencere = deque(maxlen=1200)     # (t, kilitli_mi)
+
+# ⭐ PANELDEN GÖREV BAŞLATMA (2026-08-25, kullanıcı isteği: "arayüzden göreve
+#   başlata basınca en iyi hali çıksın").
+#   Uçuş sürecini (`araclar/kosu.py`) panel BAŞLATMAZ — panel zaten O sürecin
+#   içinde koşuyor. Onun yerine kosu.py, kapı AÇILANA KADAR bekler; düğme
+#   bu bayrağı kaldırır. Böylece tek komutla başlatıp arayüzden tetikliyoruz.
+_basla = threading.Event()
+
+
+def baslat_bekle(zaman_asimi=None):
+    """Uçuş döngüsü, panelden 'Görev Başlat' gelene kadar bekler."""
+    return _basla.wait(zaman_asimi)
+
+
+def baslat_istendi():
+    return _basla.is_set()
 _fps = {"yakala": deque(maxlen=40), "dedektor": deque(maxlen=40),
         "ekran": deque(maxlen=40)}
 _TAVAN = {"yakala": 0.0, "dedektor": 0.0}
@@ -166,6 +182,7 @@ def _api_telemetry():
         "gercek_mesafe_m": t.get("gercek_mesafe_m"),
         "debug": {"available": False},             # bozuk-GNSS kıyası bizde YOK
         "j": {}, "kiyas": {}, "gnss": {},          # J filtresi paneli bizde YOK
+        "kip": kip_oku(),
         "gorev_aktif": bool(g("gorsel_aktif", 0)) or durum not in ("-", ""),
         "manuel_aktif": False,
         "kaynak": Ayar.GPS_KAYNAK,
@@ -585,6 +602,16 @@ class _H(BaseHTTPRequestHandler):
                     return self._gonder(
                         json.dumps({"ok": True, "msg": "Güdüm: %s" % k}).encode(),
                         "application/json")
+            if cmd == "basla":
+                if _basla.is_set():
+                    return self._gonder(json.dumps(
+                        {"ok": False, "msg": "Görev zaten başladı"}).encode(),
+                        "application/json")
+                _basla.set()
+                print("[panel] ⭐ GÖREV BAŞLAT — panelden tetiklendi", flush=True)
+                return self._gonder(json.dumps(
+                    {"ok": True, "msg": "Görev başladı"}).encode(),
+                    "application/json")
             if cmd == "takip":
                 from dow.gorus.tracker import TakipCfg
                 TakipCfg.AKTIF = not TakipCfg.AKTIF
