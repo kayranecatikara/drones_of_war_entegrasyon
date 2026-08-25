@@ -187,3 +187,44 @@ koyduğu şart (*"düzgün detection modeli gelince"*) belirleyiciymiş.
 
 ⚠ **AÇIK NOT:** `GORUS_ISP` ile `TAKIP` **birlikte sınanmadı**. İkisi de
 girerse §5.10 gereği bileşik regresyon koşusu gerekir.
+
+---
+
+## 7 · TAKIP4 — DÜZELTİLMİŞ KANALDA YENİDEN (n=5/5) → **KAPALI KALIR**
+
+TAKIP ve TAKIP3 kampanyaları **ters kanalda** (RGB) ölçülmüştü, sonuçları
+geçersizdi. Kanal düzeltildikten sonra yeniden koşuldu.
+
+| | **AÇIK** | **kapalı** |
+|---|---|---|
+| imha | **5/5** | **5/5** |
+| koşular | 30✓ 14✓ 13✓ 14✓ 16✓ | 33✓ 17✓ 14✓ 16✓ 16✓ |
+| süre medyanı | 14.4 s | 16.1 s |
+| kutu yaşı p90 | 0.19 s | 0.28 s |
+| görsel tespit | %90.9 | %84.8 |
+| ⛔ **kontrol döngüsü** | **37.1 Hz** | **44.2 Hz** |
+| ⛔ çıkarım süresi | 22.9 ms | 17.3 ms |
+| \|roll\| p90 | 20.8° | 4.2° |
+
+### Mekanizma kapısı cevabı zaten veriyor
+
+**Öngörü oranı %7.9** (ilan edilen eşik %10'un ALTINDA). Takipçinin varlık
+sebebi tespit deliklerini köprülemek; kanal düzelince tespit %85-91'e çıktı
+ve **köprülenecek delik kalmadı** — kutuların %92'si zaten gerçek eşleşme.
+
+Kıyas: aynı takipçi TERS kanalda %24.7, v5 ile %51 öngörü üretiyordu.
+Yani takipçinin faydası, TABANIN KÖTÜLÜĞÜYLE ORANTILI.
+
+### Karar
+
+İlan edilen kuralın üçüncü şartı (**kontrol döngüsü bedeli kabul edilebilir
+olmalı**) geçmiyor: kazanç gürültü içinde, bedel beş koşunun beşinde de
+aynı yönde ve büyük (%16 kontrol bant genişliği, %32 çıkarım süresi).
+
+**`DOW_TAKIP` KAPALI kalır.** Kod silinmiyor — kill-switch'te duruyor.
+Değeri taban bozulduğunda ortaya çıkar (zorlu hedef, uzak angajman, düşük
+tespitli model). Arkadaşın yeni modeli gelince yeniden bakılmalı.
+
+⚠ **AÇIKLANAMAYAN:** \|roll\| p90 20.8° vs 4.2° (n=5/5'te de sürdü). Takipçi açıkken araç
+belirgin daha çok yatıyor. Tek aykırı koşudan gelebilir ama DOĞRULANMADI.
+Açmayı düşünürsek önce bu incelenmeli.
