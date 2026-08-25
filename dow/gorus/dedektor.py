@@ -87,7 +87,10 @@ MODEL_YOLU = "modeller/%s.pt" % os.environ.get("DOW_MODEL", "talon_v3")
 IMGSZ_UZAK = 1920      # ÖLÇÜLDÜ: 960 kullanmak 40-60 m'de tespiti %56 -> %7 düşürür
 IMGSZ_YAKIN = 960      # yakında hız kazanmak için (24 ms vs 60 ms)
 CONF_MIN   = 0.40      # ÖLÇÜLDÜ: argmax'ı yanlış-pozitiften korur
-DEVIR_MENZIL_M = 50.0  # bu menzilin ötesinde görsel devir YAPILMAZ
+# ⛔ `DEVIR_MENZIL_M` BURADAN SİLİNDİ (2026-08-25, §5.12): ölü sabitti,
+#   hiçbir güdüm kodu okumuyordu. Görsel devrin GERÇEK menzil tavanı
+#   `ibvs.IbvsCfg.MENZIL_MAX_M` (50 m) — `gecerli()` orada uyguluyor.
+#   Kamera kapısının TEK emniyet tavanı odur; bekçi B10 onu sınar.
 
 # UYARLANABİLİR ÇÖZÜNÜRLÜK EŞİĞİ — bir ÖNCEKİ karenin kutu genişliğine bakar.
 # Kutu bu değerden BÜYÜKSE hedef zaten iri demektir; 960 yeterli olur ve

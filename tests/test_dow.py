@@ -87,10 +87,25 @@ def test_B9_dedektor_uzak_kol_1920():
 
 
 def test_B10_gorsel_devir_menzili():
-    """60-90 m'de tespit %10 -> orada görsel devir yapılmamalı."""
-    from dow.gorus.dedektor import DEVIR_MENZIL_M
-    assert DEVIR_MENZIL_M <= 55.0
+    """60-90 m'de tespit %10 -> orada görsel devir yapılmamalı.
+
+    ⭐ 2026-08-25 GÜÇLENDİRİLDİ. Devir artık KAMERA kapısına bağlı
+    (10 ardışık tespit) ve o kapının önünde GPS menzil kontrolü YOK.
+    Geriye kalan TEK emniyet tavanı `gecerli()` içindeki MENZIL_MAX_M'dir:
+    kutudan hesaplanan menzil bunu aşarsa tespit sayılmaz, sayaç artmaz.
+    Eski `dedektor.DEVIR_MENZIL_M` ÖLÜ sabitti (kimse okumuyordu) ve bu
+    bekçi onu sınayarak SAHTE güvence veriyordu — silindi (§5.12)."""
     assert ibvs.IbvsCfg.MENZIL_MAX_M <= 55.0
+    import dow.gorus.dedektor as _DD
+    assert not hasattr(_DD, "DEVIR_MENZIL_M"), \
+        "ölü sabit geri gelmiş; gerçek tavan ibvs.IbvsCfg.MENZIL_MAX_M"
+    # tavanın GERÇEKTEN uygulandığını sına (ölçüldü 2026-08-25):
+    #   20 px -> 49.9 m  GEÇER   |  14 px -> 71.2 m  ELENİR
+    ok, _ = ibvs.gecerli(960, 540, 20, 16, 0.9)
+    assert ok, "20 px (49.9 m) elendi — tavan fazla dar, kamera kapısı açılamaz"
+    ok, sebep = ibvs.gecerli(960, 540, 14, 11, 0.9)
+    assert not ok and sebep == "menzil_uzak", \
+        "14 px (71.2 m) geçerli sayıldı — kamera kapısının menzil tavanı YOK"
 
 
 def test_B11_cevirici_gudume_dokunmaz():
@@ -132,16 +147,22 @@ def test_B13_devir_kapisi_YARISMADA_YALNIZ_KAMERA():
     from dow import ana
     from dow.ayarlar import Ayar
 
-    # 1) yarisma kipi bayragi kapatiyor mu
-    eski = Ayar.YARISMA_KIPI
+    # 0) ⭐ 2026-08-25: VARSAYILAN ARTIK KAMERA KAPISI. Istasyon kapisi
+    #    (GPS okuyan iskele) yalnizca DOW_DEVIR_ISTASYON=1 ile acilir.
+    assert Ayar.gelistirme_devri() is False, \
+        "varsayilan hala GPS'li istasyon kapisi -- kamera kapisi olmali"
+
+    # 1) yarisma kipi bayragi kapatiyor mu (iskele ACIKKEN sinanir)
+    eski_y, eski_d = Ayar.YARISMA_KIPI, Ayar.DEVIR_ISTASYONDAN
     try:
+        Ayar.DEVIR_ISTASYONDAN = True          # iskeleyi elle ac
         Ayar.YARISMA_KIPI = True
         assert Ayar.gelistirme_devri() is False, \
             "YARISMA_KIPI=1 iken gelistirme devir kapisi HALA acik"
         Ayar.YARISMA_KIPI = False
         assert Ayar.gelistirme_devri() is True
     finally:
-        Ayar.YARISMA_KIPI = eski
+        Ayar.YARISMA_KIPI, Ayar.DEVIR_ISTASYONDAN = eski_y, eski_d
 
     k = inspect.getsource(ana.Beyin.adim)
 
@@ -156,8 +177,17 @@ def test_B13_devir_kapisi_YARISMADA_YALNIZ_KAMERA():
     # 4) kamera-tek kapi duruyor
     assert "self._kilit >= self.cfg.DEVIR_KARE" in k, \
         "kamera-tek devir kapisi (ardisik tespit) kaybolmus"
-    assert Ayar.DEVIR_KARE >= 10, "devir 10 ardisik kare olmali"
-    assert Ayar.KAYIP_KARE >= 20, "kayip 20 ardisik kare olmali"
+    assert Ayar.DEVIR_KARE == 10, "devir 10 ardisik TESPIT olmali"
+    assert Ayar.KAYIP_KARE == 20, "kayip 20 ardisik TESPITSIZ kare olmali"
+    # geri donus kapisi ADIM govdesinde ve YALNIZ hibrit kipte
+    assert "self._kayip >= self.cfg.KAYIP_KARE" in k, \
+        "20-kayip geri donus kapisi kaybolmus"
+    i2 = k.index("self._kayip >= self.cfg.KAYIP_KARE")
+    assert 'kip == "hibrit"' in k[max(0, i2 - 200):i2], \
+        "geri donus kapisi hibrit kipe bagli degil"
+    # sayaclar CIKARIM basina saymali (tik basina saymak 20 kareyi 0.45 s yapar)
+    assert "self._cikarim_yapildi" in k, \
+        "sayaclar cikarim kapisina bagli degil -- kontrol tiki basina sayiyor"
 
     # 5) adim() govdesinde GPS'e bakan BASKA bir devir izi olmasin:
     #    hedefin konumu yalnizca (a) durum != GORSEL korumali hedef_konumu()

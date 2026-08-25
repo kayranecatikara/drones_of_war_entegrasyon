@@ -612,6 +612,26 @@ class _H(BaseHTTPRequestHandler):
                 return self._gonder(json.dumps(
                     {"ok": True, "msg": "Görev başladı"}).encode(),
                     "application/json")
+            if cmd == "devir":
+                # ⭐ DEVİR KAPISI — CLAUDE.md §6 canlı aç/kapa.
+                #   KAMERA (varsayılan): 10 ardışık TESPİT -> GORSEL,
+                #     20 ardışık TESPİTSİZ -> ISTASYON. GPS'e hiç bakmaz.
+                #   İSTASYON: drone istasyona oturup ≤15 m'ye girince devret.
+                #     ⛔ Hedefin GPS'ini okur — YARIŞMADA KULLANILAMAZ,
+                #        yalnız kıyas kolu olarak durur.
+                #   ⚠ Kampanya A/B'si yine env + tam restart (§4):
+                #     DOW_DEVIR_ISTASYON=0/1
+                from dow.ayarlar import Ayar
+                Ayar.DEVIR_ISTASYONDAN = not Ayar.DEVIR_ISTASYONDAN
+                ist = bool(Ayar.DEVIR_ISTASYONDAN)
+                print("[panel] DEVİR KAPISI -> %s"
+                      % ("İSTASYON (GPS)" if ist else "KAMERA 10/20"),
+                      flush=True)
+                return self._gonder(json.dumps(
+                    {"ok": True, "istasyon": int(ist),
+                     "msg": "Devir: %s" % ("İSTASYON (GPS okur)" if ist
+                                           else "KAMERA — 10 tespit / 20 kayıp")
+                     }).encode(), "application/json")
             if cmd == "takip":
                 from dow.gorus.tracker import TakipCfg
                 TakipCfg.AKTIF = not TakipCfg.AKTIF

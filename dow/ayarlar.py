@@ -195,10 +195,21 @@ class Ayar:
     #
     # ⚠ BU KAPI YARIŞMADA KULLANILAMAZ. `YARISMA_KIPI=1` yapısal olarak
     #   kapatır ve sistem kamera-tek kapıya (ardışık DEVIR_KARE tespit) döner.
-    #   İyi dedektör gelince bu iskele SÖKÜLÜR (§5.12) ve devir daha uzak
-    #   menzilden, yalnız kamerayla yapılır.
+    #
+    # ⭐⭐ 2026-08-25 — VARSAYILAN `False` OLDU (kullanıcı kararı).
+    #   Yukarıdaki not "iyi dedektör gelince bu iskele SÖKÜLÜR" diyordu.
+    #   Kanal hatası düzeltilince (BGR) dedektör GERÇEKTEN iyileşti:
+    #   gerçek tespit %32.1 -> %68.6, görsel fazda tespit %82.4, imha 4/4.
+    #   Kullanıcı bunun üzerine devri KAMERAYA bağlamak istedi:
+    #     10 ardışık TESPİT   -> GORSEL   (DEVIR_KARE, ~1.12 s @ 8.9 Hz)
+    #     20 ardışık TESPİTSİZ -> ISTASYON (KAYIP_KARE, ~2.25 s)
+    #   Böylece faz geçişi de GPS'ten kurtuldu; yarışma kipiyle geliştirme
+    #   kipi AYNI yolu koşuyor (B25 mayın testi artık boş kolu sınıyor).
+    #   İskele KODU henüz silinmedi: karar KAMERA10 kampanyasına bağlı.
+    #   Kamera kapısı kazanırsa §5.12 listesiyle TAMAMEN çıkarılacak.
+    #   Geri dönüş: DOW_DEVIR_ISTASYON=1
     YARISMA_KIPI       = _b("DOW_YARISMA", False)
-    DEVIR_ISTASYONDAN  = _b("DOW_DEVIR_ISTASYON", True)
+    DEVIR_ISTASYONDAN  = _b("DOW_DEVIR_ISTASYON", False)
     DEVIR_IST_HATA_M   = _f("DOW_DEVIR_IST_HATA", 8.0)   # oturdu sayılma eşiği
     DEVIR_IST_KARE     = int(_f("DOW_DEVIR_IST_KARE", 25))  # ardışık (~0.5 s)
     DEVIR_MENZIL_M     = _f("DOW_DEVIR_MENZIL", 15.0)    # hedefe GPS menzili

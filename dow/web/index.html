@@ -161,6 +161,11 @@
       <button id="k_gps"    onclick="kip('gps')">GPS</button>
       <button id="k_gorsel" onclick="kip('gorsel')">GÖRSEL</button>
     </div>
+    <!-- ⚠ CLAUDE.md §6: sinanan ozelligin panelde ac/kapa dugmesi ZORUNLU.
+         §0.1: panelde AYNI ANDA TEK yeni ozellik durur. Karar verilince
+         (girsin ya da elensin) bu blok SILINIR. -->
+    <div class="baslik">Devir Kapısı</div>
+    <button id="devirBtn" class="btn" onclick="devirDegis()">📷 KAMERA (10/20)</button>
     <div class="durumYazi" id="solDurum">Hazır.</div>
   </aside>
 
@@ -206,6 +211,24 @@ function kipGoster(k){
     const b = $("k_"+ad);
     if(b) b.className = (ad===k) ? ("on "+snf) : "";
   }
+}
+
+// ---- devir kapısı (CLAUDE.md §6 canlı aç/kapa) ----
+//   KAMERA : 10 ardışık tespit -> GORSEL, 20 ardışık tespitsiz -> GPS
+//   İSTASYON: drone istasyona oturunca devret (GPS okur, YARIŞMADA YASAK)
+async function devirDegis(){
+  try{
+    const r = await (await fetch("/api/command",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({cmd:"devir"})})).json();
+    devirGoster(r.istasyon);
+    $("solDurum").textContent = r.msg || "";
+  }catch(e){}
+}
+function devirGoster(ist){
+  const b = $("devirBtn"); if(!b) return;
+  b.textContent = ist ? "📍 İSTASYON (GPS)" : "📷 KAMERA (10/20)";
+  b.className = ist ? "btn on g" : "btn";
 }
 
 // ---- görev başlat ----
