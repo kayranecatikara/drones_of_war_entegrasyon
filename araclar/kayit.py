@@ -73,13 +73,20 @@ class Kayit:
     def gerek(self, t):
         return (t - self._son) >= self.aralik
 
-    def yaz(self, t, img_rgb, satir):
-        """img_rgb: HxWx3 RGB (None ise kare yazılmaz)."""
+    def yaz(self, t, img, satir):
+        """img: HxWx3 **BGR** (None ise kare yazılmaz).
+
+        ⚠ 2026-08-25: parametre adı `img_rgb` -> `img` oldu ve içerik BGR.
+        Kaynak (`kadraj.grab_bgr`) artık BGR veriyor; `cv2.imwrite` zaten
+        BGR istiyor, aradaki `[:, :, ::-1]` çevrimi KALDIRILDI. Eski adı
+        bırakmak yanıltıcı olurdu (§5.12)."""
         self.n += 1
         self._son = t
-        if img_rgb is not None:
+        if img is not None:
             yol = os.path.join(self.kare_dizin, f"f{self.n:04d}.jpg")
-            cv2.imwrite(yol, img_rgb[:, :, ::-1],
+            # ⭐ 2026-08-25: kare BGR geliyor; cv2.imwrite zaten BGR ister.
+            #   Eskiden [:, :, ::-1] ile çevriliyordu (kaynak RGB'ydi).
+            cv2.imwrite(yol, img,
                         [int(cv2.IMWRITE_JPEG_QUALITY), self.kalite])
         satir = dict(satir); satir["kare"] = self.n; satir["t"] = round(t, 3)
         self._w.writerow(satir)

@@ -168,7 +168,18 @@ class DetCfg:
     ıska karelerinde (~3 ms fazla).
     """
     MODEL         = os.environ.get("DOW_MODEL", "talon_v5")
-    FP16          = _b("DOW_FP16", False)
+    # ⭐ FP16 AÇILDI (2026-08-25). ÖLÇÜLDÜ (talon_v3, 40 gerçek kare, oyun
+    #   KAPALI, ayrı süreçlerde — `araclar/motor_olc.py`):
+    #       .pt fp32   28.6 ms   (35.0 FPS)   <- eski varsayılan
+    #       .pt fp16   18.6 ms   (53.7 FPS)   1.54 KAT, kutular AYNI
+    #   Doğruluk bedeli YOK: aynı karelerde kutulu kare ve güven eşit
+    #   (fp32 conf 0.657 / fp16 0.659).
+    #   ⚠ TUZAK: `predict(half=True)` ultralytics predictor kurulduktan
+    #     SONRA SESSİZCE YOK SAYILIR. Bu yüzden `_hassasiyet_uygula()`
+    #     modelin gerçek hassasiyetini AutoBackend üzerinden değiştirir ve
+    #     `_fp16` sütunu §5.1 mekanizma kanıtı olarak loglanır.
+    #   Geri dönüş: DOW_FP16=0
+    FP16          = _b("DOW_FP16", True)
     PENCERE_PX    = _i("DOW_PENCERE_PX", 0)        # UZAK rejim; 0 = KAPALI
     PENCERE_YAKIN = _i("DOW_PENCERE_YAKIN", 448)   # YAKIN rejim (kutu>=55px)
     ISKA_TAM      = _b("DOW_PENCERE_ISKA_TAM", True)

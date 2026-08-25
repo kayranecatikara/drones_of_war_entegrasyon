@@ -1054,3 +1054,77 @@ def test_B49_takip_acikken_geometri_korunur():
             "KADRAJ kontrolu kaybolmus"
     finally:
         TakipCfg.AKTIF = eski
+
+
+def test_B50_dedektore_BGR_verilir():
+    """⛔⛔ KANAL SIRASI BEKCISI (2026-08-25).
+
+    `ultralytics` numpy dizisini **BGR** varsayar. Sistem RGB veriyordu ve
+    model KIRMIZI/MAVI kanallari TERS goruyordu. OLCULDU (talon_v3, 156 kare,
+    truth dogrulamali):
+
+        kanal      GERCEK tespit   yanlis-poz   bos kare
+        BGR            %68.6          %7.1       %24.4
+        RGB (eski)     %32.1          %2.6       %65.4
+
+    Dedektor kapasitesinin YARISINDAN AZI kullaniliyordu. Bu bekci,
+    kaynagin BGR verdigini ve kanal sirasina duyarli tuketicilerin
+    tutarli oldugunu sinar.
+    """
+    kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # 1) kaynak BGR uretmeli
+    kadraj = open(os.path.join(kok, "araclar/kadraj.py"), encoding="utf-8").read()
+    assert "COLOR_BGRA2BGR" in kadraj, "kaynak BGR uretmiyor"
+    # ⚠ Eski RGB cevrimi YALNIZ kill-switch'in ICINDE bulunabilir
+    #   (DOW_KANAL_ESKI=1, A/B kiyasi icin). Kosulsuz duruyorsa HATA.
+    for i, satir in enumerate(kadraj.splitlines()):
+        if "COLOR_BGRA2RGB" not in satir:
+            continue
+        onceki = "\n".join(kadraj.splitlines()[max(0, i - 4):i])
+        assert "DOW_KANAL_ESKI" in onceki, \
+            "COLOR_BGRA2RGB kill-switch DISINDA kullaniliyor (satir %d)" % (i + 1)
+    assert 'DOW_KANAL_ESKI", "0"' in kadraj, \
+        "kanal kill-switch'i VARSAYILAN KAPALI olmali"
+    assert "def grab_bgr" in kadraj, "grab_bgr yok"
+    assert "def grab_rgb" not in kadraj, \
+        "yaniltici eski ad `grab_rgb` duruyor (§5.12)"
+
+    # 2) hicbir yerde grab_rgb cagrisi kalmamali
+    import subprocess
+    r = subprocess.run(["grep", "-rn", "grab_rgb", "--include=*.py",
+                        "araclar/", "dow/"], cwd=kok,
+                       capture_output=True, text=True)
+    kalan = [x for x in r.stdout.splitlines() if "grab_rgb`" not in x]
+    assert not kalan, "grab_rgb atiflari kaldi:\n" + "\n".join(kalan)
+
+    # 3) panel artik RGB2BGR cevirmemeli (kaynak zaten BGR)
+    panel = open(os.path.join(kok, "dow/panel.py"), encoding="utf-8").read()
+    kod = "\n".join(l for l in panel.splitlines()
+                    if not l.lstrip().startswith("#"))
+    assert "COLOR_RGB2BGR" not in kod, \
+        "panel hala RGB2BGR ceviriyor -> renkler ters gorunur"
+
+    # 4) kayit imwrite'a dogrudan BGR yazmali
+    kayit = open(os.path.join(kok, "araclar/kayit.py"), encoding="utf-8").read()
+    kod = "\n".join(l for l in kayit.splitlines()
+                    if not l.lstrip().startswith("#"))
+    assert "img[:, :, ::-1]" not in kod and "img_rgb[:, :, ::-1]" not in kod, \
+        "kayit hala kanal ceviriyor -> kayitli kareler TERS renkte olur"
+
+
+def test_B51_fp16_acik_ve_gercekten_uygulanir():
+    """⭐ FP16 (2026-08-25): 28.6 -> 18.6 ms (1.54 kat), kutular AYNI.
+
+    ⚠ TUZAK: `predict(half=True)` ultralytics predictor kurulduktan sonra
+    SESSIZCE YOK SAYILIR — model fp32 kalir ve "fp16 fayda vermedi" yalani
+    uretilir (bu tam olarak yasandi). `_hassasiyet_uygula` bunu AutoBackend
+    uzerinden GERCEKTEN uygular; bu bekci o mekanizmanin yerinde oldugunu
+    ve varsayilanin ACIK oldugunu sinar."""
+    from dow.gorus.dedektor import DetCfg, Dedektor
+    assert DetCfg.FP16 is True, "fp16 kapali (olculmus 1.54 kat kazanc)"
+    import inspect
+    k = inspect.getsource(Dedektor._hassasiyet_uygula)
+    assert "ab.fp16" in k and ("half()" in k or "ab.half" in k), \
+        "fp16 AutoBackend'e uygulanmiyor -> predict(half=) sessizce yok sayilir"
+    assert "self._fp16" in k, "mekanizma sutunu (_fp16) guncellenmiyor (§5.1)"

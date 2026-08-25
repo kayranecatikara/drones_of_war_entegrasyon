@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Oyun kadrajını güvenle yakalar. Yanlış pencereyi ölçmeye karşı KAPI."""
+import os
 import subprocess, numpy as np, mss
 import cv2
 
@@ -13,8 +14,33 @@ BOLGE = {'left':0,'top':0,'width':1920,'height':1080}
 BOLGE_HUD = {'left':80,'top':850,'width':240,'height':210}
 
 
-def grab_rgb(sct, bolge=None):
-    """Ekranı SÜREKLİ (contiguous) RGB dizisi olarak al.
+def grab_bgr(sct, bolge=None):
+    """Ekranı SÜREKLİ (contiguous) **BGR** dizisi olarak al.
+
+    ⛔⛔ 2026-08-25 — BU FONKSİYON ESKİDEN RGB DÖNDÜRÜYORDU VE BU BİR HATAYDI.
+
+    `ultralytics`, kendisine verilen numpy dizisini **BGR** varsayar (PIL
+    Image verilirse RGB kabul eder). Biz RGB ndarray veriyorduk; model
+    baştan beri KIRMIZI ile MAVİ kanalları TERS görmüş.
+
+    ÖLÇÜLDÜ (talon_v3, 156 kare, truth doğrulamalı):
+
+        kanal sırası          GERÇEK tespit   yanlış-poz   boş kare
+        BGR (doğrusu)             %68.6          %7.1       %24.4
+        RGB (eski hâl)            %32.1          %2.6       %65.4
+
+    Yani dedektör kapasitesinin YARISINDAN AZINI kullanıyorduk. "Tespit
+    kesik kesik" şikâyetinin, angajman bandında %68-88'de takılmanın ve
+    büyük ihtimalle v3/v5 farkının büyüklüğünün altında bu yatıyor.
+
+    ⚠ ADI DA DEĞİŞTİ (`grab_rgb` -> `grab_bgr`). Eski adı bırakmak, bir
+    sonraki değişikliği yapanı yanıltırdı (CLAUDE.md §5.12: ölü/yanıltıcı
+    ad bırakma). Kanal sırasına duyarlı TÜM tüketiciler birlikte güncellendi:
+      * dow/panel.py   — RGB2BGR çevrimi KALDIRILDI (artık zaten BGR)
+      * araclar/kayit.py — imwrite'taki [:, :, ::-1] KALDIRILDI
+      * araclar/esik_tarama.py — imread sonrası BGR2RGB KALDIRILDI
+    `hud_parlak`, `ucusta_mi`, `gorev_bitti_mi` kanal sırasından BAĞIMSIZDIR
+    (hepsi kanal ortalaması/std kullanır) — dokunulmadı.
 
     ⚠ NEDEN cvtColor: `np.array(sct.grab())[:,:,:3][:,:,::-1]` bir GÖRÜNÜM
       döner — sürekli değildir. YOLO, cv2.resize ve cv2.imwrite sürekli dizi
@@ -26,7 +52,11 @@ def grab_rgb(sct, bolge=None):
     """
     sh = sct.grab(bolge or BOLGE)
     buf = np.frombuffer(sh.raw, np.uint8).reshape(sh.height, sh.width, 4)
-    return cv2.cvtColor(buf, cv2.COLOR_BGRA2RGB)
+    # ⚠ KILL-SWITCH: A/B kiyasi icin ESKI (hatali) kanal sirasi geri
+    #   uretilebilir. Yalniz OLCUM icindir; varsayilan KAPALI.
+    if os.environ.get("DOW_KANAL_ESKI", "0").strip() not in ("0", "", "false"):
+        return cv2.cvtColor(buf, cv2.COLOR_BGRA2RGB)
+    return cv2.cvtColor(buf, cv2.COLOR_BGRA2BGR)
 
 def oyunu_one_al():
     try:

@@ -49,7 +49,7 @@ def _telem_gonder(tel, port=8801):
     PANEL.telem_yaz(tel)
 from araclar.bekci import Bekci
 from araclar.kayit import Kayit
-from araclar.kadraj import (BOLGE, grab_rgb, hud_parlak, ucusta_mi,
+from araclar.kadraj import (BOLGE, grab_bgr, hud_parlak, ucusta_mi,
                             gorev_bitti_mi, gorev_yeniden_oyna,
                             oyunu_one_al, yeniden_dogur, hazirla)
 
@@ -91,7 +91,7 @@ def _gorus_isi(det):
     dt_yak = 1.0 / max(1.0, Ayar.PANEL_YAKALA_HZ)
     while not _gorus_dur.is_set():
         t = time.time()
-        img = grab_rgb(sct)                     # sürekli RGB
+        img = grab_bgr(sct)                     # sürekli BGR (ultralytics BGR bekler)
         pk = hud_parlak(img[850:1060, 80:320])   # kanal sırasından bağımsız
         # Görsel güdüm AÇIKKEN dedektörü BURADA koşturmayız — kontrol döngüsü
         # zaten koşturuyor; iki YOLO = oyunu aç bırakan hatanın ta kendisi.

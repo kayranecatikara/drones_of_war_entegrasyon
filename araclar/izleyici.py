@@ -27,7 +27,7 @@ from dow import panel as PANEL
 from dow.ayarlar import Ayar
 from dow.gorus import kamera as KAM
 from dow.gorus.dedektor import Dedektor
-from araclar.kadraj import BOLGE, grab_rgb, ucusta_mi
+from araclar.kadraj import BOLGE, grab_bgr, ucusta_mi
 
 _dur = threading.Event()
 _kare = {"img": None, "n": 0}
@@ -41,7 +41,7 @@ def _yakala():
     dt = 1.0 / max(1.0, Ayar.PANEL_YAKALA_HZ)
     while not _dur.is_set():
         t = time.time()
-        img = grab_rgb(sct)                                     # sürekli RGB
+        img = grab_bgr(sct)                                     # sürekli BGR
         with _kl:
             _kare["img"] = img; _kare["n"] += 1
         PANEL.fps_isaretle("yakala")
@@ -84,7 +84,7 @@ def _cizim():
             time.sleep(0.005); continue
         son_n = n
         d = s["tespit"]
-        tel = {"durum": "UÇUŞTA" if ucusta_mi(img[:, :, ::-1]) else "drone yok",
+        tel = {"durum": "UÇUŞTA" if ucusta_mi(img) else "drone yok",
                "imgsz": s["imgsz"]}
         if d:
             tel["vis_conf"] = round(d[4], 2)

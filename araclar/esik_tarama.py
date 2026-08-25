@@ -62,7 +62,7 @@ def main(kosu, dusuk=0.10):
         yol = os.path.join(kare_d, "f%04d.jpg" % int(r["kare"]))
         if not os.path.exists(yol):
             continue
-        img = cv2.cvtColor(cv2.imread(yol), cv2.COLOR_BGR2RGB)
+        img = cv2.imread(yol)          # BGR — dedektör BGR ister
         kutular = det.bul_hepsi(img, dusuk, merkez=None)   # TEK çıkarım, düşük eşik
         n += 1
         kutu_say.append(len(kutular))
