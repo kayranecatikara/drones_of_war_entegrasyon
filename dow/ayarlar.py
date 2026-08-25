@@ -183,46 +183,25 @@ class Ayar:
     #   görsel güdüm üzerinde çalışmayı fiilen bloke ediyor. Dedektörü ekip
     #   arkadaşı düzeltiyor; biz onu beklerken görsel yasayı geliştirebilelim.
     #
-    # GEÇİCİ KURAL: drone istasyona OTURDUKTAN sonra ve hedefe ~15 m
-    #   menzildeyken görsele devret. Bu, hedefe olan menzili GPS'ten okumayı
-    #   gerektirir -> YALNIZ FAZ GEÇİŞİNDE, ayrı anahtarla.
+    # ⛔ İSTASYON DEVİR İSKELESİ SİLİNDİ — 2026-08-25 (§5.12, kullanıcı onayı)
     #
-    # ⛔⛔ KULLANICININ ÜSTÜN KURALI DEĞİŞMEDİ: "görsel güdüm sırasında GPS
-    #   verisini asla kullanma; görsel güdüm algoritmasına GPS verisini dahil
-    #   etmek diskalifiye sebebi." Devir kapısının GPS'e bakması, görsel
-    #   YASANIN GPS'e bakması DEĞİLDİR. Görsel faz başladıktan sonra güdüm
-    #   hedefin GPS'ini okumaz bile (bekçiler B1/B18/B19 bunu sınar).
+    #   Silinenler: YARISMA_KIPI, DEVIR_ISTASYONDAN, DEVIR_IST_HATA_M,
+    #   DEVIR_IST_KARE, DEVIR_MENZIL_M, DEVIR_KARE_DEV, gelistirme_devri(),
+    #   Beyin._gelistirme_devir_hazir(), _ist_kare, _devir_sebep ve bunlara
+    #   bakan tüm log sütunu / tanı anahtarı / panel düğmesi / bekçi.
     #
-    # ⚠ BU KAPI YARIŞMADA KULLANILAMAZ. `YARISMA_KIPI=1` yapısal olarak
-    #   kapatır ve sistem kamera-tek kapıya (ardışık DEVIR_KARE tespit) döner.
+    #   NEDEN: o kapı faz geçişi için HEDEFİN GPS'İNİ okuyordu. Kullanıcı
+    #   (2026-08-25): "yarışma kuralı böyle, görsel temas sağlandıktan sonra
+    #   gps verisi kullanılarak araç güdülemez; bu yüzden de eskisini komple
+    #   silip bu yenisine geçiyoruz."
     #
-    # ⭐⭐ 2026-08-25 — VARSAYILAN `False` OLDU (kullanıcı kararı).
-    #   Yukarıdaki not "iyi dedektör gelince bu iskele SÖKÜLÜR" diyordu.
-    #   Kanal hatası düzeltilince (BGR) dedektör GERÇEKTEN iyileşti:
-    #   gerçek tespit %32.1 -> %68.6, görsel fazda tespit %82.4, imha 4/4.
-    #   Kullanıcı bunun üzerine devri KAMERAYA bağlamak istedi:
-    #     10 ardışık TESPİT   -> GORSEL   (DEVIR_KARE, ~1.12 s @ 8.9 Hz)
-    #     20 ardışık TESPİTSİZ -> ISTASYON (KAYIP_KARE, ~2.25 s)
-    #   Böylece faz geçişi de GPS'ten kurtuldu; yarışma kipiyle geliştirme
-    #   kipi AYNI yolu koşuyor (B25 mayın testi artık boş kolu sınıyor).
-    #   İskele KODU henüz silinmedi: karar KAMERA10 kampanyasına bağlı.
-    #   Kamera kapısı kazanırsa §5.12 listesiyle TAMAMEN çıkarılacak.
-    #   Geri dönüş: DOW_DEVIR_ISTASYON=1
-    YARISMA_KIPI       = _b("DOW_YARISMA", False)
-    DEVIR_ISTASYONDAN  = _b("DOW_DEVIR_ISTASYON", False)
-    DEVIR_IST_HATA_M   = _f("DOW_DEVIR_IST_HATA", 8.0)   # oturdu sayılma eşiği
-    DEVIR_IST_KARE     = int(_f("DOW_DEVIR_IST_KARE", 25))  # ardışık (~0.5 s)
-    DEVIR_MENZIL_M     = _f("DOW_DEVIR_MENZIL", 15.0)    # hedefe GPS menzili
-    DEVIR_KARE_DEV     = int(_f("DOW_DEVIR_KARE_DEV", 3))  # görsel yasanın
-    #   elinde bir kutu OLMASI için gereken asgari ardışık tespit. Bu bir GPS
-    #   kapısı değil; kutusuz devretmek görsel fazı doğrudan "köprü" (kör)
-    #   durumuna sokar.
-
-    @classmethod
-    def gelistirme_devri(cls):
-        """Geliştirme devir kapısı ETKİN mi? Yarışma kipinde DAİMA False.
-        ⚠ GPS'e bakan tek faz-geçiş kodu bu bayrağın ARKASINDADIR."""
-        return bool(cls.DEVIR_ISTASYONDAN) and not bool(cls.YARISMA_KIPI)
+    #   YERİNE GEÇEN: KAMERA kapısı — DEVIR_KARE / KAYIP_KARE (yukarıda).
+    #   Ölçüldü (KAMERA10, n=5): imha 5/5, süre medyanı 18.2 -> 10.9 s,
+    #   devir 14.8 -> 7.4 s. Kampanya: docs/kampanya/KAMERA10_DEVIR_KAPISI.md
+    #
+    #   ⭐ KAZANIM: faz geçişi artık GPS'e HİÇ bakmıyor. Yarışma kipi diye
+    #   ayrı bir yol yok — tek yol var ve o yol yarışmada geçerli.
+    #   Bekçi B13 bunu sınar; B25 (mayın testi) gereksizleştiği için silindi.
 
     # ================= BEKÇİ (uçuş sağlık bandı) =================
     BEKCI_AKTIF        = _b("DOW_BEKCI", True)

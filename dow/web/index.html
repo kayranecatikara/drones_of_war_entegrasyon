@@ -163,9 +163,9 @@
     </div>
     <!-- ⚠ CLAUDE.md §6: sinanan ozelligin panelde ac/kapa dugmesi ZORUNLU.
          §0.1: panelde AYNI ANDA TEK yeni ozellik durur. Karar verilince
-         (girsin ya da elensin) bu blok SILINIR. -->
-    <div class="baslik">Devir Kapısı</div>
-    <button id="devirBtn" class="btn" onclick="devirDegis()">📷 KAMERA (10/20)</button>
+         (girsin ya da elensin) bu blok SILINIR. Su an sinanan: Ö-A. -->
+    <div class="baslik">Terminal İstisnası</div>
+    <button id="termBtn" class="btn on g" onclick="termDegis()">🎯 AÇIK — son 3 m</button>
     <div class="durumYazi" id="solDurum">Hazır.</div>
   </aside>
 
@@ -213,22 +213,17 @@ function kipGoster(k){
   }
 }
 
-// ---- devir kapısı (CLAUDE.md §6 canlı aç/kapa) ----
-//   KAMERA : 10 ardışık tespit -> GORSEL, 20 ardışık tespitsiz -> GPS
-//   İSTASYON: drone istasyona oturunca devret (GPS okur, YARIŞMADA YASAK)
-async function devirDegis(){
+// ---- Ö-A terminal istisnası (CLAUDE.md §6 canlı aç/kapa) ----
+async function termDegis(){
   try{
     const r = await (await fetch("/api/command",{method:"POST",
       headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({cmd:"devir"})})).json();
-    devirGoster(r.istasyon);
+      body: JSON.stringify({cmd:"terminal"})})).json();
+    const b=$("termBtn");
+    b.textContent = r.acik ? "🎯 AÇIK — son 3 m" : "⛔ KAPALI — son 3 m kör";
+    b.className = r.acik ? "btn on g" : "btn";
     $("solDurum").textContent = r.msg || "";
   }catch(e){}
-}
-function devirGoster(ist){
-  const b = $("devirBtn"); if(!b) return;
-  b.textContent = ist ? "📍 İSTASYON (GPS)" : "📷 KAMERA (10/20)";
-  b.className = ist ? "btn on g" : "btn";
 }
 
 // ---- görev başlat ----

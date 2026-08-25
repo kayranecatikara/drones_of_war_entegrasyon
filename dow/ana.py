@@ -44,6 +44,8 @@ class Beyin:
         self._det_pencere = 0
         self._son_tespit_kare_t = 0.0        # ÖLÇÜM-ONLY (güdüme girmez)
         self._red_konum = 0; self._red_boyut = 0   # ÖLÇÜM-ONLY (kapı teşhisi)
+        self._terminal_kabul = 0   # §5.1 Ö-A mekanizma sütunu: terminal
+                                   # süreklilik istisnasıyla kaç kutu geçti
         self.iz = Iz()                       # tek hedefli iz (dow/gorus/iz.py)
         # ⭐ HYBRIDSORT TAKİPÇİSİ (2026-08-24) — TENBEL kurulur: boxmot ağır
         #   import, ve takip KAPALIYKEN hiç yüklenmemeli. `_takip_kur()` ilk
@@ -73,8 +75,6 @@ class Beyin:
         self._bayat_birak_say = 0      # §5.1 mekanizma sütunu (B)
         self._kilit = 0
         self._kayip = 0
-        self._ist_kare = 0        # geliştirme devir kapısı sayacı
-        self._devir_sebep = ""
         self._son_komut = (0.0, 0.0, 0.0, 0.0)
         self.hiz_I = 0.0
         self.tani = {}
@@ -95,6 +95,7 @@ class Beyin:
         if hasattr(self, "iz"): self.iz.sifirla()
         self._kopru_say = 0            # §5.1 mekanizma sütunu
         self._bayat_birak_say = 0      # §5.1 mekanizma sütunu (B)
+        self._terminal_kabul = 0       # §5.1 mekanizma sütunu (Ö-A)
         self._kilit = 0; self._kayip = 0
         self.hiz_I = 0.0
         self.izleyici.sifirla()
@@ -143,9 +144,15 @@ class Beyin:
         if d is None:
             return None
         cx, cy, w, h, conf = d
-        ok, _sebep = ibvs.gecerli(cx, cy, w, h, conf)
+        # ⭐ Ö-A: terminal süreklilik istisnası için SON KABUL EDİLEN kutunun
+        #   genişliği ve yaşı geçilir. İkisi de PİKSEL/ZAMAN — GPS yok (§10).
+        _sw = self._son_tespit[2] if self._son_tespit else None
+        _sy = (t - self._son_tespit_t) if self._son_tespit else None
+        ok, _sebep = ibvs.gecerli(cx, cy, w, h, conf, son_w=_sw, son_yas=_sy)
         if not ok:
             return None
+        if _sebep == "terminal":
+            self._terminal_kabul += 1     # §5.1 MEKANİZMA SÜTUNU
         self._son_tespit = d
         self._son_tespit_t = t
         self._son_tespit_kare_t = kare_t if kare_t else t   # ÖLÇÜM-ONLY
@@ -340,45 +347,6 @@ class Beyin:
             return None
         return (cx, cy, k["w"], k["h"], k["conf"])
 
-    # ---------------- ⛔ GELİŞTİRME DEVİR KAPISI ----------------
-    def _gelistirme_devir_hazir(self, dp, hp):
-        """Drone istasyona OTURDU ve hedefe ~15 m menzilde mi?
-
-        ⛔⛔ BU METOT HEDEFİN GPS'İNİ OKUR. YARIŞMADA KULLANILAMAZ.
-          Tek çağrı yeri `Beyin.adim` içindedir ve
-          `self.cfg.gelistirme_devri()` bayrağının ARKASINDADIR; o bayrak
-          `YARISMA_KIPI=1` iken DAİMA False döner, yani bu metot yarışma
-          kipinde HİÇ ÇAĞRILMAZ ve sistem kamera-tek kapıya düşer.
-
-        ⛔ Bu bir FAZ GEÇİŞİ kapısıdır, GÜDÜM YASASI DEĞİLDİR. Görsel faz
-          başladıktan sonra hedefin GPS'i okunmaz bile: `hedef_konumu()`
-          çağrısı `durum != "GORSEL"` koşuluna bağlıdır (bekçi B18) ve
-          `ibvs.komut()` imzasında hedef konumu yoktur (B1/B19).
-
-        NEDEN VAR (kullanıcı kararı 2026-08-22): dedektör menzile şiddetle
-          bağlı (14 m'de ham tespit %88-97, 40 m'de %50, 70 m'de %33), bu
-          yüzden "ardışık 10 kare tespit" kapısı uzakta sağlanamıyor ve
-          görsel güdüm geliştirmeyi bloke ediyor. İyi dedektör gelince bu
-          iskele SÖKÜLÜR (§5.12).
-        """
-        if hp is None:
-            self._ist_kare = 0
-            return False
-        sx, sy, sz = GPS.istasyon_noktasi(hp, self.izleyici.yon_deg, self.cfg)
-        ist_hata = math.dist(dp, (sx, sy, sz))
-        d_hedef = math.dist(dp, hp)
-        if (ist_hata <= self.cfg.DEVIR_IST_HATA_M
-                and d_hedef <= self.cfg.DEVIR_MENZIL_M):
-            self._ist_kare += 1
-        else:
-            self._ist_kare = 0
-        self.tani["devir_ist_kare"] = self._ist_kare
-        self.tani["devir_ist_hata"] = ist_hata
-        # görsel yasanın elinde BİR KUTU olmadan devretmek, fazı doğrudan
-        # kör "köprü" durumuna sokar -> asgari ardışık tespit de aranır.
-        return (self._ist_kare >= self.cfg.DEVIR_IST_KARE
-                and self._kilit >= self.cfg.DEVIR_KARE_DEV)
-
     # ---------------- ana adım ----------------
     def adim(self, t, dt):
         """Bir kontrol tiki. Döner: (thr, pitch, roll, yaw) ya da None
@@ -418,6 +386,7 @@ class Beyin:
                      "iz_w": getattr(self, "_iz_w", 0.0),
                      "red_konum": self._red_konum,
                      "red_boyut": self._red_boyut,
+                     "terminal_kabul": self._terminal_kabul,   # §5.1 Ö-A
                      "yerel_kayip": self._yerel_kayip,
                      "durum": self.durum, "yukseklik": yukseklik,
                      "hedef_var": int(hp is not None),
@@ -470,37 +439,16 @@ class Beyin:
                 self._kilit = 0
             self.tani["kilit_kare"] = self._kilit
             self.tani["kayip_kare"] = self._kayip
-            # ---- ⛔ GELİŞTİRME DEVİR KAPISI (YARIŞMADA KAPALI) ----
-            # Bu blok, hedefe olan GPS menzilini FAZ GEÇİŞİNDE okuyan TEK
-            # yerdir ve tamamen `gelistirme_devri()` bayrağının arkasındadır.
-            # YARISMA_KIPI=1 iken bayrak False döner, blok hiç çalışmaz ve
-            # sistem kamera-tek kapıya (ardışık DEVIR_KARE tespit) düşer.
-            # ⛔ Görsel YASA bundan etkilenmez: GORSEL fazda hedef_konumu()
-            #    hiç çağrılmaz (bekçi B18), ibvs.komut() hedef konumu almaz
-            #    (B1/B19). Devir kapısı ≠ güdüm yasası.
-            dev_hazir = (self._gelistirme_devir_hazir(dp, hp)
-                         if (self.cfg.gelistirme_devri()
-                             and self.durum != "GORSEL") else False)
-            self.tani["dev_hazir"] = int(dev_hazir)
-
-            # ---- KAPI SEÇİMİ ----
-            # ⛔ İKİSİ YARIŞMAZ. Geliştirme kapısı AÇIKKEN kamera kapısı
-            #   DEVRE DIŞIDIR; çünkü yeni istasyon geometrisinde (8 m/0.75)
-            #   tespit zaten %88-97 ve kamera kapısı YAKLAŞMA sırasında,
-            #   araç daha oturmadan ateşliyor (ölçüldü: devir 22.7 m'de,
-            #   14.9 s'de, istasyon hatası hâlâ 34.6 m). Kullanıcının istediği
-            #   "otur, SONRA devret" o zaman hiç gerçekleşmiyor.
-            #   YARISMA_KIPI=1 -> geliştirme kapısı kapanır ve kamera kapısı
-            #   TEK kapı olur (yarışmada geçerli olan budur).
-            if self.cfg.gelistirme_devri():
-                _tetik, _sebep = dev_hazir, "istasyon"
-            else:
-                _tetik = self._kilit >= self.cfg.DEVIR_KARE
-                _sebep = "kamera"
-            if kip != "gps" and self.durum != "GORSEL" and _tetik:
+            # ---- ⭐ DEVİR KAPISI — YALNIZ KAMERA (2026-08-25) ----
+            # ⛔ GPS'e BAKMAZ. Eskiden burada "istasyona otur + ≤15 m menzil"
+            #   diye ikinci bir kapı vardı ve hedefin GPS'ini okuyordu;
+            #   yarışma kuralı gereği (§10) TAMAMEN SİLİNDİ (§5.12).
+            #   Tek tetik: ardışık TESPİT sayacı. Sayaç `_cikarim_yapildi`
+            #   kapısının arkasında olduğu için ÇIKARIM başına artar
+            #   (~9 Hz -> 10 kare ≈ 1.1 s), kontrol tiki başına DEĞİL.
+            if (kip != "gps" and self.durum != "GORSEL"
+                    and self._kilit >= self.cfg.DEVIR_KARE):
                 self.durum = "GORSEL"; self.hiz_I = 0.0
-                self._devir_sebep = _sebep
-                self._ist_kare = 0
             # "gorsel" kipinde GERİ DÖNÜLMEZ; yalnız "hibrit"te geri dönüş var
             elif (kip == "hibrit" and self.durum == "GORSEL"
                     and self._kayip >= self.cfg.KAYIP_KARE):

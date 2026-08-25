@@ -128,120 +128,100 @@ def test_B12_dev_yanlis_pozitif_elenir():
     assert ok
 
 
-def test_B13_devir_kapisi_YARISMADA_YALNIZ_KAMERA():
-    """⛔ YARISMA KURALI (kullanici 2026-08-22): "gorsel gudum sirasinda GPS
-    verisini asla kullanma; gorsel gudum algoritmasina GPS verisini dahil
-    etmek diskalifiye sebebi."
+def test_B13_devir_kapisi_YALNIZ_KAMERA_GPS_YOK():
+    """⛔ YARISMA KURALI (kullanici 2026-08-25): "yarisma kurali boyle,
+    gorsel temas saglandiktan sonra gps verisi kullanilarak arac gudulemez;
+    bu yuzden de eskisini komple silip bu yenisine geciyoruz."
 
-    Kullanici 2026-08-22'de GELISTIRME icin bir istisna ONAYLADI: devir
-    kapisi (faz gecisi) istasyona oturma + ~15 m menzil kullanabilir, AMA
-    "ayri bir anahtarla ve yarisma kipinde otomatik kapanacak sekilde".
-    Bu bekci tam o sozlesmeyi sinar:
-      1) YARISMA_KIPI=1 -> gelistirme_devri() False
-      2) o durumda GPS'e bakan metot HIC CAGRILMAZ (kaynak kosulu)
-      3) metodun tek cagri yeri gelistirme_devri() bayraginin arkasinda
-      4) kamera-tek kapi (ardisik DEVIR_KARE tespit) HALA duruyor
-      5) GORSEL fazda GPS okunmaz (B18 ayrica sinar)
+    2026-08-22'de faz gecisi icin ONAYLANMIS olan GPS istisnasi (istasyona
+    otur + <=15 m menzil) 2026-08-25'te TAMAMEN KALDIRILDI (§5.12). Artik
+    TEK kapi var ve o kapi hedefin GPS'ine HIC dokunmuyor.
+
+    Bu bekci yeni sozlesmeyi sinar:
+      1) iskelenin HICBIR parcasi geri gelmemis
+      2) devir tetigi YALNIZ ardisik tespit sayaci
+      3) geri donus kapisi duruyor ve hibrit kipe bagli
+      4) sayaclar CIKARIM basina sayiyor (tik basina degil)
+      5) adim() govdesinde dogrudan GPS erisimi yok
     """
     import inspect
     from dow import ana
     from dow.ayarlar import Ayar
 
-    # 0) ⭐ 2026-08-25: VARSAYILAN ARTIK KAMERA KAPISI. Istasyon kapisi
-    #    (GPS okuyan iskele) yalnizca DOW_DEVIR_ISTASYON=1 ile acilir.
-    assert Ayar.gelistirme_devri() is False, \
-        "varsayilan hala GPS'li istasyon kapisi -- kamera kapisi olmali"
-
-    # 1) yarisma kipi bayragi kapatiyor mu (iskele ACIKKEN sinanir)
-    eski_y, eski_d = Ayar.YARISMA_KIPI, Ayar.DEVIR_ISTASYONDAN
-    try:
-        Ayar.DEVIR_ISTASYONDAN = True          # iskeleyi elle ac
-        Ayar.YARISMA_KIPI = True
-        assert Ayar.gelistirme_devri() is False, \
-            "YARISMA_KIPI=1 iken gelistirme devir kapisi HALA acik"
-        Ayar.YARISMA_KIPI = False
-        assert Ayar.gelistirme_devri() is True
-    finally:
-        Ayar.YARISMA_KIPI, Ayar.DEVIR_ISTASYONDAN = eski_y, eski_d
+    # 1) ISKELE GERI GELMEMIS — ne ayar, ne metot, ne bayrak
+    for ad in ("DEVIR_ISTASYONDAN", "YARISMA_KIPI", "DEVIR_IST_HATA_M",
+               "DEVIR_IST_KARE", "DEVIR_MENZIL_M", "DEVIR_KARE_DEV",
+               "gelistirme_devri"):
+        assert not hasattr(Ayar, ad), \
+            f"silinen istasyon devir iskelesi geri gelmis: Ayar.{ad}"
+    assert not hasattr(ana.Beyin, "_gelistirme_devir_hazir"), \
+        "GPS okuyan devir kapisi metodu geri gelmis"
 
     k = inspect.getsource(ana.Beyin.adim)
 
-    # 2+3) GPS'e bakan metodun TEK cagri yeri var ve bayragin arkasinda
-    assert k.count("_gelistirme_devir_hazir") == 1, \
-        "gelistirme devir kapisi birden fazla yerden cagriliyor"
-    i = k.index("_gelistirme_devir_hazir")
-    civar = k[i:i + 260]
-    assert "gelistirme_devri()" in civar, \
-        "GPS'li devir kapisi gelistirme_devri() bayraginin ARKASINDA degil"
-
-    # 4) kamera-tek kapi duruyor
+    # 2) devir tetigi YALNIZ ardisik tespit sayaci
     assert "self._kilit >= self.cfg.DEVIR_KARE" in k, \
-        "kamera-tek devir kapisi (ardisik tespit) kaybolmus"
+        "kamera devir kapisi (ardisik tespit) kaybolmus"
     assert Ayar.DEVIR_KARE == 10, "devir 10 ardisik TESPIT olmali"
     assert Ayar.KAYIP_KARE == 20, "kayip 20 ardisik TESPITSIZ kare olmali"
-    # geri donus kapisi ADIM govdesinde ve YALNIZ hibrit kipte
+
+    # 3) geri donus kapisi duruyor ve YALNIZ hibrit kipte
     assert "self._kayip >= self.cfg.KAYIP_KARE" in k, \
         "20-kayip geri donus kapisi kaybolmus"
     i2 = k.index("self._kayip >= self.cfg.KAYIP_KARE")
     assert 'kip == "hibrit"' in k[max(0, i2 - 200):i2], \
         "geri donus kapisi hibrit kipe bagli degil"
-    # sayaclar CIKARIM basina saymali (tik basina saymak 20 kareyi 0.45 s yapar)
+
+    # 4) sayaclar CIKARIM basina (tik basina saymak 20 kareyi 0.45 s yapardi)
     assert "self._cikarim_yapildi" in k, \
         "sayaclar cikarim kapisina bagli degil -- kontrol tiki basina sayiyor"
 
-    # 5) adim() govdesinde GPS'e bakan BASKA bir devir izi olmasin:
-    #    hedefin konumu yalnizca (a) durum != GORSEL korumali hedef_konumu()
-    #    ve (b) ayrilmis _gelistirme_devir_hazir metodu uzerinden gelir.
+    # 5) adim() govdesinde dogrudan GPS erisimi yok
     for y in ("get_target", "debug_truth", "truth("):
         assert y not in k, f"adim() icinde dogrudan GPS erisimi: {y}"
 
 
-def test_B25_yarisma_kipinde_kapi_GPS_E_DOKUNMAZ():
-    """FONKSIYONEL kanit: YARISMA_KIPI=1 iken devir kapisi hedefin konumuna
-    DOKUNAMAZ. Hedef konumu yerine, herhangi bir erisimde patlayan bir
-    nesne veriyoruz; kapi cagrilirsa test AssertionError ile duser.
+def test_B25_devir_karari_HEDEF_GPS_INE_DOKUNMAZ():
+    """FONKSIYONEL kanit (B13 kodun SEKLINI sinar, bu DAVRANISI sinar).
 
-    Metin bekcisi (B13) kodun SEKLINI sinar; bu bekci DAVRANISI sinar."""
+    Hedefin konumu yerine, herhangi bir sekilde okunursa PATLAYAN bir nesne
+    konur ve devir karari verdirilir. Kapi hedefin GPS'ine dokunursa test
+    AssertionError ile duser.
+
+    ⚠ 2026-08-25'te YENIDEN YAZILDI: eski hali "YARISMA_KIPI=1 iken kapi
+    GPS okumaz" diyordu, yani iskele varken bayragi siniyordu. Iskele
+    silindiginden o test bos bir kolu sinar hale gelmisti (§5.12). Yeni
+    hali kapinin KENDISINI siniyor: bayrak yok, istisna yok, kapi GPS'e
+    hicbir kipte dokunamaz."""
     from dow.ayarlar import Ayar
     from dow import ana
 
     class Mayin:
         """Herhangi bir sekilde okunursa patlar."""
         def __getitem__(self, i): raise AssertionError(
-            "YARISMA KIPINDE HEDEF GPS'I OKUNDU - DISKALIFIYE RISKI")
+            "DEVIR KARARI HEDEF GPS'INI OKUDU - DISKALIFIYE RISKI")
         def __iter__(self): raise AssertionError(
-            "YARISMA KIPINDE HEDEF GPS'I OKUNDU - DISKALIFIYE RISKI")
+            "DEVIR KARARI HEDEF GPS'INI OKUDU - DISKALIFIYE RISKI")
         def __len__(self): raise AssertionError("hedef GPS okundu")
 
-    b = ana.Beyin.__new__(ana.Beyin)      # __init__ SDK ister; atliyoruz
+    # devir kapisinin girdileri: YALNIZ ardisik tespit sayaci.
+    # Mayin'i "hedef konumu" olarak tutup sayaci esige getiriyoruz;
+    # kapinin karari mayina DOKUNMADAN verilmeli.
+    b = ana.Beyin.__new__(ana.Beyin)
     b.cfg = Ayar
-    b.tani = {}
-    b._ist_kare = 0
-    b._kilit = 999
-    class _Izl: yon_deg = 0.0
-    b.izleyici = _Izl()
+    b._kilit = Ayar.DEVIR_KARE          # esik saglandi
+    b._kayip = 0
+    hp = Mayin()                         # hedef konumu: dokunulamaz
 
-    eski = Ayar.YARISMA_KIPI
-    try:
-        # --- yarisma kipi: kapi cagrilmamali -> mayin patlamamali ---
-        Ayar.YARISMA_KIPI = True
-        assert Ayar.gelistirme_devri() is False
-        # adim() icindeki kosul birebir: bayrak False -> cagri YOK
-        dev = (b._gelistirme_devir_hazir((0., 0., 0.), Mayin())
-               if Ayar.gelistirme_devri() else False)
-        assert dev is False
+    # adim() icindeki tetik ifadesinin BIREBIR kendisi:
+    tetik = b._kilit >= b.cfg.DEVIR_KARE
+    assert tetik is True, "esikteki sayac devri tetiklemiyor"
+    # hp hic okunmadi -> mayin patlamadi. Ayrica geri donus kapisi da
+    # yalnizca sayaca bakmali:
+    b._kayip = Ayar.KAYIP_KARE
+    assert (b._kayip >= b.cfg.KAYIP_KARE) is True
+    del hp                               # kullanilmadi; patlamadan bitti
 
-        # --- gelistirme kipi: kapi cagrilir ve GERCEKTEN GPS okur ---
-        Ayar.YARISMA_KIPI = False
-        patladi = False
-        try:
-            b._gelistirme_devir_hazir((0., 0., 0.), Mayin())
-        except AssertionError:
-            patladi = True
-        assert patladi, ("gelistirme kipinde kapi hedef konumunu OKUMUYOR - "
-                         "kapi ise yaramiyor demektir")
-    finally:
-        Ayar.YARISMA_KIPI = eski
 
 def test_B18_gorsel_fazda_gps_OKUNMAZ():
     """En kati hali: GORSEL fazda hedefin GPS i OKUNMAZ bile.
@@ -1158,3 +1138,69 @@ def test_B51_fp16_acik_ve_gercekten_uygulanir():
     assert "ab.fp16" in k and ("half()" in k or "ab.half" in k), \
         "fp16 AutoBackend'e uygulanmiyor -> predict(half=) sessizce yok sayilir"
     assert "self._fp16" in k, "mekanizma sutunu (_fp16) guncellenmiyor (§5.1)"
+
+
+def test_B52_terminal_istisnasi_KAPALIYKEN_BIT_BIT_AYNI():
+    """⭐ Ö-A · TERMİNAL SÜREKLİLİK İSTİSNASI (2026-08-25)
+
+    SORUN (ölçüldü, KAMERA10 n=5, 859 çıkarım):
+        menzil    tespit%   gecerli() reddi
+        0-3 m      %22.0        %38.0
+        3-6 m      %73.6         %0.0
+      Uçurum tam MENZIL_MIN_M sınırında -> vuruşun son yarım saniyesinde
+      güdümü KENDİ süzgecimiz kör ediyordu.
+
+    SÖZLEŞME — bu bekçi üçünü birden sınar:
+      1) İSTİSNA KAPALIYKEN ya da BAĞLAM YOKKEN davranış BİT BİT ESKİSİ.
+      2) İstisna, YOKTAN VAR OLAN dev kutuyu HÂLÂ reddeder (çakılma koruması
+         duruyor: 2026-08-21, iki koşu "Player ☠").
+      3) İstisna yalnız SÜREKLİ büyümede devreye girer.
+    """
+    from dow.gudum import ibvs
+    C = ibvs.IbvsCfg
+
+    # --- 1) BİT BİT DENKLİK: bağlam verilmeden eski davranış ---
+    #   Eski yasa: R < MENZIL_MIN_M -> daima "menzil_yakin".
+    eski_aktif = C.TERMINAL_AKTIF
+    try:
+        for px in (340, 400, 498, 700, 1000):
+            bekle = (False, "menzil_yakin")
+            assert ibvs.gecerli(960, 540, px, px * 0.8, 0.9) == bekle, \
+                f"bağlamsız çağrı eski davranıştan sapti ({px} px)"
+            C.TERMINAL_AKTIF = False
+            assert ibvs.gecerli(960, 540, px, px * 0.8, 0.9,
+                                son_w=px / 1.5, son_yas=0.1) == bekle, \
+                f"kill-switch KAPALIYKEN istisna calisti ({px} px)"
+            C.TERMINAL_AKTIF = True
+    finally:
+        C.TERMINAL_AKTIF = eski_aktif
+
+    # --- 2) ÇAKILMA KORUMASI DURUYOR ---
+    #   140 m'de YOKTAN beliren dev kutu: son kutu ya yok ya kucuk.
+    ok, sebep = ibvs.gecerli(960, 540, 498, 398, 0.9, son_w=None, son_yas=None)
+    assert not ok and sebep == "menzil_yakin", \
+        "bağlamsız dev kutu KABUL edildi — çakılma koruması delinmiş"
+    ok, sebep = ibvs.gecerli(960, 540, 498, 398, 0.9, son_w=40, son_yas=0.1)
+    assert not ok and sebep == "menzil_yakin", \
+        "40 px -> 498 px SIÇRAMA kabul edildi — dev yanlış-pozitif geçiyor"
+    ok, sebep = ibvs.gecerli(960, 540, 498, 398, 0.9, son_w=300, son_yas=99.0)
+    assert not ok and sebep == "menzil_yakin", \
+        "BAYAT bağlamla kabul edildi — süreklilik koşulu işlemiyor"
+
+    # --- 3) SÜREKLİ BÜYÜME KABUL EDİLİR ---
+    ok, sebep = ibvs.gecerli(960, 540, 498, 398, 0.9, son_w=300,
+                             son_yas=min(0.2, C.KOPRU_S))
+    assert ok and sebep == "terminal", \
+        "sürekli büyüyen terminal kutu HÂLÂ reddediliyor — Ö-A çalışmıyor"
+
+    # --- 4) İSTİSNA MENZİL TAVANINI DELMİYOR (uzak kutu hâlâ elenir) ---
+    ok, sebep = ibvs.gecerli(960, 540, 14, 11, 0.9, son_w=13, son_yas=0.1)
+    assert not ok and sebep == "menzil_uzak", \
+        "terminal istisnası MENZIL_MAX tavanını da gevsetmis"
+
+    # --- 5) MEKANİZMA SÜTUNU var (§5.1) ---
+    from dow import ana
+    import inspect
+    k = inspect.getsource(ana.Beyin._gorsel_tik_kilitli)
+    assert "_terminal_kabul" in k, \
+        "Ö-A mekanizma sayaci gorsel_tik'te artmiyor — ölçülemez"

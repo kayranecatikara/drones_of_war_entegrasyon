@@ -277,6 +277,7 @@ class CikarimKaydi:
                "vis_cx", "vis_cy", "vis_w", "vis_conf",
                "bek_cx", "bek_cy", "bek_w",
                "yerel_aday", "yerel_uygun", "red_konum", "red_boyut",
+               "terminal_kabul",
                "iz_yas", "iz_w", "det_ms", "det_pencere",
                "takip_id", "takip_kaynak", "takip_coast", "takip_n",
                "menzil_m", "aspekt_deg", "hedef_roll", "drone_roll"]
@@ -435,6 +436,7 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                   "yerel_uygun": cti.get("yerel_uygun"),
                   "red_konum": cti.get("red_konum"),
                   "red_boyut": cti.get("red_boyut"),
+                  "terminal_kabul": cti.get("terminal_kabul"),
                   "takip_id": cti.get("takip_id"),
                   "takip_kaynak": cti.get("takip_kaynak"),
                   "takip_coast": cti.get("takip_coast"),
@@ -693,7 +695,8 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                       "ist_hata_m", "ist_hata_yatay", "ist_hata_dikey",
                       "hedef_menzil_m", "yaw_hata", "v_istek",
                       "kopru_kare", "bayat_birak", "yerel_aday", "yerel_uygun",
-                      "det_ms", "det_pencere", "red_konum", "red_boyut", "yerel_kayip",
+                      "det_ms", "det_pencere", "red_konum", "red_boyut",
+                      "terminal_kabul", "yerel_kayip",
                       "iz_yas", "iz_w",
                       "takip_id", "takip_kaynak", "takip_coast", "takip_n",
                       "ibvs_nisan_elev", "ibvs_vz_kirpildi", "ibvs_e_cy",
@@ -791,7 +794,10 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
         "gorsel_tik": gorsel_tik_say,
         "gorsel_s": round(gorsel_tik_say / max(1e-6, _tik_hz), 1),
         "gorsel_tespit_yuzde": round(100.0 * tespit_say / max(1, gorsel_tik_say), 1),
-        "devir_sebep": beyin._devir_sebep or "-",
+        # ⭐ §5.1 MEKANİZMA SÜTUNU (Ö-A): terminal süreklilik istisnasıyla
+        #   kabul edilen kutu sayısı. DENEY kolunda 0 ise o koşu fiilen
+        #   KONTROL koşusudur -> VERİ NOKTASI DEĞİL (bkz. kol_kiyas --mek).
+        "terminal_kabul": int(getattr(beyin, "_terminal_kabul", 0)),
         # --- SALINIM (§4) ---
         "cx_donus_s": round(_g_cx_don / max(1e-6, _g_cx_n / _tik_hz), 2)
                       if _g_cx_n > 5 else float("nan"),

@@ -1,10 +1,17 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-DEVİR KAPISI KIYASI — kamera (10/20) vs istasyon (GPS)
+KOL KIYASI — iki kampanya kolunu CLAUDE.md disipliniyle karşılaştır
 ================================================================================
-⛔ §5.1 MEKANİZMA KAPISI önce sorulur: `devir_sebep` DENEY kolunda "kamera"
-   değilse o koşu VERİ NOKTASI DEĞİL, GEÇERSİZ koşudur ve kıyasa girmez.
+⛔ §5.1 MEKANİZMA KAPISI önce sorulur. Genel kapı: koşu GÖRSEL faza girdi
+   mi (`gorsel_tik > 0`) ve uçuş bandı ihlali var mı (`ihlal`). Sınadığın
+   özelliğin KENDİ mekanizma sütunu varsa `--mek <sutun>` ile ver; o sütunu
+   sıfır olan DENEY koşusu veri noktası değil, GEÇERSİZ koşudur.
+
+⚠ 2026-08-25: bu araç `devir_kiyas.py` adıyla iki devir kapısını
+   kıyaslamak için yazılmıştı. İstasyon kapısı §5.12 ile silinince o kıyas
+   imkânsızlaştı; araç genelleştirilip yeniden adlandırıldı (yanıltıcı ad
+   bırakmak §5.12 ihlalidir).
 
 ⛔ §5.2 GEÇERLİLİK EŞİ: hiçbir ölçüt tek başına raporlanmaz.
      en_yakin_m      <- eşi: imha (savrulup şans eseri yaklaşma)
@@ -21,7 +28,7 @@ DEVİR KAPISI KIYASI — kamera (10/20) vs istasyon (GPS)
 `faz_gecis_n` ozet.csv'de YOK; cikarim.csv'deki `durum` sütunundan
 sayılır (çıkarım başına, yani kapının kendi çözünürlüğünde).
 
-Kullanım: python3 araclar/devir_kiyas.py KAMERA10 KANAL_D
+Kullanım: python3 araclar/kol_kiyas.py <DENEY> <KONTROL> [--mek <sutun>]
 ================================================================================
 """
 import csv
@@ -73,18 +80,20 @@ def kol_yukle(desen):
     return sat
 
 
-def mekanizma_kapisi(sat, beklenen):
-    """§5.1 — özellik gerçekten çalıştı mı?"""
+def mekanizma_kapisi(sat, mek_sutun=None):
+    """§5.1 — özellik gerçekten çalıştı mı?
+
+    `mek_sutun` verilirse o sütunu SIFIR olan koşu GEÇERSİZ sayılır: deney
+    kolunda mekanizma hiç devreye girmediyse o koşu fiilen KONTROL
+    koşusudur ve kıyasa girerse tablo SAHTE olur (Ö6 dersi)."""
     gecerli, gecersiz = [], []
     for r in sat:
-        seb = str(r.get("devir_sebep", "") or "")
         if r.get("_gecersiz"):
             gecersiz.append((r["_ad"], r["_gecersiz"]))
         elif float(r.get("gorsel_tik", 0) or 0) <= 0:
             gecersiz.append((r["_ad"], "görsel faza HİÇ girmedi"))
-        elif seb != beklenen:
-            gecersiz.append((r["_ad"], "devir_sebep=%r (beklenen %r)"
-                             % (seb, beklenen)))
+        elif mek_sutun and float(r.get(mek_sutun, 0) or 0) == 0.0:
+            gecersiz.append((r["_ad"], "mekanizma sütunu %s = 0" % mek_sutun))
         else:
             gecerli.append(r)
     return gecerli, gecersiz
@@ -112,26 +121,31 @@ def main():
     kontrol = kol_yukle(k_desen)
 
     print("\n" + "=" * 78)
-    print("  DEVİR KAPISI — %s (kamera 10/20)  vs  %s (istasyon, GPS)"
+    print("  KOL KIYASI — DENEY: %s   vs   KONTROL: %s"
           % (d_desen, k_desen))
     print("=" * 78)
 
-    d_ok, d_red = mekanizma_kapisi(deney, "kamera")
-    k_ok, k_red = mekanizma_kapisi(kontrol, "istasyon")
+    mek = None
+    for i, a in enumerate(sys.argv):
+        if a == "--mek" and i + 1 < len(sys.argv):
+            mek = sys.argv[i + 1]
+    d_ok, d_red = mekanizma_kapisi(deney, mek)
+    k_ok, k_red = mekanizma_kapisi(kontrol, None)
 
-    print("\n  ⛔ §5.1 MEKANİZMA KAPISI")
-    print("     DENEY  (kamera)  : %d geçerli / %d koşu" % (len(d_ok), len(deney)))
+    print("\n  ⛔ §5.1 MEKANİZMA KAPISI%s"
+          % ("  (mekanizma sütunu: %s)" % mek if mek else ""))
+    print("     DENEY  : %d geçerli / %d koşu" % (len(d_ok), len(deney)))
     for ad, s in d_red:
         print("        ✗ %-16s %s" % (ad, s))
-    print("     KONTROL(istasyon): %d geçerli / %d koşu" % (len(k_ok), len(kontrol)))
+    print("     KONTROL: %d geçerli / %d koşu" % (len(k_ok), len(kontrol)))
     for ad, s in k_red:
         print("        ✗ %-16s %s" % (ad, s))
     if not d_ok:
         print("\n  ⛔ DENEY KOLUNDA GEÇERLİ KOŞU YOK — rapor değil, EKSİK LİSTESİ.\n")
         return
 
-    print("  %-20s %14s %14s   %s" % ("ölçüt", "KAMERA(10/20)", "İSTASYON",
-                                      "kamera kolu koşuları"))
+    print("  %-20s %14s %14s   %s" % ("ölçüt", "DENEY", "KONTROL",
+                                      "deney kolu koşuları"))
     print("  " + "-" * 74)
     for k, ad, biç in OLCUTLER:
         dv = [_f(r, k) for r in d_ok]

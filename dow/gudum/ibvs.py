@@ -305,6 +305,33 @@ class IbvsCfg:
                             # ancak TEMAS anında ulaşır. Dedektör 140 m'de
                             # bu boyutta kutular üretiyordu (ölçüldü).
 
+    # ⭐ Ö-A · TERMİNAL SÜREKLİLİK İSTİSNASI (2026-08-25)
+    #
+    # SORUN (ölçüldü, KAMERA10 n=5, 859 çıkarım):
+    #     menzil    tespit%   gecerli() reddi
+    #     0-3 m      %22.0        %38.0
+    #     3-6 m      %73.6         %0.0
+    #   Uçurum tam MENZIL_MIN_M sınırında. Yani vuruşun son yarım
+    #   saniyesinde güdümü KENDİ SÜZGECİMİZ kör ediyor. Yo-yo'yu tetikleyen
+    #   üç seriden biri (k01 @ 24.6 s, 2.1 m) doğrudan bu.
+    #
+    # NEDEN SÜZGEÇ SİLİNMİYOR: sebebi meşru. Dedektör 140 m'de dev
+    #   yanlış-pozitif üretiyor, kutudan hesaplanan menzil 1.3 m çıkıyor,
+    #   güdüm "temas" sanıp tam hücum veriyor ve araç yere çakılıyor
+    #   (2026-08-21, iki koşu, "Player ☠"). Silmek o çakılmayı geri getirir.
+    #
+    # AYIRT EDİCİ FİZİK: dev yanlış-pozitif YOKTAN var olur; gerçek hedef
+    #   BÜYÜYEREK gelir. 140 m'de aniden beliren 400 px sahtedir; 200 px'ten
+    #   400 px'e büyüyen gerçektir. İstisna bu sürekliliği arar:
+    #     (a) son KABUL EDİLEN kutu taze mi        (yaş <= KOPRU_S)
+    #     (b) yeni kutu ondan en fazla kaç kat büyük (<= TERMINAL_BUYUME)
+    #   İkisi de sağlanmazsa eski davranış AYNEN geçerli.
+    #
+    # ⛔ GPS YOK: koşulun iki girdisi de piksel/zaman (§10 temiz).
+    # Geri dönüş: DOW_TERMINAL=0
+    TERMINAL_AKTIF   = _b_i("DOW_TERMINAL", True)
+    TERMINAL_BUYUME  = _fi("DOW_TERMINAL_BUYUME", 2.0)   # kat
+
 
 def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
           hiz_I, dt, cfg=IbvsCfg, own_vz=0.0):
@@ -399,7 +426,7 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     return (vx, vy), vz_ned, yaw_hedef, hiz_I, tani
 
 
-def gecerli(cx, cy, w, h, conf, cfg=IbvsCfg):
+def gecerli(cx, cy, w, h, conf, cfg=IbvsCfg, son_w=None, son_yas=None):
     """Bu tespit güdüme girebilir mi? (§5.1 mekanizma kapısı için ayrı tutuldu)
 
     ⭐ GÜVEN EŞİĞİ TAKİPÇİ AÇIKKEN DEĞİŞİR (2026-08-24).
@@ -434,6 +461,15 @@ def gecerli(cx, cy, w, h, conf, cfg=IbvsCfg):
     if boyut < cfg.BOYUT_MIN_PX: return False, "boyut"
     R = KAM.menzil(boyut)
     if R is None or R > cfg.MENZIL_MAX_M: return False, "menzil_uzak"
-    if R < cfg.MENZIL_MIN_M: return False, "menzil_yakin"   # dev yanlış-pozitif
+    if R < cfg.MENZIL_MIN_M:
+        # ⭐ Ö-A TERMİNAL SÜREKLİLİK İSTİSNASI — bkz. IbvsCfg.TERMINAL_AKTIF.
+        #   son_w / son_yas verilmezse (None) davranış ESKİSİYLE BİT BİT AYNI;
+        #   bekçi B52 bunu sınar.
+        _surekli = (cfg.TERMINAL_AKTIF and son_w and son_yas is not None
+                    and son_yas <= cfg.KOPRU_S
+                    and boyut <= cfg.TERMINAL_BUYUME * son_w)
+        if not _surekli:
+            return False, "menzil_yakin"                # dev yanlış-pozitif
+        return True, "terminal"     # §5.1 mekanizma: istisna DEVREYE GİRDİ
     if not (0 <= cx < KAM.IMG_W and 0 <= cy < KAM.IMG_H): return False, "kadraj"
     return True, ""
