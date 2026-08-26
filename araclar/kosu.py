@@ -141,7 +141,17 @@ def _gorus_isi(det):
                 _gorus["tespit_t"] = t
             son_tespit = _gorus["tespit"]
         PANEL.fps_isaretle("yakala")
-        PANEL.kare_koy(img, son_tespit, olcek=Ayar.PANEL_OLCEK)
+        # ⛔ KAYNAK KAPISI (2026-08-25): yakalama TÜM EKRANA bakıyor; oyunun
+        #   üstüne pencere gelirse panel oyunu değil ONU yayınlar ve operatör
+        #   fark etmez. HUD imzası yoksa kareyi YAYINLAMA — son iyi kare
+        #   ekranda kalsın, arayüz de uyarı bassın. Eşik `ucusta_mi_hud` ile
+        #   AYNI (0.05); ölçüldü: oyun 0.126, üstü kapalıyken 0.001.
+        #   ⚠ Güdüm bundan ETKİLENMEZ: kontrol döngüsü kareyi `_gorus["img"]`
+        #     üzerinden ayrıca okur, `kare_koy` yalnız paneli besler.
+        _kare_oyun = pk > 0.05
+        PANEL.kaynak_isaretle(_kare_oyun, pk)
+        if _kare_oyun:
+            PANEL.kare_koy(img, son_tespit, olcek=Ayar.PANEL_OLCEK)
         kalan = dt_yak - (time.time() - t)
         if kalan > 0:
             time.sleep(kalan)

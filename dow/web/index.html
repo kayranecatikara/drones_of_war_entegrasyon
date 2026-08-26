@@ -81,6 +81,45 @@
   .baslik{font-size:10px;letter-spacing:1.4px;color:var(--muted);
           text-transform:uppercase;margin-bottom:10px}
 
+  /* --- hedef (Talon) kontrol paneli: iki sanal joystick --- */
+  /* Avcı teal (--accent), HEDEF mavi (--accent2): renk hangi aracı sürdüğünü söyler. */
+  #talonBtn.acik{border-color:var(--accent2);background:#0f1a26;color:var(--accent2)}
+  .tpanel{background:var(--panel2);border:1px solid var(--accent2);border-radius:8px;
+    padding:10px;margin:-3px 0 9px}
+  .tkols{display:flex;gap:8px}
+  .tkol{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px}
+  .tpad{position:relative;width:100%;aspect-ratio:1/1;border-radius:50%;
+    background:radial-gradient(circle at 50% 50%,#0d141d 0%,#0a0f16 70%);
+    border:1px solid var(--border);touch-action:none;cursor:grab;overflow:hidden}
+  .tpad:active{cursor:grabbing}
+  .tpad.tut{border-color:var(--accent2);box-shadow:0 0 9px rgba(51,160,255,.35)}
+  .tarti{position:absolute;inset:0;pointer-events:none;opacity:.5;
+    background:linear-gradient(var(--border),var(--border)) center/1px 100% no-repeat,
+               linear-gradient(var(--border),var(--border)) center/100% 1px no-repeat}
+  .ttop{position:absolute;left:50%;top:50%;width:30%;height:30%;margin:-15% 0 0 -15%;
+    border-radius:50%;background:var(--accent2);border:2px solid #0a0f16;
+    box-shadow:0 0 9px rgba(51,160,255,.5);pointer-events:none;
+    transition:transform .05s linear}
+  .tetiket{font-size:9px;color:var(--muted);text-align:center;line-height:1.3}
+  .teksen{margin-top:9px;display:grid;grid-template-columns:auto 1fr auto;
+    gap:3px 6px;align-items:center}
+  .teksen>span{font-family:Consolas,monospace;font-size:9px;color:var(--muted);
+    letter-spacing:.5px}
+  .teksen>div{height:5px;background:var(--panel);border:1px solid var(--border);
+    border-radius:3px;position:relative;overflow:hidden}
+  .teksen>div>i{position:absolute;top:0;bottom:0;left:0;width:0;
+    background:var(--accent2);transition:.05s linear}
+  .teksen>b{font-family:Consolas,monospace;font-size:9px;color:var(--text);
+    font-variant-numeric:tabular-nums;min-width:30px;text-align:right}
+  .ttus{margin-top:8px;font-size:9px;color:var(--muted);line-height:1.6}
+  .ttus kbd{display:inline-flex;align-items:center;justify-content:center;
+    min-width:16px;height:16px;padding:0 3px;background:var(--panel);
+    border:1px solid var(--border);border-radius:4px;font-family:Consolas,monospace;
+    font-size:10px;color:var(--text);margin-right:2px}
+  .ttus kbd.on{background:var(--accent2);color:#04121f;border-color:var(--accent2)}
+  .tdurum{margin-top:7px;font-family:Consolas,monospace;font-size:9px;color:var(--muted)}
+  .tdurum b{color:var(--accent2)}
+
   /* --- düğmeler --- */
   .btn{
     width:100%;padding:13px 14px;margin-bottom:9px;border-radius:8px;
@@ -112,6 +151,11 @@
      kutu koordinatları sunucuda çizildiği için ölçekleme kutuyu kaydırmaz. */
   .kam img{width:100%;height:100%;object-fit:contain;border-radius:6px}
   .kam .bos{color:var(--muted);font-size:14px;text-align:center;line-height:1.8}
+  /* Kaynak uyarısı: FPV oyunu DEĞİL başka pencereyi gösteriyorsa */
+  .kaynakUyari{position:absolute;left:0;right:0;top:0;z-index:5;
+    background:rgba(255,93,93,.94);color:#170406;font-size:12px;font-weight:600;
+    padding:7px 12px;line-height:1.45;letter-spacing:.2px}
+  .kam{position:relative}
   .kam .bos b{color:var(--text);display:block;font-size:16px;margin-bottom:6px}
 
   /* --- telemetri --- */
@@ -166,11 +210,43 @@
          (girsin ya da elensin) bu blok SILINIR. -->
     <div class="baslik">Devir Kapısı</div>
     <button id="devirBtn" class="btn" onclick="devirDegis()">📷 KAMERA (10/20)</button>
+    <!-- HEDEF İHA elle kontrol: resmî SDK Talon'a komut veremediği için
+         komutlar /api/talon -> dosya köprüsü -> oyundaki UE4SS modu gider. -->
+    <div class="baslik">Hedef Kontrolü</div>
+    <button id="talonBtn" class="btn" onclick="talonAcKapa()">🎯 Talon Kontrol</button>
+    <div id="talonPanel" class="tpanel" style="display:none">
+      <div class="tkols">
+        <div class="tkol">
+          <div class="tpad" id="padSol"><i class="tarti"></i><i class="ttop"></i></div>
+          <div class="tetiket">SOL<br>↕ yalnızca gaz</div>
+        </div>
+        <div class="tkol">
+          <div class="tpad" id="padSag"><i class="tarti"></i><i class="ttop"></i></div>
+          <div class="tetiket">SAĞ<br>↕ pitch · ↔ dönüş</div>
+        </div>
+      </div>
+      <div class="teksen">
+        <span>THR</span><div><i id="bThr"></i></div><b id="vThr">0.40</b>
+        <span>PIT</span><div><i id="bPit"></i></div><b id="vPit">0.00</b>
+        <span>ROL</span><div><i id="bRol"></i></div><b id="vRol">0.00</b>
+      </div>
+      <div class="ttus">
+        <kbd data-t="thrU">I</kbd><kbd data-t="thrD">K</kbd> gaz<br>
+        <kbd data-t="pitU">↑</kbd><kbd data-t="pitD">↓</kbd> pitch &nbsp;
+        <kbd data-t="rolL">←</kbd><kbd data-t="rolR">→</kbd> roll
+      </div>
+      <div class="tdurum" id="talonDurum">Kapalı</div>
+    </div>
+
     <div class="durumYazi" id="solDurum">Hazır.</div>
   </aside>
 
   <div class="kam">
     <img id="kam" alt="" style="display:none">
+    <div class="kaynakUyari" id="kaynakUyari" style="display:none">
+      ⚠ FPV oyunu göstermiyor — oyun penceresinin üstü kapalı.
+      Görüntü <b>donduruldu</b>; oyunu öne al ya da paneli başka ekranda aç.
+    </div>
     <div class="bos" id="kamBos"><b>Görüntü bekleniyor</b>
       Uçuş süreci başlayınca akış otomatik gelir.</div>
   </div>
@@ -292,6 +368,12 @@ async function tik(){
       + " / 6% · merkez " + (kl.av ? "içinde ✓" : "dışında ✗");
 
     const p = (t.gorsel && t.gorsel.perf) || {};
+    // Kaynak kapısı: sunucu kareyi HUD imzasıyla sınıyor. ok=false ise
+    // yayın DONDURULDU (son iyi kare duruyor) — operatör bunu bilmeli.
+    const kk = t.kaynak_kare || {ok:true};
+    const uy = $("kaynakUyari");
+    if(uy) uy.style.display = kk.ok ? "none" : "block";
+
     $("f1").textContent = (p.yakala_fps||0).toFixed(1);
     $("f2").textContent = (p.fps||0).toFixed(1);
     if(t.kip) kipGoster(t.kip);
@@ -301,6 +383,173 @@ async function tik(){
   }
 }
 setInterval(tik, 400); tik();
+
+// ===========================================================================
+//  HEDEF İHA (Talon) ELLE KONTROL — iki sanal joystick + klavye
+// ---------------------------------------------------------------------------
+//  ⛔ Resmî SDK Talon'a KOMUT VEREMEZ (yalnızca get_target_* okur). Zincir:
+//       panel -> /api/talon -> /tmp/talon_kopru.txt -> UE4SS modu -> Talon
+//     Oyun tarafı Talon'u `BPC_AIMove.isDead = true` ile spline rotasından
+//     kopartır; uçuş modelini mod hesaplar. (Teleport / dondurma / nuclear
+//     freeze yöntemlerinin HEPSİ ölçüldü ve 1.5 sn içinde geri snap'liyordu.)
+//
+//  RC VERİCİ DÜZENİ (Mode 2):
+//     SOL kol : ↕ throttle — YAPIŞKAN, bıraktığında kaldığı yerde durur
+//               ↔ KİLİTLİ — kol yaw uygulamaz (gazı ayarlarken parmak yana
+//                  kayıp istemsiz yaw veriyordu). Dönüş sağ kolun roll'ü ile.
+//     SAĞ kol : ↕ pitch · ↔ roll — ikisi de yaylı
+//     Gerçek bir vericide gaz kolu geri yaylanmaz; burada da öyle. Hedefe
+//     bir hız verip elini çekebilirsin.
+//
+//  KLAVYE:  I/K gaz · ↑/↓ pitch · ←/→ roll   (yaw YOK — dönüş roll ile)
+//     Basılı tut -> eksen dolu; bırak -> 0, yani irtifa ve yön O ANKİ
+//     değerde kilitlenir. Kol ve klavye TOPLANIR, sonuç -1..1'e kısılır.
+// ===========================================================================
+let talonAcik = false, talonTimer = null;
+let tThr = 0.40;                      // yapışkan gaz (0..1)
+let sPit = 0, sRol = 0;               // kol eksenleri (yaylı)
+const tkb = {thrU:0,thrD:0,pitU:0,pitD:0,rolL:0,rolR:0};
+const TKOD = {KeyI:"thrU",KeyK:"thrD",
+              ArrowUp:"pitU",ArrowDown:"pitD",ArrowLeft:"rolL",ArrowRight:"rolR"};
+const kis1 = v => Math.max(-1, Math.min(1, v));
+
+function tEksen(){
+  // yaw KALDIRILDI (kullanıcı isteği): dönüş yalnızca roll ile yapılır —
+  // sabit kanatta doğrusu da bu. Protokolde alan DURUYOR, hep 0 gider;
+  // böylece köprü biçimi ve oyun tarafındaki mod değişmeden kalır.
+  return {throttle: Math.max(0, Math.min(1, tThr)),
+          yaw:   0,
+          pitch: kis1(sPit + (tkb.pitU?1:0) - (tkb.pitD?1:0)),
+          roll:  kis1(sRol + (tkb.rolR?1:0) - (tkb.rolL?1:0))};
+}
+
+function tGorsel(){
+  const e = tEksen();
+  const cubuk = (id, v, orta) => {
+    const el = $(id); if(!el) return;
+    if(orta){ const w = Math.abs(v)*50; el.style.left = (v<0 ? 50-w : 50)+"%"; el.style.width = w+"%"; }
+    else    { el.style.left = "0%"; el.style.width = (v*100)+"%"; }
+  };
+  cubuk("bThr", e.throttle, false);
+  cubuk("bPit", e.pitch, true); cubuk("bRol", e.roll, true);
+  const yaz = (id,v)=>{ const el=$(id); if(el) el.textContent = v.toFixed(2); };
+  yaz("vThr",e.throttle); yaz("vPit",e.pitch); yaz("vRol",e.roll);
+  document.querySelectorAll("#talonPanel kbd").forEach(el=>{
+    el.classList.toggle("on", !!tkb[el.dataset.t]);
+  });
+  const d = $("talonDurum"); if(!d) return;
+  if(!talonAcik){ d.textContent = "Kapalı"; return; }
+  const dv = e.pitch>0.05 ? "TIRMANIYOR" : (e.pitch<-0.05 ? "ALÇALIYOR" : "irtifa sabit");
+  const yn = e.roll>0.05 ? "SAĞA" : (e.roll<-0.05 ? "SOLA" : "düz");
+  d.innerHTML = "<b>"+dv+"</b> · "+yn+" · "+Math.round(300+e.throttle*3700)+" cm/s";
+}
+
+function tGonder(){
+  if(!talonAcik) return;
+  const e = tEksen(); e.aktif = true;
+  fetch("/api/talon",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(e)}).catch(()=>{});
+}
+
+// Sanal kol: pointer olayları (fare ve dokunma aynı kod yolundan)
+function kolKur(padId, gazKolu){
+  const pad = $(padId); if(!pad) return;
+  const top = pad.querySelector(".ttop");
+  let tut = false, pid = null;
+  let nx = 0, ny = gazKolu ? -(tThr*2-1) : 0;   // gaz kolu mevcut değerinden başlar
+
+  // translate YÜZDESİ topuzun KENDİ boyutuna göredir. Topuz pad'in %30'u,
+  // kenara gitmesi için pad'in %35'i kadar kayması gerekir -> 35/30 = %117.
+  const ciz = () => { top.style.transform = "translate("+(nx*117)+"%,"+(ny*117)+"%)"; };
+  function uygula(){
+    // Sol kol YALNIZCA gaz: yatay eksen kilitli. Gazı dikey ayarlarken parmak
+    // kaçınılmaz olarak yana kayıyordu ve istemsiz yaw giriyordu.
+    // Dönüş artık roll (sağ kol ↔) ile yapılır — sabit kanatta doğrusu da bu.
+    if(gazKolu){ nx = 0; tThr = Math.max(0, Math.min(1, (-ny+1)/2)); }
+    else       { sRol = nx; sPit = -ny; }
+    ciz(); tGorsel(); tGonder();
+  }
+  function konum(ev){
+    const r = pad.getBoundingClientRect();
+    let x = gazKolu ? 0 : (ev.clientX - r.left - r.width/2)/(r.width/2);
+    let y = (ev.clientY - r.top  - r.height/2)/(r.height/2);
+    const m = Math.hypot(x,y); if(m>1){ x/=m; y/=m; }
+    nx = x; ny = y; uygula();
+  }
+  pad.addEventListener("pointerdown", ev=>{
+    tut = true; pid = ev.pointerId; pad.setPointerCapture(pid);
+    pad.classList.add("tut"); konum(ev); ev.preventDefault();
+  });
+  pad.addEventListener("pointermove", ev=>{ if(tut && ev.pointerId===pid) konum(ev); });
+  function birak(ev){
+    if(!tut || (ev && ev.pointerId!==pid)) return;
+    tut = false; pad.classList.remove("tut");
+    try{ pad.releasePointerCapture(pid); }catch(e){}
+    nx = 0;                    // yatay eksen HER ZAMAN ortaya döner
+    if(!gazKolu) ny = 0;       // gaz kolu dikeyde KALIR (yapışkan)
+    uygula();
+  }
+  pad.addEventListener("pointerup", birak);
+  pad.addEventListener("pointercancel", birak);
+  pad.addEventListener("lostpointercapture", birak);
+  ciz();
+}
+
+function tTusBas(e){
+  if(e.ctrlKey||e.metaKey||e.altKey) return;
+  const k = TKOD[e.code]; if(!k) return;
+  e.preventDefault();
+  if(!tkb[k]){ tkb[k]=1; tGorsel(); tGonder(); }
+}
+function tTusBirak(e){
+  const k = TKOD[e.code]; if(!k) return;
+  e.preventDefault();
+  if(tkb[k]){ tkb[k]=0; tGorsel(); tGonder(); }    // bırak -> kilitlen
+}
+function tHepsiniBirak(){
+  let d=0; for(const k in tkb){ if(tkb[k]){ tkb[k]=0; d=1; } }
+  sPit = sRol = 0; tGorsel(); if(d) tGonder();
+}
+
+// 12 Hz akış: gaz tuşlarını rampala + tazelik sayacını ilerlet
+function tTik(){
+  if(!talonAcik) return;
+  if(tkb.thrU || tkb.thrD){
+    tThr = Math.max(0, Math.min(1, tThr + (tkb.thrU?0.02:0) - (tkb.thrD?0.02:0)));
+    tGorsel();
+  }
+  tGonder();
+}
+
+function talonAcKapa(){
+  if(!talonAcik){
+    talonAcik = true;
+    $("talonBtn").classList.add("acik");
+    $("talonPanel").style.display = "block";
+    addEventListener("keydown", tTusBas);
+    addEventListener("keyup", tTusBirak);
+    addEventListener("blur", tHepsiniBirak);
+    talonTimer = setInterval(tTik, 80);
+    tGorsel(); tGonder();
+  } else {
+    talonAcik = false;
+    $("talonBtn").classList.remove("acik");
+    $("talonPanel").style.display = "none";
+    for(const k in tkb) tkb[k]=0;
+    sPit = sRol = 0;
+    removeEventListener("keydown", tTusBas);
+    removeEventListener("keyup", tTusBirak);
+    removeEventListener("blur", tHepsiniBirak);
+    if(talonTimer){ clearInterval(talonTimer); talonTimer=null; }
+    tGorsel();
+    // kapanış: aktif=false -> mod isDead'i geri alır, Talon rotasına döner
+    fetch("/api/talon",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({aktif:false,throttle:0,yaw:0,pitch:0,roll:0})}).catch(()=>{});
+  }
+}
+kolKur("padSol", true);    // sol kol: dikey eksen yapışkan (gaz)
+kolKur("padSag", false);   // sağ kol: iki eksen de yaylı
+tGorsel();
 </script>
 </body>
 </html>

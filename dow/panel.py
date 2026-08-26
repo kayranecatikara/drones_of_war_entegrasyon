@@ -191,6 +191,9 @@ def _api_telemetry():
         "gudum": {"faz": durum, "bekci": g("bekci", "")},
         "takip": takip,
         "gorev": {"faz": durum, "ist_hata_m": t.get("ist_hata_m")},
+        # kare kaynağı: ok=False ise FPV oyunu DEĞİL başka bir pencereyi
+        # gösteriyor demektir (bkz. kaynak_isaretle)
+        "kaynak_kare": {"ok": _kaynak["ok"], "hud": round(_kaynak["hud"], 3)},
     }
 
 
@@ -224,6 +227,29 @@ def kilit_degerlendir(tespit, W=1920.0, H=1080.0):
     kl = bool(av and kap >= KILIT_PCT)
     _kilit_pencere.append((time.time(), kl))
     return kl, av, 100.0 * kap
+
+
+# =============================================================================
+#  KAYNAK KAPISI — yayınlanan kare GERÇEKTEN oyun mu?
+# -----------------------------------------------------------------------------
+#  ⛔ Yakalama pencereye değil TÜM EKRANA bakıyor (`kadraj.BOLGE` = 0,0,1920x1080).
+#     Oyunun üstüne başka bir pencere gelirse (en tipik hâli: paneli AYNI
+#     monitörde açmak) panel oyunu değil O PENCEREYİ yayınlar ve operatör
+#     bunu fark etmez — FPV canlı görünür ama başka bir şeyi gösterir.
+#     ÖLÇÜLDÜ (2026-08-25): oyun görünürken HUD parlaklığı 0.126, tarayıcı
+#     üstüne gelince 0.001.
+#  Çözüm: kare, `kosu.py` yakalama ipliğinde HUD imzasıyla sınanır; imza yoksa
+#  kare YAYINLANMAZ (son iyi kare durur) ve burada uyarı bayrağı kalkar.
+#  Arayüz bu bayrağı görüp "oyun penceresi kapalı" uyarısı basar.
+# =============================================================================
+_kaynak = {"ok": True, "hud": 0.0, "t": 0.0}
+
+
+def kaynak_isaretle(ok, hud=0.0):
+    """Yakalama ipliği her karede çağırır: kare oyun muydu?"""
+    _kaynak["ok"] = bool(ok)
+    _kaynak["hud"] = float(hud)
+    _kaynak["t"] = time.time()
 
 
 def fps_isaretle(ad):
@@ -495,6 +521,68 @@ setInterval(()=>{document.getElementById('z').src='/zoom?'+(son++)},150);
 </script>"""
 
 
+
+# =============================================================================
+#  TALON KÖPRÜSÜ — panelden HEDEF İHA'yı sürmek için dosya kanalı
+# -----------------------------------------------------------------------------
+#  ⛔ Resmî SDK (TCP 12345) Talon'a KOMUT VEREMEZ — yalnızca `get_target_*`
+#     okur; bütün `set_*` çağrıları avcı drone'a aittir. Bu yüzden komutlar
+#     dosya üzerinden oyundaki UE4SS moduna (TalonWebControl) aktarılır:
+#         panel  ->  /tmp/talon_kopru.txt  ->  (Z: sürücüsü)  ->  oyun
+#     Proton önekinin Z: sürücüsü tüm Linux dosya sistemini gördüğü için
+#     oyun tarafı aynı dosyayı `Z:\tmp\talon_kopru.txt` olarak okur.
+#
+#  BİÇİM (tek satır):  <aktif> <throttle> <yaw> <pitch> <roll> <sayaç>
+#     aktif    0/1    : serbest uçuş açık mı
+#     throttle 0..1   : ileri hız (oyun tarafı 300..4000 cm/s'ye eşler)
+#     yaw      -1..1  : burun sola / sağa
+#     pitch    -1..1  : alçal / tırman
+#     roll     -1..1  : sola / sağa yatış (koordineli dönüş de üretir)
+#     sayaç           : her yazmada artar; oyun tarafı bununla arayüzün
+#                       donup donmadığını anlar (bayatlarsa eksenler sıfırlanır)
+#
+#  Yazma ATOMİK: önce .tmp, sonra os.replace — oyun yarım satır okumaz.
+# =============================================================================
+TALON_KOPRU_YOL = os.environ.get("DOW_TALON_KOPRU", "/tmp/talon_kopru.txt")
+_talon_sayac = 0
+_talon_kilit = threading.Lock()
+
+
+def talon_kopru_yaz(d):
+    """Panelden gelen eksen komutlarını köprü dosyasına yazar. True/False döner."""
+    global _talon_sayac
+
+    def _eksen(x, alt, ust, varsayilan=0.0):
+        try:
+            v = float(x)
+        except Exception:
+            return varsayilan
+        if v != v:                       # NaN
+            return varsayilan
+        return max(alt, min(ust, v))
+
+    aktif = 1 if d.get("aktif") else 0
+    thr = _eksen(d.get("throttle", 0.0), 0.0, 1.0)
+    yaw = _eksen(d.get("yaw", 0.0), -1.0, 1.0)
+    pit = _eksen(d.get("pitch", 0.0), -1.0, 1.0)
+    rol = _eksen(d.get("roll", 0.0), -1.0, 1.0)
+
+    with _talon_kilit:
+        _talon_sayac += 1
+        satir = "%d %.3f %.3f %.3f %.3f %d\n" % (aktif, thr, yaw, pit, rol, _talon_sayac)
+        gecici = TALON_KOPRU_YOL + ".tmp"
+        try:
+            with open(gecici, "w") as f:
+                f.write(satir)
+            os.replace(gecici, TALON_KOPRU_YOL)
+            return True
+        except Exception as e:
+            print("[panel] Talon köprüsü yazılamadı (%s): %s" % (TALON_KOPRU_YOL, e),
+                  flush=True)
+            return False
+
+
+
 class _H(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -649,6 +737,16 @@ class _H(BaseHTTPRequestHandler):
                 {"ok": False,
                  "msg": "'%s' bu sistemde yok — uçuşu kosu.py yönetir" % cmd
                  }).encode(), "application/json")
+        if self.path == "/api/talon":
+            # HEDEF İHA elle kontrol — eksenleri köprü dosyasına yaz.
+            n = int(self.headers.get("Content-Length", 0))
+            try:
+                d = json.loads(self.rfile.read(n) or b"{}")
+            except Exception:
+                d = {}
+            ok = talon_kopru_yaz(d)
+            return self._gonder(json.dumps({"ok": ok}).encode(),
+                                "application/json")
         if self.path in ("/api/manuel", "/api/tune"):
             # Manuel RC ve canlı kaydırıcılar bizde YOK (ayarları yapay zekâ
             # değiştirir — panel tasarım kararı). Sessizce yutulur ki arayüz
