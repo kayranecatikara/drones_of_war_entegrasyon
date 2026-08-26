@@ -84,6 +84,9 @@
   /* --- hedef (Talon) kontrol paneli: iki sanal joystick --- */
   /* Avcı teal (--accent), HEDEF mavi (--accent2): renk hangi aracı sürdüğünü söyler. */
   #talonBtn.acik{border-color:var(--accent2);background:#0f1a26;color:var(--accent2)}
+  #kareBtn{margin-top:7px;font-size:13px;padding:10px 12px}
+  #kareBtn.acik{border-color:var(--warn);background:#241d10;color:var(--warn)}
+  .tpanel.kare .tpad{opacity:.35;pointer-events:none}     /* kare kipinde kollar pasif */
   .tpanel{background:var(--panel2);border:1px solid var(--accent2);border-radius:8px;
     padding:10px;margin:-3px 0 9px}
   .tkols{display:flex;gap:8px}
@@ -252,6 +255,7 @@
         <kbd data-t="pitU">↑</kbd><kbd data-t="pitD">↓</kbd> pitch &nbsp;
         <kbd data-t="rolL">←</kbd><kbd data-t="rolR">→</kbd> roll
       </div>
+      <button id="kareBtn" class="btn" onclick="kareAcKapa()">⬛ Kare Deseni</button>
       <div class="tdurum" id="talonDurum">Kapalı</div>
     </div>
 
@@ -622,6 +626,7 @@ setInterval(tik, 400); tik();
 //     değerde kilitlenir. Kol ve klavye TOPLANIR, sonuç -1..1'e kısılır.
 // ===========================================================================
 let talonAcik = false, talonTimer = null;
+let kareModu = false;      // ⬛ kare deseni (oyun tarafı sürer)
 let tThr = 0.40;                      // yapışkan gaz (0..1)
 let sPit = 0, sRol = 0;               // kol eksenleri (yaylı)
 const tkb = {thrU:0,thrD:0,pitU:0,pitD:0,rolL:0,rolR:0};
@@ -654,6 +659,11 @@ function tGorsel(){
     el.classList.toggle("on", !!tkb[el.dataset.t]);
   });
   const d = $("talonDurum"); if(!d) return;
+  if(kareModu){
+    d.innerHTML = "<b>⬛ KARE DESENİ</b> · kenar 40 m · " +
+                  Math.round(300 + e.throttle*3700) + " cm/s";
+    return;
+  }
   if(!talonAcik){ d.textContent = "Kapalı"; return; }
   const dv = e.pitch>0.05 ? "TIRMANIYOR" : (e.pitch<-0.05 ? "ALÇALIYOR" : "irtifa sabit");
   const yn = e.roll>0.05 ? "SAĞA" : (e.roll<-0.05 ? "SOLA" : "düz");
@@ -661,8 +671,8 @@ function tGorsel(){
 }
 
 function tGonder(){
-  if(!talonAcik) return;
-  const e = tEksen(); e.aktif = true;
+  if(!talonAcik && !kareModu) return;
+  const e = tEksen(); e.aktif = true; e.kip = kareModu ? 1 : 0;
   fetch("/api/talon",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify(e)}).catch(()=>{});
 }
@@ -729,12 +739,36 @@ function tHepsiniBirak(){
 
 // 12 Hz akış: gaz tuşlarını rampala + tazelik sayacını ilerlet
 function tTik(){
-  if(!talonAcik) return;
+  if(!talonAcik && !kareModu) return;
   if(tkb.thrU || tkb.thrD){
     tThr = Math.max(0, Math.min(1, tThr + (tkb.thrU?0.02:0) - (tkb.thrD?0.02:0)));
     tGorsel();
   }
   tGonder();
+}
+
+// ⬛ KARE DESENİ — basıldığı ANDAN itibaren 40 m düz, 90° sağa, tekrar...
+//   Desenin geometrisi OYUN TARAFINDA (UE4SS modu) sürülür; buradan yalnız
+//   kip=1 gider. Sebep: ağ gecikmesi ve tarayıcı takılması kenar uzunluğunu
+//   bozardı — modda 30 ms'lik tikle ölçülüyor.
+//   Kare kipinde joystickler devre dışı (yalnız gaz geçerli).
+//   Tekrar basınca kare kapanır; Talon kendi rotasına döner.
+function kareAcKapa(){
+  kareModu = !kareModu;
+  $("kareBtn").classList.toggle("acik", kareModu);
+  $("talonPanel").classList.toggle("kare", kareModu);
+  if(kareModu){
+    if(!talonTimer) talonTimer = setInterval(tTik, 80);   // panel kapalıysa da akıt
+    tGorsel(); tGonder();
+  } else {
+    tGorsel();
+    if(talonAcik){ tGonder(); }
+    else {
+      if(talonTimer){ clearInterval(talonTimer); talonTimer = null; }
+      fetch("/api/talon",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({aktif:false,throttle:0,yaw:0,pitch:0,roll:0,kip:0})}).catch(()=>{});
+    }
+  }
 }
 
 function talonAcKapa(){
@@ -749,6 +783,9 @@ function talonAcKapa(){
     tGorsel(); tGonder();
   } else {
     talonAcik = false;
+    kareModu = false;
+    $("kareBtn").classList.remove("acik");
+    $("talonPanel").classList.remove("kare");
     $("talonBtn").classList.remove("acik");
     $("talonPanel").style.display = "none";
     for(const k in tkb) tkb[k]=0;

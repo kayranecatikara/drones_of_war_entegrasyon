@@ -32,7 +32,7 @@ tarafı aynı dosyayı `Z:\tmp\talon_kopru.txt` olarak okur. Yazma **atomik**
 Tek satır, boşlukla ayrılmış:
 
 ```
-<aktif> <throttle> <yaw> <pitch> <roll> <sayaç>
+<aktif> <throttle> <yaw> <pitch> <roll> <sayaç> <kip>
 ```
 
 | alan | aralık | anlam |
@@ -43,6 +43,7 @@ Tek satır, boşlukla ayrılmış:
 | `pitch` | -1..1 | alçal / tırman |
 | `roll` | -1..1 | sola/sağa yatış — koordineli dönüş de üretir |
 | `sayaç` | tamsayı | her yazmada artar |
+| `kip` | 0/1 | 0 = elle, 1 = **kare deseni** (isteğe bağlı 7. alan) |
 
 `sayaç` tazelik içindir: ilerlemezse (arayüz kapandı/dondu) mod kumanda
 eksenlerini sıfırlar ama **throttle'ı korur** — uçak düz uçmaya devam eder,
@@ -211,7 +212,40 @@ Düğmeye tekrar basınca `isDead` geri alınır ve Talon kendi rotasına döner
 
 ---
 
-## 7. Bilinen sınırlar
+## 7. Kare deseni
+
+**⬛ Kare Deseni** düğmesi: basıldığı **andan itibaren** Talon 40 m düz gider,
+90° sağa döner, tekrar 40 m gider — sen kapatana kadar sürer. Tekrar basınca
+kare kalkar ve Talon kendi rotasına döner.
+
+Kare kipinde **joystickler devre dışı** (panelde soluklaşır); yalnız **gaz**
+geçerli kalır, böylece desenin hızını ayarlayabilirsin. İrtifa sabit tutulur.
+
+### Neden geometri oyun tarafında
+
+Desen **UE4SS modunda** sürülüyor, tarayıcıda değil. Arayüzden yalnız `kip=1`
+gidiyor. Sebep: ağ gecikmesi ve tarayıcı takılması kenar uzunluğunu bozardı;
+modda 30 ms'lik tikle ölçülüyor.
+
+**Ölçüldü:** 65 kenar üst üste tamamlandı, **hepsi 40.1 m** (hedef 40 m).
+
+### Köşe geometrisi
+
+Uçak anlık 90° dönemez. Düz kenar tam 40 m ölçülür, köşe ise `KARE_DONUS_HIZI`
+ile sürülür — yani köşe bir **yay**. Yay yarıçapı `hız / dönüş_hızı`:
+
+```
+1500 cm/s ve 90°/s  ->  15 m/s / 1.571 rad/s  =  ~9.5 m
+```
+
+Keskin köşeli kare isteniyorsa modda `KARE_DONUS_HIZI` çok büyük yapılır
+(ör. 3600). Kenar uzunluğu `KARE_KENAR` (cm), köşe açısı `KARE_DONUS`.
+
+Köşede taşma yok: dönüş 90°'yi geçecekse son adım kırpılır, tam 90°'de durur.
+
+---
+
+## 8. Bilinen sınırlar
 
 - **`isDead = true` yan etkisi:** oyunun gözünde Talon'u "düşmüş"
   saydırabilir; skor/görev mantığı etkilenebilir. Kapatınca geri düzeliyor,
@@ -226,7 +260,7 @@ Düğmeye tekrar basınca `isDead` geri alınır ve Talon kendi rotasına döner
 
 ---
 
-## 8. Dosyalar
+## 9. Dosyalar
 
 | dosya | rol |
 |---|---|
@@ -238,7 +272,7 @@ Düğmeye tekrar basınca `isDead` geri alınır ve Talon kendi rotasına döner
 
 ---
 
-## 9. Wine/UE4SS tuzakları (tuş bağlarken)
+## 10. Wine/UE4SS tuzakları (tuş bağlarken)
 
 - **`Key.OEM_1` diye bir şey YOK.** UE4SS bu adları rakamla değil yazıyla
   tutar: `OEM_ONE`, `OEM_EIGHT`. Olmayan bir ada `RegisterKeyBind` çağrısı

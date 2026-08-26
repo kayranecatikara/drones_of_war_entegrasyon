@@ -6,13 +6,16 @@
 --   web/server.py  ->  /tmp/talon_kopru.txt  ->  (Z: surucusu)  ->  bu mod
 --
 -- DOSYA BICIMI (tek satir, bosluk ayrilmis, ondalikli):
---   <aktif> <throttle> <yaw> <pitch> <roll> <sayac>
+--   <aktif> <throttle> <yaw> <pitch> <roll> <sayac> [kip]
 --     aktif    : 0/1      serbest ucus acik mi
 --     throttle : 0..1     ileri hiz (0 = MIN_HIZ, 1 = MAX_HIZ)
 --     yaw      : -1..1    burun sola / saga  (dumen)
 --     pitch    : -1..1    alcal / tirman
 --     roll      : -1..1   sola / saga yatis
 --     sayac    : her yazmada artar (tazelik kontrolu)
+--     kip      : 0 = elle (joystick/klavye)   1 = KARE deseni
+--                (istege bagli 7. alan; yoksa 0 varsayilir - eski
+--                 arayuzlerle geriye donuk uyumlu)
 --
 -- ROLL DAVRANISI: gercek bir ucakta yatis donus uretir. Bu yuzden roll hem
 -- govdeyi yatirir hem de ROLL_DONUS kadar donus katar (koordineli donus).
@@ -34,10 +37,23 @@ local ROLL_GORSEL= 45.0     -- tam roll'da govde yatisi (derece)
 local BURUN      = 15.0     -- tam pitch'te burun acisi (derece)
 local BAYAT_TIK  = 40       -- sayac bu kadar tik degismezse eksenleri sifirla (~1.2 sn)
 
+-- ==== KARE DESENI ====
+-- Duz kenar TAM 40 m olculuyor; kose ise DONUS_HIZI ile suruluyor, yani
+-- kose bir YAY. Ucak anlik 90 derece donemez. Yay yaricapi = hiz / donus_hizi:
+--   1500 cm/s ve 90 derece/s -> 15 m/s / 1.571 rad/s = ~9.5 m
+-- Kesin koseli kare istenirse KARE_DONUS_HIZI'ni cok buyuk yap (or. 3600).
+local KARE_KENAR      = 4000.0   -- kenar uzunlugu (cm) = 40 m
+local KARE_DONUS      = 90.0     -- kose acisi (derece), saga
+local KARE_DONUS_HIZI = 90.0     -- kose donus hizi (derece/s) -> 1 sn'lik kose
+local KARE_YATIS      = 35.0     -- kosede govde yatisi (derece, gorsel)
+
 local talon, aimove = nil, nil
 local acik = false
 local X, Y, Z, YAW = 0, 0, 0, 0
 local thr, yaw, pit, rol = 0.0, 0.0, 0.0, 0.0
+local kip = 0                                  -- 0 = elle, 1 = kare
+local kareAcik, kareEvre = false, "duz"        -- evre: "duz" | "kose"
+local kareYol, kareDonulen, kareKenarNo = 0.0, 0.0, 0
 local sonSayac, bayat, tikSayaci = -1, 0, 0
 
 local function L(s) print("[TalonWeb] " .. tostring(s)) end
@@ -72,7 +88,7 @@ local function Oku()
     local a = {}
     for tok in satir:gmatch("[-%d%.]+") do a[#a+1] = tonumber(tok) end
     if #a < 6 then return nil end
-    return a[1], a[2], a[3], a[4], a[5], a[6]
+    return a[1], a[2], a[3], a[4], a[5], a[6], a[7]   -- a[7] (kip) olmayabilir
 end
 
 local function Kis(v, lo, hi)
@@ -91,6 +107,7 @@ local function Baslat()
     X, Y, Z = l.X, l.Y, l.Z
     YAW = r and r.Yaw or 0
     thr, yaw, pit, rol = 0.4, 0, 0, 0
+    kareAcik, kareEvre, kareYol, kareDonulen, kareKenarNo = false, "duz", 0, 0, 0
     acik = true
     L(string.format("ARAYUZ KONTROLU ACIK - irtifa %.0f m, yon %.0f", Z/100, YAW))
     return true
@@ -100,13 +117,14 @@ local function Durdur()
     if aimove and aimove:IsValid() then pcall(function() aimove["isDead"] = false end) end
     acik = false
     yaw, pit, rol = 0, 0, 0
+    kareAcik = false
     L("arayuz kontrolu kapali - Talon kendi rotasina dondu")
 end
 
 local dt = TIK_MS / 1000.0
 LoopAsync(TIK_MS, function()
     tikSayaci = tikSayaci + 1
-    local a, t, y, p, r, s = Oku()
+    local a, t, y, p, r, s, k = Oku()
 
     if a == nil then
         if acik then Durdur() end                      -- dosya yok/bozuk -> guvenli tarafa
@@ -135,23 +153,65 @@ LoopAsync(TIK_MS, function()
     yaw = Kis(y, -1.0, 1.0)
     pit = Kis(p, -1.0, 1.0)
     rol = Kis(r, -1.0, 1.0)
+    kip = (k == 1) and 1 or 0
 
     if not (talon and talon:IsValid()) then acik = false; talon = nil; aimove = nil; return end
 
     local hiz = MIN_HIZ + thr * (MAX_HIZ - MIN_HIZ)
-    -- Donus: dumen (yaw) + yatistan gelen koordineli donus (roll)
-    YAW = YAW + (yaw * YAW_HIZI + rol * ROLL_DONUS) * dt
+    local gorselRoll, gorselPitch = rol * ROLL_GORSEL, pit * BURUN
+
+    if kip == 1 then
+        -- ============ KARE DESENI ============
+        -- Basildigi ANDAN itibaren: 40 m duz -> 90 derece saga -> 40 m duz -> ...
+        -- Kip 0'a donene kadar suruyor. Elle eksenler (yaw/pitch/roll) YOK SAYILIR;
+        -- yalniz throttle gecerli, boylece desen hizini ayarlayabiliyorsun.
+        if not kareAcik then
+            kareAcik, kareEvre = true, "duz"
+            kareYol, kareDonulen, kareKenarNo = 0.0, 0.0, 0
+            L(string.format("KARE MODU ACIK - kenar %.0f m, kose %.0f derece saga @ %.0f derece/s",
+                            KARE_KENAR / 100, KARE_DONUS, KARE_DONUS_HIZI))
+        end
+
+        if kareEvre == "duz" then
+            kareYol = kareYol + hiz * dt
+            gorselRoll = 0.0
+            if kareYol >= KARE_KENAR then
+                kareEvre, kareDonulen = "kose", 0.0
+                kareKenarNo = kareKenarNo + 1
+                L(string.format("  kenar %d bitti (%.1f m) - koseye giriliyor",
+                                kareKenarNo, kareYol / 100))
+            end
+        else
+            local adim = KARE_DONUS_HIZI * dt
+            if kareDonulen + adim >= KARE_DONUS then
+                adim = KARE_DONUS - kareDonulen      -- tam 90'da dur, tasma yok
+                kareEvre, kareYol = "duz", 0.0
+            end
+            kareDonulen = kareDonulen + adim
+            YAW = YAW + adim
+            gorselRoll = KARE_YATIS
+        end
+        gorselPitch = 0.0                             -- desende irtifa SABIT
+    else
+        if kareAcik then
+            kareAcik = false
+            L("kare modu kapandi - elle kumandaya donuldu")
+        end
+        -- Donus: dumen (yaw) + yatistan gelen koordineli donus (roll)
+        YAW = YAW + (yaw * YAW_HIZI + rol * ROLL_DONUS) * dt
+        Z = Z + pit * TIRMANIS * dt
+    end
+
     if YAW > 180 then YAW = YAW - 360 elseif YAW < -180 then YAW = YAW + 360 end
 
     local rad = math.rad(YAW)
     X = X + math.cos(rad) * hiz * dt
     Y = Y + math.sin(rad) * hiz * dt
-    Z = Z + pit * TIRMANIS * dt
 
     pcall(function()
         talon:K2_SetActorLocation({X=X, Y=Y, Z=Z}, false, {}, false)
-        talon:K2_SetActorRotation({Pitch = pit * BURUN, Yaw = YAW, Roll = rol * ROLL_GORSEL}, false)
+        talon:K2_SetActorRotation({Pitch = gorselPitch, Yaw = YAW, Roll = gorselRoll}, false)
     end)
 end)
 
-L("yuklendi (4 eksen: throttle/yaw/pitch/roll) - kopru: " .. KOPRU)
+L("yuklendi (4 eksen + kare deseni) - kopru: " .. KOPRU)
