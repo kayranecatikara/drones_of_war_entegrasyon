@@ -260,12 +260,27 @@ def test_B20_olu_anahtar_birakilmadi():
       los_hiz_deg_s / _los_hizi  (LEAD_SURE=0 iken ciktiya HIC etki
         etmedigi 216/216 girdide kanitlandi, sonra silindi)
     Eski test 'lead terimi bagli mi' diye sinardi; lead SILINDIGI icin
-    bekcinin gorevi tersine cevrildi."""
+    bekcinin gorevi tersine cevrildi.
+
+    ⚠⚠ 2026-08-26 — LEAD BILEREK GERI GETIRILDI, LISTEDEN CIKARILDI.
+      Sessizce degil, GEREKCEYLE. GV03'teki red IKI YONDEN gecersizdi:
+        (a) n=3 ile karar verilmis. Dosyanin KENDI notu: "HATAM: her karari
+            n=3 kosuyla verdim. CLAUDE.md §5.4 tam bunu yasakliyor."
+        (b) DUZ ucan hedefte sinanmis. Lead'in tasarim zarfi DONEN hedeftir
+            (§5.13: zarf disindaki basarisizlik ELEME GEREKCESI DEGILDIR).
+      Yeni olcum (KD1 kare senaryosu, n=4): 20->10 m arasi 78 kapanma
+      denemesinin 76'si 6 m'nin altina inemiyor; kesilmelerin 45'i "GORDU
+      ama menzil acildi" -- yani GUDUM kaynakli aci gecikmesi.
+      Yeni ad `K_LEAD` (eski `LEAD_SURE` degil) ve varsayilani 0 -> kapaliyken
+      BIT BIT ayni (bekci B59, 324 kombinasyon x 4 los_hiz -> 0 fark).
+      KARE senaryosunda n=4/kol sinaniyor; ELENIRSE §5.12 ile tamamen
+      cikarilacak ve bu satirlar geri alinacak.
+      ⛔ `LEAD_SURE` ve `LEAD_MENZIL_M` HALA YASAK: onlar eski tasarimdi."""
     import inspect
     from dow.gudum import ibvs as I
     from dow import ana
     C = I.IbvsCfg
-    for ad in ("SAKIN_KAMERA", "LEAD_SURE", "LEAD_MENZIL_M", "LEAD_MAX_DEG",
+    for ad in ("SAKIN_KAMERA", "LEAD_SURE", "LEAD_MENZIL_M",
                "MERKEZ_FREN", "FREN_TABAN", "ROLL_TAVAN", "YAW_KAZANC",
                "YAW_HIZ_TAVAN"):
         assert not hasattr(C, ad), f"olu anahtar geri gelmis: IbvsCfg.{ad}"
@@ -1472,3 +1487,69 @@ def test_B58_api_telemetry_COKMEDEN_CALISIR():
     d2 = P._api_telemetry()
     assert (d2["target"]["x"], d2["target"]["y"], d2["target"]["z"]) == (1.0, 2.0, 3.0), \
         "h_* varken truth kanali tercih edilmis -- oncelik ters"
+
+
+def test_B59_lead_KAPALIYKEN_BIT_BIT_AYNI():
+    """⭐ Ö-E · LEAD (kestirim payi) — 2026-08-26.
+
+    SORUN (olculdu, KD1 kare senaryosu n=4): 20->10 m arasi 78 kapanma
+    denemesinin 76'si (%97) 6 m'nin altina inemeden kesiliyor. Kesilmelerin
+    45'i "GORDU ama menzil acildi" (GUDUM), 31'i "kor kesildi" (gorus).
+    Hedef her 40 m'de 90 derece donuyor; saf takip kosede geride kaliyor.
+
+    ⛔ GV03'TE ELENMISTI AMA O RED GECERSIZ:
+      (a) n=3 ile karar verilmis -- dosyanin kendi notu: "HATAM: her karari
+          n=3 kosuyla verdim. CLAUDE.md §5.4 tam bunu yasakliyor."
+      (b) DUZ ucan hedefte sinanmis; lead'in tasarim zarfi DONEN hedef
+          (§5.13: zarf disindaki basarisizlik eleme gerekcesi degildir).
+
+    SOZLESME: K_LEAD=0 iken yeni `los_hiz` parametresi ciktiyi
+    ETKILEYEMEZ -- yani ozellik kapaliyken ucus yolu DEGISEMEZ.
+    """
+    from dow.gudum import ibvs
+    C = ibvs.IbvsCfg
+    eski = C.K_LEAD
+    try:
+        # --- 1) KAPALIYKEN los_hiz cikti uzerinde ETKISIZ ---
+        C.K_LEAD = 0.0
+        fark = 0
+        for cx in (300, 960, 1600):
+            for cy in (200, 540, 900):
+                for w in (20, 60, 150):
+                    taban = ibvs.komut(cx, cy, w, w * 0.8, 45.0, -2.0, 3.0,
+                                       0.0, 0.02, los_hiz=0.0)
+                    for lh in (-120.0, -30.0, 30.0, 120.0):
+                        d = ibvs.komut(cx, cy, w, w * 0.8, 45.0, -2.0, 3.0,
+                                       0.0, 0.02, los_hiz=lh)
+                        if taban[:4] != d[:4]:
+                            fark += 1
+        assert fark == 0, \
+            f"K_LEAD=0 iken los_hiz ciktiyi degistiriyor ({fark} kombinasyon)"
+
+        # --- 2) ACIKKEN GERCEKTEN ETKI ETMELI (yoksa olculemez) ---
+        C.K_LEAD = 0.35
+        a = ibvs.komut(960, 540, 60, 48, 0.0, -2.0, 3.0, 0.0, 0.02, los_hiz=0.0)
+        b = ibvs.komut(960, 540, 60, 48, 0.0, -2.0, 3.0, 0.0, 0.02, los_hiz=60.0)
+        assert a[:4] != b[:4], "K_LEAD acikken lead etki etmiyor -- baglanmamis"
+
+        # --- 3) PAY TAVANLI (doyumda savrulmasin) ---
+        C.K_LEAD = 10.0                      # asiri kazanc
+        _, _, _, _, ti = ibvs.komut(960, 540, 60, 48, 0.0, -2.0, 3.0,
+                                    0.0, 0.02, los_hiz=999.0)
+        assert abs(ti["ibvs_lead"]) <= C.LEAD_MAX_DEG + 1e-6, \
+            f"lead payi tavani asti: {ti['ibvs_lead']} > {C.LEAD_MAX_DEG}"
+
+        # --- 4) §5.1 MEKANIZMA SUTUNLARI var ---
+        assert "ibvs_los_hiz" in ti and "ibvs_lead" in ti, \
+            "lead mekanizma sutunlari yok -- ozellik olculemez"
+    finally:
+        C.K_LEAD = eski
+
+    # --- 5) §10: los_hiz KAMERADAN turetilmeli, GPS'ten degil ---
+    import inspect
+    from dow import ana
+    k = inspect.getsource(ana.Beyin.adim)
+    i = k.index("los_hiz=self._los_hiz")
+    civar = k[max(0, i - 1400):i]
+    assert "piksel_kerteriz" in civar, \
+        "los_hiz kutu kancerizinden turetilmiyor -- GPS sizmis olabilir"

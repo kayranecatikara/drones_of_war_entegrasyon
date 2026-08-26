@@ -46,6 +46,11 @@ class Beyin:
         self._red_konum = 0; self._red_boyut = 0   # ÖLÇÜM-ONLY (kapı teşhisi)
         self._terminal_kabul = 0   # §5.1 Ö-A mekanizma sütunu: terminal
                                    # süreklilik istisnasıyla kaç kutu geçti
+        # ⭐ Ö-E LEAD: LOS dönüş hızı için önceki kerteriz + anı.
+        #   ⛔ GİRDİ YALNIZ kutu + kendi IMU'muz — hedefin GPS'i YOK (§10).
+        self._son_azimut = None
+        self._son_azimut_t = None
+        self._los_hiz = 0.0        # °/s, ÖLÇÜM + güdüm girdisi
         self.iz = Iz()                       # tek hedefli iz (dow/gorus/iz.py)
         # ⭐ HYBRIDSORT TAKİPÇİSİ (2026-08-24) — TENBEL kurulur: boxmot ağır
         #   import, ve takip KAPALIYKEN hiç yüklenmemeli. `_takip_kur()` ilk
@@ -96,6 +101,8 @@ class Beyin:
         self._kopru_say = 0            # §5.1 mekanizma sütunu
         self._bayat_birak_say = 0      # §5.1 mekanizma sütunu (B)
         self._terminal_kabul = 0       # §5.1 mekanizma sütunu (Ö-A)
+        self._son_azimut = None; self._son_azimut_t = None
+        self._los_hiz = 0.0            # Ö-E
         self._kilit = 0; self._kayip = 0
         self.hiz_I = 0.0
         self.izleyici.sifirla()
@@ -503,9 +510,28 @@ class Beyin:
             #   azimutunun türevi). GV02'de bu terim BAĞLANMAMIŞTI (lead=0)
             #   ve saf takip çapraz giden hedefin gerisinde kalıyordu:
             #   cx 991 -> 1190 -> 1292 (merkez 960), sonra tespit koptu.
+            # ⭐ Ö-E LEAD — LOS DÖNÜŞ HIZI (°/s), yalnız görüntüden.
+            #   Kerteriz `piksel_kerteriz` ile hesaplanır (kendi duruşumuz
+            #   telafili). Ardışık iki KABUL EDİLEN kutu arasındaki fark,
+            #   sarma düzeltmesiyle, süreye bölünür.
+            #   ⚠ Kutu bayatsa ya da aralık çok uzun/kısaysa hız SIFIRLANIR:
+            #     bayat veriden türev almak gürültüyü büyütür.
+            _az_su, _ = ibvs.KAM.piksel_kerteriz(cx, cy, own_pitch, own_roll)
+            if (self._son_azimut is not None
+                    and self._son_azimut_t is not None):
+                _dt_az = t - self._son_azimut_t
+                if 0.02 <= _dt_az <= 0.40:
+                    _d = (_az_su - self._son_azimut + 180.0) % 360.0 - 180.0
+                    self._los_hiz = _d / _dt_az
+                elif _dt_az > 0.40:
+                    self._los_hiz = 0.0
+            self._son_azimut = _az_su
+            self._son_azimut_t = t
+
             (vx, vy), vz_ned, yaw_hedef, self.hiz_I, ti = ibvs.komut(
                 cx, cy, w, h, own_yaw, own_pitch, own_roll, self.hiz_I, dt,
-                own_vz=v_olculen[2])      # Unreal Z yukarı; KENDİ hızımız
+                own_vz=v_olculen[2],      # Unreal Z yukarı; KENDİ hızımız
+                los_hiz=self._los_hiz)
             self.tani.update(ti)
             e = (yaw_hedef - own_yaw + 180.0) % 360.0 - 180.0
             _tv = self.cfg.YAW_RATE_MAX
