@@ -297,41 +297,16 @@ class IbvsCfg:
     YEREL_KURTAR  = 5
 
     # --- geçerlilik ---
-    # ⭐ Ö-E · LEAD (KESTİRİM PAYI) — 2026-08-26
-    #
-    # SORUN (ölçüldü, KD1 kare senaryosu, n=4):
-    #   20->10 m arası 78 kapanma denemesinin 76'sı (%97) 6 m'nin altına
-    #   inemeden kesiliyor. Kesilme sebebi ikiye ayrıldı:
-    #       45  "GÖRDÜ ama menzil açıldı"  -> GÜDÜM
-    #       31  "kör kesildi"              -> görüş
-    #   Çoğunlukta güdüm var. Hedef her 40 m'de 90° dönüyor; saf takip
-    #   (hedefin BULUNDUĞU yere nişan) köşede geride kalıyor.
-    #
-    # YASA: yaw hedefine LOS dönüş hızıyla orantılı bir pay eklenir —
-    #       yaw_hedef = own_yaw + K_YAW*eps_yaw + K_LEAD*los_hiz
-    #   Bu, orantısal seyrüseferin (proportional navigation) sadeleştirilmiş
-    #   hâlidir: nişanı hedefin GİDECEĞİ yöne kaydırır.
-    #   `los_hiz` kutu KERTERİZİNİN türevidir -> girdi YALNIZ görüntü + kendi
-    #   IMU'muz (§10 temiz; hedefin GPS'i yok).
-    #
-    # ⛔ GV03'TE ELENMİŞTİ — AMA O RED GEÇERSİZ:
-    #   (a) n=3 ile karar verilmiş. Dosyanın kendi notu: "HATAM: her kararı
-    #       n=3 koşuyla verdim. CLAUDE.md §5.4 tam bunu yasaklıyor."
-    #   (b) DÜZ uçan hedefte sınanmış — lead'in tasarım zarfı DÖNEN hedef.
-    #       §5.13: zarfın dışındaki başarısızlık eleme gerekçesi değildir.
-    #   Bu yüzden KARE senaryosunda, n=4/kol, yeniden sınanıyor.
-    #
-    # ⚠ K_LEAD = 0 VARSAYILAN -> davranış BİT BİT bugünküyle aynı (bekçi B59).
-    # Geri dönüş / açma: DOW_LEAD (saniye cinsinden pay, 0 = kapalı)
-    # KAZANÇ FİZİKTEN SEÇİLDİ, TAHMİNLE DEĞİL: pay = los_hiz * gecikme.
-    #   Karede ölçülen kutu yaşı medyanı 0.38 s (güdüm bu kadar eski
-    #   kutuya nişan alıyor) -> gecikmenin telafisi ~0.4 s.
-    #   Ölçülen LOS dönüş hızı: medyan 4°/s, p90 23°/s, maks 126°/s.
-    #   K_LEAD=0.4 -> medyanda 1.6°, p90'da 9.2° pay; tavan 25°'ye p90'da
-    #   dayanmıyor, yalnız keskin köşede devreye giriyor.
-    #   ⚠ Kampanya bu değerle koşulur; kazanç TARANMAZ (§4 tek değişken).
-    K_LEAD        = _fi("DOW_LEAD", 0.0)   # s; los_hiz(°/s) * K_LEAD = ° pay
-    LEAD_MAX_DEG  = _fi("DOW_LEAD_MAX", 25.0)   # payın tavanı (°)
+    # ⛔ LEAD (kestirim payı) İKİNCİ KEZ ELENDİ — 2026-08-26, §5.12 ile SİLİNDİ.
+    #   Ö-E (kare, n=4/3)  : birincil ölçüt değişmedi (imha 0/4 vs 0/3)
+    #   Ö-F (kaçamak, n=4/4): HER ÖLÇÜTTE KÖTÜLEŞTİ —
+    #        kaçırma 3 -> 5 · ilk denemede 2/4 -> 0/4 · süre 20.4 -> 24.9 s
+    #        görsel tespit %65.5 -> %51.1 · salınım cx 0.58 -> 1.23
+    #   GV03'ün (2026-08-22, n=3) hükmü DOĞRUYMUŞ; o red yöntemsel olarak
+    #   zayıftı ama sonucu tuttu. Bu kez doğru zarfta ve n=4/kol ölçüldü.
+    #   ⚠ Ö-E'de "lead salınımı düşürdü" diye okumuştum (cx 1.13 -> 0.66);
+    #     Ö-F tersini gösterdi (0.58 -> 1.23). O düşüş koşu değişkenliğiymiş.
+    #   Bekçi B20 `LEAD_*` adlarını yeniden YASAKLI listeye aldı.
 
     CONF_MIN      = 0.40    # ÖLÇÜLDÜ (dow/gorus/dedektor.py)
     BOYUT_MIN_PX  = 8.0     # px; bundan küçük kutu güvenilmez
@@ -370,7 +345,7 @@ class IbvsCfg:
 
 
 def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
-          hiz_I, dt, cfg=IbvsCfg, own_vz=0.0, los_hiz=0.0):
+          hiz_I, dt, cfg=IbvsCfg, own_vz=0.0):
     """IBVS kontrol yasası.
 
     GİRDİ (hedefin GPS'i YOK — yapısal garanti):
@@ -402,16 +377,8 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     eps_yaw = azimut
     if abs(eps_yaw) < cfg.YAW_OLU_BAND:
         eps_yaw = 0.0
-    # ⭐ Ö-E LEAD: nişanı hedefin GİDECEĞİ yöne kaydır (bkz. IbvsCfg.K_LEAD).
-    #   K_LEAD=0 iken pay 0'dır ve yasa bugünküyle BİT BİT aynıdır.
-    _lead = 0.0
-    if cfg.K_LEAD != 0.0 and los_hiz == los_hiz:      # NaN koru
-        _lead = _kirp(cfg.K_LEAD * los_hiz,
-                      -cfg.LEAD_MAX_DEG, cfg.LEAD_MAX_DEG)
-    yaw_hedef = own_yaw_deg + cfg.K_YAW * eps_yaw + _lead
+    yaw_hedef = own_yaw_deg + cfg.K_YAW * eps_yaw
     tani["ibvs_eps_yaw"] = eps_yaw
-    tani["ibvs_los_hiz"] = round(los_hiz, 2)     # §5.1 mekanizma sütunu
-    tani["ibvs_lead"] = round(_lead, 2)          # §5.1 mekanizma sütunu
 
     # --- 4b) İSTENEN KADRAJ YERİ (dikey nişan) — fren de bunu kullanır ---
     kg = _kirp((boyut - cfg.CY_GECIS_PX_UZAK) /
