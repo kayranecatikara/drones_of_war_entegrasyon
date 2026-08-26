@@ -30,3 +30,6 @@ gizli*
 # TensorRT motorlari — GPU/surucu/TRT surumune OZEL, TASINMAZ (her makinede uretilir)
 *.engine
 *.onnx
+
+# python sanal ortami (yerel, depoya girmez)
+.venv/
