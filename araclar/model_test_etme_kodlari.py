@@ -3,7 +3,7 @@
 ================================================================================
 DRON KAMERASI — CANLI YOLO TESTİ (GERÇEK dron, oyun DEĞİL)
 ================================================================================
-    .venv/bin/python araclar/dron_kamera.py --model yolo26n
+    .venv/bin/python araclar/model_test_etme_kodlari.py --model yolo26n
 
 Dronun FPV vericisi -> yer alıcısı -> AV çıkışı -> USB yakalama kartı
 (/dev/video2, MacroSilicon MS210x "EasierCAP") -> bu araç. Kare ekrana
@@ -39,7 +39,7 @@ KANAL SIRASI: `cv2.VideoCapture.read()` zaten **BGR** döner ve ultralytics
   o sabitle menzil yazmak UYDURMA olur. Kutu boyutu piksel olarak gösterilir.
 
 TUŞLAR
-  q / ESC  çık                 k  o anki kareyi logs/dron_kamera/ altına yaz
+  q / ESC  çık                 k  o anki kareyi logs/model_testi/ altına yaz
   +  / -   güven eşiği ±0.05   r  kayıt başlat/durdur (annotasyonlu)
   b        kutuları gizle/göster
 ================================================================================
@@ -73,7 +73,8 @@ def kamera_ac(cihaz, fourcc, w, h, fps):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--model", default="yolo26n", help="modeller/<ad>.pt")
+    p.add_argument("--model", default="yolo26n",
+                   help="modeller/<ad>.pt kısaltması VEYA doğrudan .pt yolu")
     p.add_argument("--cihaz", type=int, default=2, help="/dev/videoN")
     p.add_argument("--imgsz", type=int, default=960)
     p.add_argument("--conf",  type=float, default=0.40)
@@ -84,9 +85,34 @@ def main():
     p.add_argument("--sure",  type=float, default=0.0, help="0 = süresiz")
     a = p.parse_args()
 
-    yol = "modeller/%s.pt" % a.model
+    # MODEL YOLU: iki yazım da kabul edilir.
+    #   --model yolo26l              -> modeller/yolo26l.pt  (kısaltma)
+    #   --model /yol/bir/yere/x.pt   -> aynen o dosya        (kopyalamaya gerek yok)
+    # AYIRT ETME: içinde "/" varsa ya da ".pt" ile bitiyorsa YOL sayılır.
+    yol = a.model if ("/" in a.model or a.model.endswith(".pt")) \
+          else "modeller/%s.pt" % a.model
+    yol = os.path.expanduser(yol)
     if not os.path.exists(yol):
-        sys.exit("HATA: %s yok." % yol)
+        sys.exit("HATA: %s yok.\n  Kısaltma kullandıysan dosya modeller/ "
+                 "altında mı bak; değilse tam yolu ver." % yol)
+
+    # ⚠ ultralytics uzantıyı DAYATIYOR: `check_suffix` .pt dışını reddeder
+    #   (AssertionError: acceptable suffix is {'.pt'}, not .zip).
+    #   Ama bir .pt ZATEN bir zip arşividir; tarayıcıdan `.pt.zip` diye inen
+    #   dosya çoğu zaman ağırlığın TA KENDİSİDİR. O yüzden dosyayı açmıyoruz,
+    #   sadece modeller/ altına .pt adıyla bir SEMBOLİK BAĞ kurup onu veriyoruz.
+    #   (Kopya değil bağ: 53 MB'ı ikinci kez yazmanın anlamı yok.)
+    if not yol.endswith(".pt"):
+        os.makedirs("modeller", exist_ok=True)
+        ad = os.path.basename(yol)
+        for uz in (".zip", ".bin", ".dat"):
+            if ad.endswith(uz): ad = ad[:-len(uz)]
+        if not ad.endswith(".pt"): ad += ".pt"
+        bag = os.path.join("modeller", ad)
+        if not os.path.exists(bag):
+            os.symlink(os.path.abspath(yol), bag)
+            print("      uzantı .pt değil -> bağ kuruldu: %s" % bag)
+        yol = bag
 
     if a.ham:
         fourcc, W, H = "YUYV", 720, (480 if a.ntsc else 576)
@@ -111,7 +137,7 @@ def main():
         os.makedirs(kdiz, exist_ok=True)
         print("      kayıt:", kdiz)
 
-    AD = "DRON KAMERASI  -  %s" % a.model
+    AD = "DRON KAMERASI  -  %s" % os.path.basename(yol)
     cv2.namedWindow(AD, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(AD, gw, gh)
     print("[3/3] pencere açık.  q=çık  k=kare kaydet  +/-=eşik  r=kayıt  b=kutu")
@@ -190,13 +216,14 @@ def main():
             if k == ord('-'): conf = max(0.05, conf - 0.05)
             if k == ord('r'):
                 if not kdiz:
-                    kdiz = os.path.join("logs", "dron_kamera_%d" % int(time.time()))
+                    kdiz = os.path.join("logs", "model_testi_%d" % int(time.time()))
                     os.makedirs(kdiz, exist_ok=True)
                 kayit_acik = not kayit_acik
                 print("kayit:", kayit_acik, kdiz)
             if k == ord('k'):
-                os.makedirs("logs/dron_kamera", exist_ok=True)
-                ad = "logs/dron_kamera/%s_%d.jpg" % (a.model, int(time.time()))
+                os.makedirs("logs/model_testi", exist_ok=True)
+                ad = "logs/model_testi/%s_%d.jpg" % (
+                    os.path.splitext(os.path.basename(yol))[0], int(time.time()))
                 cv2.imwrite(ad, o); print("yazildi:", ad)
 
             if a.sure and time.time() - t_bas > a.sure: break
