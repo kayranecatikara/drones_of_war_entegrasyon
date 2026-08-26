@@ -207,7 +207,22 @@ class Ayar:
     BEKCI_AKTIF        = _b("DOW_BEKCI", True)
     BEKCI_ALT_MAX_M    = _f("DOW_B_ALT", 300.0)   # zemine göreli tavan
     BEKCI_MENZIL_MAX_M = _f("DOW_B_MENZIL", 500.0)
-    BEKCI_SPAWN_MAX_M  = _f("DOW_B_SPAWN", 1500.0)
+    # ⭐ 2026-08-26 — 1500 -> 600 (kullanıcı isteği: "drone başlangıç
+    #   konumundan 500 metre falan uzaklaşırsa uçuşu durdur").
+    #   ÖLÇÜLDÜ (KC1, 12/12 geçerli koşu): drone spawn'dan en fazla 354 m
+    #   uzaklaşıyor, medyan 255 m. 1500 m eşiği kaçak bir koşuyu ancak
+    #   54 saniye sonra yakalıyordu (28 m/s) — o süre boşa gidiyordu.
+    #   600 m, en kötü GEÇERLİ koşunun 1.7 katı: meşru koşuyu kesmez.
+    BEKCI_SPAWN_MAX_M  = _f("DOW_B_SPAWN", 600.0)
+    # ⛔ SABİT EŞİK TEK BAŞINA YETMEZ — kodda yazılı tuzak:
+    #   "Görev yeniden kurulunca başlangıç ayrımı 800-970 m çıkabiliyor ve
+    #    kural MEŞRU YAKLAŞMAYI iptal ediyordu — 12 koşuluk bir blok
+    #    tamamen bu yüzden çöpe gitti."
+    #   O yüzden gerçek sınır BAŞLANGIÇ AYRIMINA GÖRELİDİR:
+    #       sınır = max(BEKCI_SPAWN_MAX_M, ilk_ayrım + BEKCI_SPAWN_PAY_M)
+    #   normal doğuş (ayrım 40-100 m) -> 600 m, kaçağı hızlı yakalar
+    #   uzak doğuş  (ayrım 900 m)     -> 1300 m, meşru yaklaşmayı kesmez
+    BEKCI_SPAWN_PAY_M  = _f("DOW_B_SPAWN_PAY", 400.0)
     BEKCI_DONMA_S      = _f("DOW_B_DONMA", 4.0)   # telemetri bu kadar donarsa
     BEKCI_ESIK         = 3                        # ardışık ihlal -> iptal
 

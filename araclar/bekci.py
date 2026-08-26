@@ -48,6 +48,7 @@ class Bekci:
         self._son_poz = None
         self._yakinlasti = False
         self._son_degisim_t = None
+        self._ilk_ayrim = None     # doğuşta drone-hedef ayrımı (göreli sınır)
         self.spawn = None
         self.ihlal = None          # iptal sebebi (str) ya da None
         self.gecmis = []           # (t, kural) — teşhis
@@ -97,10 +98,21 @@ class Bekci:
             self._say("hedef_cok_uzak",
                       self._yakinlasti and d_hedef > c.BEKCI_MENZIL_MAX_M, t)
 
-        # 5) spawn'dan uzaklaşma (saha 220 m; bunun 7 katı = kesin kaçak)
+        # 5) spawn'dan uzaklaşma — KAÇAK KOŞUYU ERKEN KES
+        #   Kullanıcı (2026-08-26): "drone bazen çok çok uzaklara gidiyor ve
+        #   boşa zaman harcıyoruz... 500 metre falan uzaklaşırsa uçuşu durdur".
+        #   Ölçüldü (KC1, 12/12 geçerli): en fazla 354 m, medyan 255 m.
+        #   ⚠ SINIR GÖRELİ: görev yeniden kurulunca başlangıç ayrımı 900 m'ye
+        #     çıkabiliyor ve sabit eşik MEŞRU yaklaşmayı iptal ediyordu
+        #     (yukarıdaki 12 koşuluk blok bu yüzden çöpe gitmişti).
         if self.spawn is not None:
+            if self._ilk_ayrim is None and hedef_p is not None:
+                self._ilk_ayrim = math.dist(drone_p, hedef_p)
+            sinir = c.BEKCI_SPAWN_MAX_M
+            if self._ilk_ayrim is not None:
+                sinir = max(sinir, self._ilk_ayrim + c.BEKCI_SPAWN_PAY_M)
             self._say("spawn_cok_uzak",
-                      math.dist(drone_p, self.spawn) > c.BEKCI_SPAWN_MAX_M, t)
+                      math.dist(drone_p, self.spawn) > sinir, t)
 
         return self.ihlal
 

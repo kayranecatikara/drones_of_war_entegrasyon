@@ -1364,3 +1364,67 @@ def test_B56_kacamak_taban_hizi_SPLINE_ILE_ESLESIR():
         assert 0.0 <= thr <= 1.0, f"{ad}: throttle aralik disi"
         for x in (yaw, pit, rol):
             assert -1.0 <= x <= 1.0, f"{ad}: eksen aralik disi"
+
+
+def test_B57_kacak_kosu_ERKEN_KESILIR():
+    """⛔ KULLANICI (2026-08-26): "drone bazen cok cok uzaklara gidiyor ve
+    bosa zaman harciyoruz... 500 metre falan uzaklasirsa ucusu durdur."
+
+    Eski esik 1500 m'ydi: kacak bir kosu ancak 54 s sonra kesiliyordu
+    (28 m/s). OLCULDU (KC1, 12/12 gecerli kosu): drone spawn'dan EN FAZLA
+    354 m uzaklasiyor, medyan 255 m -> 600 m esik mesru kosuyu KESMEZ.
+
+    ⚠ SABIT ESIK TEK BASINA YANLIS OLURDU. Kodda yazili tuzak:
+      "Gorev yeniden kurulunca baslangic ayrimi 800-970 m cikabiliyor ve
+       kural MESRU YAKLASMAYI iptal ediyordu -- 12 kosuluk bir blok
+       tamamen bu yuzden cope gitti."
+    Bu yuzden sinir BASLANGIC AYRIMINA GORELIDIR.
+    """
+    from dow.ayarlar import Ayar
+    from araclar.bekci import Bekci
+
+    assert Ayar.BEKCI_SPAWN_MAX_M <= 700.0, \
+        "kacak esigi hala cok comert -- bosa ucus suresi uzar"
+    assert Ayar.BEKCI_SPAWN_MAX_M >= 400.0, \
+        "esik cok dar -- olculen en kotu GECERLI kosu 354 m"
+
+    # --- 1) NORMAL DOGUS: 600 m'de kesilmeli, 354 m'de KESILMEMELI ---
+    b = Bekci(Ayar); b.sifirla()
+    spawn = (0.0, 0.0, 100.0)
+    hedef = (50.0, 0.0, 100.0)          # yakin dogus
+    for i in range(5):
+        b.kontrol(0.1 * i, (spawn[0] + i * 0.5, spawn[1], spawn[2]), 0.0, hedef, True)
+    # olculen en kotu gecerli kosu kadar uzaklas -> ihlal YOK
+    for i in range(5):
+        b.kontrol(1.0 + i, (354.0 + i * 0.5, 0.0, 100.0), 0.0, hedef, True)
+    assert b.ihlal is None, \
+        f"354 m (olculen en kotu GECERLI kosu) iptal edildi: {b.ihlal}"
+    # simdi kacak: sinirin acik ustu -> KESILMELI
+    #   ⚠ Hangi kuralin once atesledigi onemli DEGIL: `hedef_cok_uzak` da
+    #     mesru bir kacak yakalamasidir (drone once hedefe yaklasmis, sonra
+    #     uzaklasmis). Sinanan sey KOSUNUN KESILDIGI.
+    for i in range(Ayar.BEKCI_ESIK + 2):
+        b.kontrol(10.0 + i, (900.0 + i * 0.5, 0.0, 100.0), 0.0, hedef, True)
+    assert b.ihlal in ("spawn_cok_uzak", "hedef_cok_uzak"), \
+        f"900 m kacak kosu KESILMEDI: {b.ihlal}"
+
+    # spawn kurali TEK BASINA da calismali (hedef yokken baska kural yok)
+    b3 = Bekci(Ayar); b3.sifirla()
+    for i in range(3):
+        b3.kontrol(0.1 * i, (spawn[0] + i * 0.5, spawn[1], spawn[2]), 0.0, None, True)
+    for i in range(Ayar.BEKCI_ESIK + 2):
+        b3.kontrol(1.0 + i, (900.0 + i * 0.5, 0.0, 100.0), 0.0, None, True)
+    assert b3.ihlal == "spawn_cok_uzak", \
+        f"spawn kurali tek basina atesleyemedi: {b3.ihlal}"
+
+    # --- 2) UZAK DOGUS: sinir GENISLEMELI, mesru yaklasma kesilmemeli ---
+    b2 = Bekci(Ayar); b2.sifirla()
+    uzak_hedef = (900.0, 0.0, 100.0)     # dogusta 900 m ayrim
+    for i in range(3):
+        b2.kontrol(0.1 * i, (spawn[0] + i * 0.5, spawn[1], spawn[2]), 0.0, uzak_hedef, True)
+    # hedefe dogru 850 m ucmak MESRU -- sinir 900+400=1300
+    for i in range(Ayar.BEKCI_ESIK + 3):
+        b2.kontrol(1.0 + i, (850.0 + i * 0.5, 0.0, 100.0), 0.0, uzak_hedef, True)
+    assert b2.ihlal is None, \
+        f"uzak dogusta MESRU yaklasma iptal edildi: {b2.ihlal} " \
+        "(kodda yazili '12 kosuluk blok cope gitti' tuzagi geri gelmis)"

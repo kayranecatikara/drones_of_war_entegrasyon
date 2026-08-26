@@ -32,6 +32,30 @@ for ((i=1; i<=TEKRAR; i++)); do
   for V in "${DEG[@]}"; do
     ETIKET="${V}__t${i}"
     echo "=== [$(date +%H:%M:%S)] KOŞU $ETIKET  ($ENVAD=$V) ==="
+
+    # ⛔⛔ HER KOŞUDAN ÖNCE OYUNU KOMPLE YENİDEN BAŞLAT (2026-08-26).
+    #   NEDEN: UE4SS modu Talon'u `isDead=true` ile spline rotasından
+    #   koparınca, kontrol BIRAKILSA (aktif=0) ve GÖREV YENİDEN KURULSA BİLE
+    #   hedef eski yerinde kalabiliyor. ÖLÇÜLDÜ: kaçamak aracı HİÇ
+    #   çalışmadığı SADE koşuda bile en_yakin 1803 m, ihlal irtifa_tavani,
+    #   0 tespit. Yani kirlilik kaçamak düzeneğinden BAĞIMSIZ olarak simde
+    #   BİRİKİYOR ve görev restart'ı temizlemiyor.
+    #   BEDELİ: koşu başına ~2.5 dk. Alternatifi kampanyanın tamamen
+    #   çöpe gitmesi (üç kez yaşandı).
+    pkill -f "araclar/kacamak.py" 2>/dev/null
+    python3 - <<'PYEOF' 2>/dev/null
+import os
+p = "/tmp/talon_kopru.txt"
+with open(p + ".tmp", "w") as f:
+    f.write("0 0.000 0.000 0.000 0.000 999999\n")
+os.replace(p + ".tmp", p)
+PYEOF
+    pkill -f "DronesOfWa[r]" 2>/dev/null; pkill -f "umu-ru[n]" 2>/dev/null
+    sleep 4
+    if ! python3 araclar/sim.py >> "logs/$AD.sim.log" 2>&1; then
+      echo "⛔ SİM HAZIRLANAMADI — kampanya durduruldu"
+      exit 1
+    fi
     env "$ENVAD=$V" DOW_GORSEL=1 DOW_DET_GOSTER=1 DOW_KIP=hibrit \
       timeout 900 python3 araclar/kosu.py "$AD/$ETIKET" 1 "$SURE" \
       >> "logs/$AD.log" 2>&1 &
