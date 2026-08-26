@@ -9,8 +9,8 @@
 #  * fullscreen bayrağı konumu geri alıyor -> önce kaldır, taşı, sonra ekle.
 # =============================================================================
 set -u
-export DISPLAY=:1
-KOK="/home/kayra/projects/drones_of_war_entegrasyon"
+export DISPLAY="${DISPLAY:-:0}"
+KOK="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$KOK/calistirma"
 
 # 0) çalışan örneği kapat (desen köşeli parantezle kırık: kendi kabuğunu öldürme)
@@ -19,7 +19,7 @@ if pgrep -f "DronesOfWa[r]-Win64" >/dev/null; then
 fi
 
 echo "[1/6] oyun başlatılıyor..."
-nohup ./oyunu_ac.sh > oyun_calisma.log 2>&1 &
+nohup "$KOK/calistirma_betikleri/oyunu_ac.sh" > oyun_calisma.log 2>&1 &
 for i in $(seq 1 120); do pgrep -f "DronesOfWa[r]-Win64" >/dev/null && break; sleep 2; done
 sleep 22   # gölgelendirici derleme + menü
 

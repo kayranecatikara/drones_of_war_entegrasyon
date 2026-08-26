@@ -170,7 +170,7 @@ class DetCfg:
     bulursa hızlıyız, bulamazsa zaten tam kadraj koşuyoruz. Bedel yalnız
     ıska karelerinde (~3 ms fazla).
     """
-    MODEL         = os.environ.get("DOW_MODEL", "talon_v5")
+    MODEL         = os.environ.get("DOW_MODEL", "talon_v3")   # MODEL_YOLU (§86) ile AYNI olmali: ayrisirsa _model_uygula ilk karede sessizce digerine geciyor
     # ⭐ FP16 AÇILDI (2026-08-25). ÖLÇÜLDÜ (talon_v3, 40 gerçek kare, oyun
     #   KAPALI, ayrı süreçlerde — `araclar/motor_olc.py`):
     #       .pt fp32   28.6 ms   (35.0 FPS)   <- eski varsayılan

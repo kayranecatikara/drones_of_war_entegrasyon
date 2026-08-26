@@ -6,8 +6,8 @@
 # Dönüşümlü A/B'yi tarama.py yapar (CLAUDE.md §4).
 # =============================================================================
 set -u
-cd /home/kayra/projects/drones_of_war_entegrasyon || exit 1
-export DISPLAY=:1
+cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
+export DISPLAY="${DISPLAY:-:0}"
 python3 araclar/sim.py || { echo "SİM HAZIRLANAMADI"; exit 1; }
 echo -n "hibrit" > .gudum_kipi
 DOW_GORSEL=1 DOW_DET_GOSTER=1 DOW_KIP=hibrit \
