@@ -6,7 +6,7 @@
 # Dönüşümlü A/B'yi tarama.py yapar (CLAUDE.md §4).
 # =============================================================================
 set -u
-cd /home/kayra/projects/drones_of_war_entegrasyon || exit 1
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" || exit 1
 export DISPLAY=:1
 python3 araclar/sim.py || { echo "SİM HAZIRLANAMADI"; exit 1; }
 echo -n "hibrit" > .gudum_kipi

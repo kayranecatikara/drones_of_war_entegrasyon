@@ -8,7 +8,7 @@
 # sudo GEREKMEZ: her şey ~/ altında.
 # =============================================================================
 set -u
-KOK="/home/kayra/projects/drones_of_war_entegrasyon"
+KOK="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OYUN="$KOK/oyun/Drones of War Teknofest/DronesOfWar.exe"
 export PROTONPATH="$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton11-5-x86_64"
 export WINEPREFIX="$KOK/calistirma/prefix"

@@ -193,6 +193,50 @@ def _gorevi_yeniden_kur(zaman_asimi=240):
     return False
 
 
+def _gorev_sonu_kurtar(beyin=None, saniye=30.0):
+    """MISSION COMPLETED ekranını YOKLAYARAK yakala ve PLAY AGAIN'e bas.
+
+    ⛔ ÖLÇÜLDÜ 2026-08-26 (port gözlemcisiyle, kaydedilmiş karelerden):
+    hedef vurulup SDK portu kapandıktan sonra ekran ÜÇ aşamadan geçiyor —
+
+        +0  s : "Player 💀 Talon İHA" + 'To spawn the drone: Press E'
+                -> gorev_bitti_mi = False   (henüz görev-sonu DEĞİL)
+        +3  s : MISSION COMPLETED belirir      -> True
+        +18 s : hâlâ duruyor                   -> True
+        +33 s : kendiliğinden kaybolmuş        -> False
+
+    Yani ekran yalnız ~3-30 s arası penceresinde görünüyor. TEK SEFERLİK
+    bakış tam +0 s'ye denk geldiği için False görüp 2 dakikalık tam yeniden
+    başlatmaya (goreve_gir.sh — oyunu ÖLDÜRÜR) gidiyordu; kampanya orada
+    ölüyordu. O yüzden pencere boyunca yoklanır.
+
+    Ölçüldü: PLAY AGAIN yolu 16.3 s ve oyun süreci HİÇ KAPANMIYOR.
+    Kill-switch: DOW_HIZLI_KURTARMA=0 -> hiç denenmez (eski davranış).
+    """
+    if not _b("DOW_HIZLI_KURTARMA", True):
+        return False
+    t_son = time.time() + saniye
+    while time.time() < t_son:
+        with mss.mss() as sct:
+            img = np.array(sct.grab(BOLGE))[:, :, :3]
+        if gorev_bitti_mi(img):
+            print("  [görev-sonu ekranı — PLAY AGAIN (oyun kapatılmadan)]",
+                  flush=True)
+            gorev_yeniden_oyna()
+            for _ in range(3):
+                with mss.mss() as sct:
+                    img = np.array(sct.grab(BOLGE))[:, :, :3]
+                if ucusta_mi(img):
+                    if beyin is not None:
+                        try: beyin.b.yeniden_bagla()
+                        except Exception: pass
+                    return True
+                yeniden_dogur(); time.sleep(1.0)
+            return False
+        time.sleep(1.5)
+    return False
+
+
 def _yeni_gorev(beyin=None):
     """Drone'u yeniden doğur; olmazsa GÖREVİ baştan kur.
 
@@ -202,20 +246,10 @@ def _yeni_gorev(beyin=None):
     4 kez boşuna 'E' denenip 2 dakikalık tam yeniden başlatmaya gidiliyordu
     ve kampanya yine de ölüyordu — HZ4'ün ilk denemesinde 8 uçuşun 7'si
     koşulamadı. PLAY AGAIN yolu ~15 s ve doğrudan çalışıyor."""
-    with mss.mss() as sct:
-        img0 = np.array(sct.grab(BOLGE))[:, :, :3]
-    if gorev_bitti_mi(img0):
-        print("  [görev-sonu ekranı — PLAY AGAIN ile yeniden oynanıyor]", flush=True)
-        gorev_yeniden_oyna()
-        for _ in range(3):
-            with mss.mss() as sct:
-                img = np.array(sct.grab(BOLGE))[:, :, :3]
-            if ucusta_mi(img):
-                if beyin is not None:
-                    try: beyin.b.yeniden_bagla()
-                    except Exception: pass
-                return True
-            yeniden_dogur(); time.sleep(1.0)
+    # ⭐ 2026-08-26: tek seferlik bakış yerine YOKLAMA (bkz. _gorev_sonu_kurtar
+    #    docstring'indeki zamanlama ölçümü — ekran +3 s'de beliriyor).
+    if _gorev_sonu_kurtar(beyin):
+        return True
     for _ in range(4):
         yeniden_dogur()
         with mss.mss() as sct:
@@ -343,6 +377,15 @@ def _saglikli(beyin, deneme=3):
         beyin.b.yeniden_bagla()
         if beyin.b.canli():
             return True
+        # ⭐ GÖREV-SONU EKRANI ÖNCE SINANIR (2026-08-26, ÖLÇÜLDÜ).
+        #   `_saglikli` ana döngüde `_yeni_gorev`'den ÖNCE koşuyor; port ölü
+        #   olduğu için burada takılıp `hazir_ol()`a gidiyordu, o da
+        #   `goreve_gir.sh` ile OYUNU ÖLDÜRÜP yeniden açıyordu (~2 dk).
+        #   Zamanlama ölçümü için bkz. `_gorev_sonu_kurtar` docstring'i.
+        if _gorev_sonu_kurtar(beyin):
+            beyin.b.yeniden_bagla()
+            if beyin.b.canli():
+                return True
         print(f"  [sağlık {i+1}/{deneme}] SDK ölü — sim baştan kuruluyor",
               flush=True)
         if not hazir_ol():

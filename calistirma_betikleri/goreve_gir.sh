@@ -10,7 +10,7 @@
 # =============================================================================
 set -u
 export DISPLAY=:1
-KOK="/home/kayra/projects/drones_of_war_entegrasyon"
+KOK="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$KOK/calistirma"
 
 # 0) çalışan örneği kapat (desen köşeli parantezle kırık: kendi kabuğunu öldürme)
