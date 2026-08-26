@@ -532,12 +532,15 @@ setInterval(()=>{document.getElementById('z').src='/zoom?'+(son++)},150);
 #     Proton önekinin Z: sürücüsü tüm Linux dosya sistemini gördüğü için
 #     oyun tarafı aynı dosyayı `Z:\tmp\talon_kopru.txt` olarak okur.
 #
-#  BİÇİM (tek satır):  <aktif> <throttle> <yaw> <pitch> <roll> <sayaç>
+#  BİÇİM (tek satır):  <aktif> <throttle> <yaw> <pitch> <roll> <sayaç> <kip>
 #     aktif    0/1    : serbest uçuş açık mı
 #     throttle 0..1   : ileri hız (oyun tarafı 300..4000 cm/s'ye eşler)
 #     yaw      -1..1  : burun sola / sağa
 #     pitch    -1..1  : alçal / tırman
 #     roll     -1..1  : sola / sağa yatış (koordineli dönüş de üretir)
+#     kip     0/1     : 0 = elle (joystick/klavye), 1 = KARE deseni. Kare
+#                       kipinde oyun tarafı eksenleri YOK SAYAR ve deseni
+#                       kendi sürer; yalnız throttle geçerli kalır.
 #     sayaç           : her yazmada artar; oyun tarafı bununla arayüzün
 #                       donup donmadığını anlar (bayatlarsa eksenler sıfırlanır)
 #
@@ -566,10 +569,12 @@ def talon_kopru_yaz(d):
     yaw = _eksen(d.get("yaw", 0.0), -1.0, 1.0)
     pit = _eksen(d.get("pitch", 0.0), -1.0, 1.0)
     rol = _eksen(d.get("roll", 0.0), -1.0, 1.0)
+    kip = 1 if d.get("kip") else 0
 
     with _talon_kilit:
         _talon_sayac += 1
-        satir = "%d %.3f %.3f %.3f %.3f %d\n" % (aktif, thr, yaw, pit, rol, _talon_sayac)
+        satir = "%d %.3f %.3f %.3f %.3f %d %d\n" % (
+            aktif, thr, yaw, pit, rol, _talon_sayac, kip)
         gecici = TALON_KOPRU_YOL + ".tmp"
         try:
             with open(gecici, "w") as f:
