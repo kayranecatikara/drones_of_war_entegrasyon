@@ -357,6 +357,11 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
     os.makedirs(dizin, exist_ok=True)
     kayit = Kayit(dizin, Ayar.KAYIT_ARALIK) if Ayar.KAYIT_AKTIF else None
     ckayit = CikarimKaydi(dizin) if Ayar.KAYIT_AKTIF else None
+    # ⭐ ZOR ÖRNEK KAYDEDİCİ (DOW_ZOR_KAYIT=1) — bkz. araclar/zor_kayit.py
+    #   Iskalanan ama hedefin KADRAJDA olduğu kareleri etiketiyle diske yazar.
+    #   VARSAYILAN KAPALI: normal koşuya disk/CPU yükü bindirmez.
+    from araclar.zor_kayit import kur as _zor_kur
+    _zor = _zor_kur()
     bekci = Bekci(); bekci.sifirla()
     beyin.spawn_sifirla()
     if not beyin.b.canli():
@@ -519,7 +524,28 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                 PANEL.fps_isaretle("dedektor")
                 # ⭐ HER ÇIKARIMI YAZ (ölçüm-only, güdüme dokunmaz)
                 if ckayit is not None:
-                    ckayit.yaz(_cikarim_satiri(t, tespit, beyin.tani, kare_t))
+                    _csat = _cikarim_satiri(t, tespit, beyin.tani, kare_t)
+                    ckayit.yaz(_csat)
+                    # ⭐⭐ ZOR ÖRNEK KAYDI (DOW_ZOR_KAYIT=1) — kullanıcı fikri
+                    #   2026-08-25: "hangi anlarda Talon kadrajda olmasına
+                    #   rağmen detection modeli onu tespit edemiyorsa o
+                    #   kareleri çekelim ve veri seti oluşturalım."
+                    #
+                    #   ⛔ NEDEN TAM BURADA: etiket, dedektörün GÖRDÜĞÜ
+                    #   karenin KENDİSİYLE ve AYNI ANIN geometrisiyle
+                    #   eşleşmeli. Kaydedilmiş kareyi sonradan telemetriyle
+                    #   eşleştirme denendi ve ETİKETLER BOZUK ÇIKTI
+                    #   (kontak sayfasında "7 m" kutusu boş göğe düştü):
+                    #   meta.csv 1 Hz ve oradaki bek_* son TESPİTİN anına
+                    #   göre hesaplanıyor, karenin anına göre değil.
+                    #   Burada eşleştirme hatası YAPISAL OLARAK imkânsız.
+                    #
+                    #   ⛔ GÜDÜME DOKUNMAZ: yalnız diske yazar. Hedefin
+                    #   GPS'i burada VERİ SETİ ETİKETİ için okunuyor —
+                    #   güdüm yoluna girmiyor (§10; bekçi B18/B19 ayrıca
+                    #   görsel fazda GPS'in güdüme ulaşmadığını sınar).
+                    if _zor is not None:
+                        _zor.belki_kaydet(img, _csat)
             else:
                 beyin._cikarim_yapildi = False
                 tespit = beyin._son_tespit
@@ -769,6 +795,10 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                                      #   yüzünden ~19 Hz, nominal 50 DEĞİL.
     if kayit: kayit.kapat()
     if ckayit: ckayit.kapat()
+    if _zor is not None:
+        _n, _at = _zor.kapat()
+        print("  [ZOR ÖRNEK] %d kare yazıldı -> %s" % (_n, _zor.dizin), flush=True)
+        print("  [ZOR ÖRNEK] atılan: %s" % _at, flush=True)
     beyin.b.komut(beyin.cev._vz_cubuk(0.0), 0.0, 0.0, 0.0, True)
     a = np.array(ist_hatalar) if ist_hatalar else np.array([np.nan])
     return {

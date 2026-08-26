@@ -1204,3 +1204,79 @@ def test_B52_terminal_istisnasi_KAPALIYKEN_BIT_BIT_AYNI():
     k = inspect.getsource(ana.Beyin._gorsel_tik_kilitli)
     assert "_terminal_kabul" in k, \
         "Ö-A mekanizma sayaci gorsel_tik'te artmiyor — ölçülemez"
+
+
+def test_B53_zor_kayit_KOSULAR_BIRBIRININ_USTUNE_YAZMAZ(tmp_path):
+    """⛔ 2026-08-25'te YAŞANDI: 4 koşuluk veri toplama kampanyasinda
+    manifest 58 satir yazdi ama DISKTE 16 goruntu vardi -- 42 kare
+    kayboldu. Sebep: `kosu_yap` her kosuda YENI bir ZorKayit kuruyor,
+    sayac sifirdan basliyor ve dosya adlari cakisiyordu.
+
+    Sayi dogruydu, VERI YOKTU. Bu bekci tam o hatayi sinar: ayni dizine
+    yazan UC ayri kaydedici ornegi, hicbir kareyi kaybetmemeli.
+
+    (Ayni sinif hata bu depoda daha once de olmustu: "Kampanya script'i
+    6 gecerli kosuyu yok etti -- her kosu ayni cikti dizinine yaziyordu.")
+    """
+    import os
+    import numpy as np
+    from araclar.zor_kayit import ZorKayit
+
+    d = str(tmp_path / "zor")
+    img = np.zeros((1080, 1920, 3), np.uint8)
+    sat = {"basarili": 0, "bek_cx": 960.0, "bek_cy": 540.0, "bek_w": 100.0,
+           "menzil_m": 10.0, "aspekt_deg": 90.0, "t": 1.0}
+
+    yazilan = 0
+    for _ in range(3):                     # her tur YENI kaydedici
+        z = ZorKayit(d)
+        for _ in range(5):
+            if z.belki_kaydet(img, dict(sat)):
+                yazilan += 1
+        z.kapat()
+
+    gor = len(os.listdir(os.path.join(d, "images")))
+    lbl = len(os.listdir(os.path.join(d, "labels")))
+    man = sum(1 for _ in open(os.path.join(d, "manifest.csv"))) - 1
+    assert yazilan == 15, "kaydedici beklenen sayida kare yazmadi"
+    assert gor == 15, f"UZERINE YAZMA: 15 yazildi, diskte {gor} goruntu var"
+    assert lbl == 15, f"UZERINE YAZMA: 15 yazildi, diskte {lbl} etiket var"
+    assert man == 15, "manifest ile disk ortusmuyor"
+
+
+def test_B54_zor_kayit_KOTU_ETIKET_YAZMAZ(tmp_path):
+    """Etiket kapilari: yanlis etikete egitmek modeli IYILESTIRMEZ, BOZAR.
+
+    Kaydedici su dort durumu REDDETMELI:
+      1. tespit BASARILI (zor ornek degil)
+      2. yansitma TEKIL (tan() patlamis -- olculdu: bek_* farki maks
+         48386 px)
+      3. hedef menzili asiyor (etiket kalitesi menzille duser:
+         40-80 m'de IoU p10 = 0.00)
+      4. kutu kadraja TAM sigmiyor (kirpik hedef = kotu etiket)
+    """
+    import os
+    import numpy as np
+    from araclar.zor_kayit import ZorKayit
+
+    z = ZorKayit(str(tmp_path / "z"))
+    img = np.zeros((1080, 1920, 3), np.uint8)
+    iyi = {"basarili": 0, "bek_cx": 960.0, "bek_cy": 540.0, "bek_w": 100.0,
+           "menzil_m": 10.0, "aspekt_deg": 90.0, "t": 1.0}
+
+    assert z.belki_kaydet(img, dict(iyi)) is True, "gecerli zor ornek reddedildi"
+
+    k = dict(iyi); k["basarili"] = 1
+    assert z.belki_kaydet(img, k) is False, "TESPIT VARKEN kaydetti"
+
+    k = dict(iyi); k["bek_cx"] = 999999.0
+    assert z.belki_kaydet(img, k) is False, "TEKIL yansitmayi kaydetti"
+
+    k = dict(iyi); k["menzil_m"] = 999.0
+    assert z.belki_kaydet(img, k) is False, "menzil tavanini asani kaydetti"
+
+    k = dict(iyi); k["bek_cx"] = 5.0        # kutu sol kenardan tasiyor
+    assert z.belki_kaydet(img, k) is False, "KIRPIK hedefi kaydetti"
+
+    n, _ = z.kapat()
+    assert n == 1, f"yalnizca 1 gecerli ornek yazilmaliydi, {n} yazildi"
