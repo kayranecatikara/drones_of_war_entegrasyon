@@ -83,6 +83,7 @@ import math
 import os
 import sys
 import time
+import signal
 import urllib.error
 import urllib.request
 
@@ -134,6 +135,11 @@ def main():
     ap.add_argument("--hz", type=float, default=20.0, help="köprü yazma hızı")
     a = ap.parse_args()
 
+    # ⚠ Kampanya betiği bu süreci `kill` ile durduruyor; SIGTERM'de `finally`
+    #   çalışsın ki hedefin kontrolü BIRAKILSIN. Bırakılmazsa sonraki koşu
+    #   hedefi devralınmış halde bulur.
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
+
     hedef = KACAMAKLAR[a.kacamak]
     dizin = os.path.join(KOK, "logs", a.ad)
     os.makedirs(dizin, exist_ok=True)
@@ -162,6 +168,7 @@ def main():
 
     kurulu = True          # tetik hazır mı
     tetik_t = None         # kaçamak başlangıç anı
+    tetik_gecti = False    # bir kez tetiklendi mi (sonrası TABAN'da tutulur)
     dt = 1.0 / a.hz
     t0 = time.time()
     son_bilgi = 0.0
@@ -196,11 +203,13 @@ def main():
             if R is not None:
                 if not kurulu and R > a.yeniden_kur:
                     kurulu = True
+                    tetik_gecti = False       # yeni koşu -> hedef rotasına dönsün
                     print("  [%6.1fs] mesafe %.0f m — YENİ KOŞU, tetik yeniden kuruldu"
                           % (simdi - t0, R), flush=True)
                 elif kurulu and R <= a.esik and tetik_t is None:
                     kurulu = False
                     tetik_t = simdi
+                    tetik_gecti = True
                     tetik_durum = dict(tel)
                     olay = {"t": round(simdi - t0, 2), "menzil_m": round(R, 2),
                             "kacamak": a.kacamak, "sure": a.sure,
@@ -214,15 +223,36 @@ def main():
                         json.dump(olaylar, f, ensure_ascii=False, indent=1)
 
             # ---- köprüye yaz ----
-            #   Sayaç ilerlemezse mod eksenleri sıfırlar ama throttle'ı korur;
-            #   bu yüzden kaçamak YOKKEN de sürekli yazıyoruz ki hedef bizim
-            #   tuttuğumuz tabanda kalsın (iki kolda AYNI taban).
+            # ⛔⛔ KONTROL TETİĞE KADAR DEVRALINMAZ (2026-08-26, KC1'de yandı).
+            #   İLK TASARIM YANLIŞTI: koşu başından itibaren `aktif=1` yazıp
+            #   hedefi düz uçuruyordum. Sonuç: hedef spline rotasında DÖNMÜYOR,
+            #   sürekli uzaklaşıyor. Ölçüldü (KC1/yok__t1):
+            #       ihlal=spawn_cok_uzak · isabet YOK · en yakın 13.2 m
+            #       devir 69.6 m'de · sonraki koşu 169.5 m'de başladı
+            #   Yani senaryonun kendisi bozuluyordu.
+            #
+            #   DOĞRUSU (§3.3): "Hedef düz uçar... mesafe eşiğe inince hedef
+            #   MANUEL RC'YE DEVRALINIR ve belirli bir kaçamak uygulanır."
+            #   Devralma TETİKTE olur, önce değil.
+            #
+            #   ÜÇ EVRE:
+            #     1. tetikten ÖNCE : aktif=0 -> hedef KENDİ ROTASINDA (normal
+            #        senaryo; yaklaşma fazı eski kampanyalarla aynı kalır)
+            #     2. tetik anı     : aktif=1 + kaçamak eksenleri, `sure` s
+            #     3. tetikten SONRA: aktif=1 + TABAN (düz, seviyeli) — koşu
+            #        bitene kadar. Bırakıp rotaya döndürmek buluşmanın
+            #        ortasında sıçrama yaratırdı.
+            #
+            #   `yok` kolu 2. evrede de TABAN yazar: devralma AYNI, yalnız
+            #   kaçamak yok. Böylece kollar arasındaki TEK değişken manevradır.
             if tetik_t is not None and hedef is not None:
-                thr, yaw, pit, rol = hedef
+                akt, (thr, yaw, pit, rol) = 1, hedef
+            elif tetik_gecti:
+                akt, thr, yaw, pit, rol = 1, TABAN_THR, 0.0, 0.0, 0.0
             else:
-                thr, yaw, pit, rol = TABAN_THR, 0.0, 0.0, 0.0
+                akt, thr, yaw, pit, rol = 0, 0.0, 0.0, 0.0, 0.0
             try:
-                eksen_yaz(a.port, thr, yaw, pit, rol, aktif=1)
+                eksen_yaz(a.port, thr, yaw, pit, rol, aktif=akt)
             except Exception as e:
                 if simdi - son_bilgi > 5.0:
                     print("  ⚠ köprüye yazılamadı: %r" % (e,), flush=True)
