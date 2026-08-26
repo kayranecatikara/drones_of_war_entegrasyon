@@ -549,9 +549,11 @@ setInterval(()=>{document.getElementById('z').src='/zoom?'+(son++)},150);
 #     yaw      -1..1  : burun sola / sağa
 #     pitch    -1..1  : alçal / tırman
 #     roll     -1..1  : sola / sağa yatış (koordineli dönüş de üretir)
-#     kip     0/1     : 0 = elle (joystick/klavye), 1 = KARE deseni. Kare
-#                       kipinde oyun tarafı eksenleri YOK SAYAR ve deseni
-#                       kendi sürer; yalnız throttle geçerli kalır.
+#     kip     0/1/2   : 0 = elle (joystick/klavye)
+#                       1 = KARE deseni  (kenar 40 m)
+#                       2 = DAİRE deseni (çap 35 m)
+#                       Desen kiplerinde oyun tarafı eksenleri YOK SAYAR ve
+#                       deseni kendi sürer; yalnız throttle geçerli kalır.
 #     sayaç           : her yazmada artar; oyun tarafı bununla arayüzün
 #                       donup donmadığını anlar (bayatlarsa eksenler sıfırlanır)
 #
@@ -580,7 +582,11 @@ def talon_kopru_yaz(d):
     yaw = _eksen(d.get("yaw", 0.0), -1.0, 1.0)
     pit = _eksen(d.get("pitch", 0.0), -1.0, 1.0)
     rol = _eksen(d.get("roll", 0.0), -1.0, 1.0)
-    kip = 1 if d.get("kip") else 0
+    try:
+        kip = int(d.get("kip", 0) or 0)
+    except Exception:
+        kip = 0
+    kip = kip if kip in (0, 1, 2) else 0
 
     with _talon_kilit:
         _talon_sayac += 1

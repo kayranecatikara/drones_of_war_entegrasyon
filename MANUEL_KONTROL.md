@@ -43,7 +43,7 @@ Tek satır, boşlukla ayrılmış:
 | `pitch` | -1..1 | alçal / tırman |
 | `roll` | -1..1 | sola/sağa yatış — koordineli dönüş de üretir |
 | `sayaç` | tamsayı | her yazmada artar |
-| `kip` | 0/1 | 0 = elle, 1 = **kare deseni** (isteğe bağlı 7. alan) |
+| `kip` | 0/1/2 | 0 = elle, 1 = **kare**, 2 = **daire** (isteğe bağlı 7. alan) |
 
 `sayaç` tazelik içindir: ilerlemezse (arayüz kapandı/dondu) mod kumanda
 eksenlerini sıfırlar ama **throttle'ı korur** — uçak düz uçmaya devam eder,
@@ -212,13 +212,17 @@ Düğmeye tekrar basınca `isDead` geri alınır ve Talon kendi rotasına döner
 
 ---
 
-## 7. Kare deseni
+## 7. Desenler (kare / daire)
 
-**⬛ Kare Deseni** düğmesi: basıldığı **andan itibaren** Talon 40 m düz gider,
-90° sağa döner, tekrar 40 m gider — sen kapatana kadar sürer. Tekrar basınca
-kare kalkar ve Talon kendi rotasına döner.
+İki desen düğmesi var:
 
-Kare kipinde **joystickler devre dışı** (panelde soluklaşır); yalnız **gaz**
+* **⬛ Kare Deseni** — 40 m düz, 90° sağa, tekrar... (kenar 40 m)
+* **◯ Daire Deseni** — sabit yarıçaplı daire (çap 35 m)
+
+Basıldığı **andan itibaren** başlar ve sen kapatana kadar sürer. Tekrar
+basınca desen kalkar; Talon kendi rotasına döner.
+
+Desen kipinde **joystickler devre dışı** (panelde soluklaşır); yalnız **gaz**
 geçerli kalır, böylece desenin hızını ayarlayabilirsin. İrtifa sabit tutulur.
 
 ### Neden geometri oyun tarafında
@@ -229,7 +233,7 @@ modda 30 ms'lik tikle ölçülüyor.
 
 **Ölçüldü:** 65 kenar üst üste tamamlandı, **hepsi 40.1 m** (hedef 40 m).
 
-### Köşe geometrisi
+### Köşe geometrisi (kare)
 
 Uçak anlık 90° dönemez. Düz kenar tam 40 m ölçülür, köşe ise `KARE_DONUS_HIZI`
 ile sürülür — yani köşe bir **yay**. Yay yarıçapı `hız / dönüş_hızı`:
@@ -242,6 +246,32 @@ Keskin köşeli kare isteniyorsa modda `KARE_DONUS_HIZI` çok büyük yapılır
 (ör. 3600). Kenar uzunluğu `KARE_KENAR` (cm), köşe açısı `KARE_DONUS`.
 
 Köşede taşma yok: dönüş 90°'yi geçecekse son adım kırpılır, tam 90°'de durur.
+
+### ◯ Daire — çap 35 m
+
+**Çap sabit tutulur: dönüş hızı hızdan türetilir.**
+
+```
+omega = v / r        (rad/s)        derece/s = omega x 57.2957795
+```
+
+Sabit bir dönüş hızı verseydik gaz artınca çap büyürdü. Bu yolla throttle ne
+olursa olsun çap 35 m kalır; yalnız tur süresi değişir.
+
+**Ölçüldü** (gaz 0.40 = 1780 cm/s):
+
+| | beklenen | ölçülen |
+|---|---|---|
+| dönüş hızı | 58.3°/s | **58.3°/s** |
+| tur süresi | 6.18 s | **6–7 s** (3 tur üst üste) |
+
+Çap `DAIRE_CAP` (cm) ile değişir. Görsel viraj yatışı `DAIRE_YATIS_MAX` ile
+sınırlıdır ve yalnız görseldir — uçuş geometrisini etkilemez.
+
+### İki düğme birbirini dışlar
+
+Kare açıkken daireye basarsan kare kapanır, daire açılır. Açık olana tekrar
+basarsan desen kapanır; panel de kapalıysa Talon kendi rotasına döner.
 
 ---
 
@@ -282,6 +312,11 @@ Köşede taşma yok: dönüş 90°'yi geçecekse son adım kırpılır, tam 90°
 - **Wine, Türkçe tuşları beklenen kodlara çevirmiyor.** Ölçüldü:
   `ş → Key.OEM_EIGHT` (OEM_1 değil), `i → Key.I`, `ı → Key.I` (aynı).
   Tahmin etmeyin, ölçün.
+- **`math.deg` / `math.atan` KULLANMAYIN.** Daire dalı ilk yazıldığında bu
+  ikisini kullanıyordu; UE4SS Lua'sında ilk tikte **sessizce** ölüyor ve
+  `LoopAsync` bir daha dönmüyordu — log'a hata da düşmüyor, mod "yüklendi"
+  diyor ama hiçbir şey yapmıyor. Aynı matematik düz aritmetikle yazılınca
+  (`RAD2DEG = 57.2957795`) sorun bitti. `math.rad/cos/sin/min` sorunsuz.
 - **UE4SS basılı tutmayı bildirmez.** `RegisterKeyBind` tuş başına tek sefer
   tetikler (3 sn basılı tutuldu → 1 tetik). Bu yüzden "bırakınca kilitlen"
   davranışı oyun içi tuşlarla YAPILAMAZ; tarayıcıda `keyup` olduğu için
