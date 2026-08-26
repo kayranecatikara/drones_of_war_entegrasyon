@@ -75,6 +75,10 @@ class Beyin:
         self._bayat_birak_say = 0      # §5.1 mekanizma sütunu (B)
         self._kilit = 0
         self._kayip = 0
+        # ANGAJMAN KAPISI: kilit kümülatif 5 sn dolunca kosu.py bunu True yapar
+        # (panel.angajman_izin). False iken drone TAM HIZLA yaklaşır ama TEMAS
+        # menziline girmez (çarpmaz), tutunur; True olunca son metreyi dalar.
+        self.angajman_izin = False
         self._son_komut = (0.0, 0.0, 0.0, 0.0)
         self.hiz_I = 0.0
         self.tani = {}
@@ -503,9 +507,18 @@ class Beyin:
             #   azimutunun türevi). GV02'de bu terim BAĞLANMAMIŞTI (lead=0)
             #   ve saf takip çapraz giden hedefin gerisinde kalıyordu:
             #   cx 991 -> 1190 -> 1292 (merkez 960), sonra tespit koptu.
+            # ⭐ ANGAJMAN KAPISI — "yaklaşsın ama çarpmasın". Drone TAM HIZLA
+            #   temasa kadar SÜREKLİ yaklaşır (kaplama %6 -> büyür, kilit
+            #   birikir); kilit kümülatif 5 sn dolana kadar (angajman_izin=False)
+            #   yalnız son fiziksel TEMASI bekletir — temas kenarına
+            #   (TEMAS_MENZIL_M) gelince tutunur, izin gelince son adımı ÇARPAR.
+            #   Kapı KAPALIYSA doğrudan tam hücum (çarpar).
+            _tam_hucum = (not self.cfg.ANGAJMAN_KAPI) or self.angajman_izin
+            _tmenzil = None if _tam_hucum else self.cfg.TEMAS_MENZIL_M
+            self.tani["angajman"] = "vurus" if _tam_hucum else "takip"
             (vx, vy), vz_ned, yaw_hedef, self.hiz_I, ti = ibvs.komut(
                 cx, cy, w, h, own_yaw, own_pitch, own_roll, self.hiz_I, dt,
-                own_vz=v_olculen[2])      # Unreal Z yukarı; KENDİ hızımız
+                own_vz=v_olculen[2], takip_menzil=_tmenzil)   # Unreal Z yukarı
             self.tani.update(ti)
             e = (yaw_hedef - own_yaw + 180.0) % 360.0 - 180.0
             _tv = self.cfg.YAW_RATE_MAX

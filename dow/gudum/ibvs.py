@@ -87,6 +87,14 @@ class IbvsCfg:
     HUCUM_MENZIL_M= 1.0     # m; PI'nın sıfır noktası = TEMAS menzili.
                             # "Şu menzilde dur" noktası YOK -> hata hep pozitif
                             # kalır, hız tavanda oturur, sabit kapanma.
+    # ⭐ ANGAJMAN KAPISI — TEMAS kapısı (2026-08-26, 2. düzeltme). Kullanıcı:
+    #   "kilit için min %6 kaplama yeter AMA çarpışma için drone GİTTİKÇE
+    #   YAKLAŞMALI." Yani hız KISILMAZ ve mesafe standoff'u YOK: drone TAM
+    #   HIZLA temasa kadar SÜREKLİ yaklaşır (kaplama %6 -> gitgide büyür,
+    #   kilit birikir). YALNIZ son fiziksel TEMAS, kilit KÜMÜLATİF 5 sn dolana
+    #   kadar bekletilir: temas kenarına (bu menzil) gelince tutunur, 5 sn
+    #   dolunca son adımı atıp ÇARPAR. Değer TEMAS menziline (2 m) yakın —
+    #   standoff değil, temasın hemen eşiği. `ana.py` Ayar.TEMAS_MENZIL_M geçer.
     K_FWD         = 0.35    # (m/s)/px; P kazancı  (Gazebo'dan AYNEN)
     K_I           = 0.04    # (m/s)/(px·s); I kazancı (Gazebo'dan AYNEN)
     I_MAX         = 8.0     # m/s; integral doyumu (windup önleyici)
@@ -334,7 +342,7 @@ class IbvsCfg:
 
 
 def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
-          hiz_I, dt, cfg=IbvsCfg, own_vz=0.0):
+          hiz_I, dt, cfg=IbvsCfg, own_vz=0.0, takip_menzil=None):
     """IBVS kontrol yasası.
 
     GİRDİ (hedefin GPS'i YOK — yapısal garanti):
@@ -375,15 +383,30 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     cy_ref = cfg.CY_REF_UZAK + kg * (cfg.CY_REF_YAKIN - cfg.CY_REF_UZAK)
 
     # --- 5) HIZ: kutu boyutu hatası üzerinden PI ---
-    # Denge kutusu = TEMAS kutusu -> hata hep pozitif, hız tavanda oturur.
+    # Denge kutusu = TEMAS kutusu -> hata hep pozitif, hız TAVANDA oturur
+    # (TAM HIZLA yaklaşır — takipte de hız KISILMAZ).
     hedef_boyut = KAM.MENZIL_C / cfg.HUCUM_MENZIL_M
     hata_px = hedef_boyut - boyut
     hiz_I = _kirp(hiz_I + cfg.K_I * hata_px * dt, -cfg.I_MAX, cfg.I_MAX)
     v_istek = cfg.K_FWD * hata_px + hiz_I
     v = _kirp(v_istek, cfg.V_MIN, cfg.V_HUCUM)
 
+    # ⭐ ANGAJMAN KAPISI — TEMAS geciktirme (MENZİL kapısı, hız DEĞİL).
+    #   `takip_menzil` verildiyse (kilit henüz 5 sn dolmadı): drone TAM HIZLA
+    #   yaklaşır ama bu menzilin ALTINA İNMEZ -> orada TUTUNUR, çarpmaz, kilit
+    #   birikir. Menzile ulaşınca ileri hızı SIFIRLA (temasa girme); merkezleme
+    #   (yaw + dikey) sürer. İzin gelince çağıran takip_menzil=None geçer ->
+    #   kapı yok -> TEMAS menziline dalar, ÇARPAR.
+    takip_kilidi = (takip_menzil is not None and R is not None
+                    and R <= takip_menzil)
+    if takip_kilidi:
+        v = 0.0
+        hiz_I = 0.0                        # windup temasa itmesin
+
     tani["ibvs_hata_px"] = hata_px
     tani["ibvs_v"] = v
+    tani["ibvs_takip_kilidi"] = int(takip_kilidi)
+    tani["ibvs_takip_menzil"] = takip_menzil if takip_menzil is not None else -1
 
     # --- 6) YATAY: hız LOS (nişan) yönünde ---
     yon = math.radians(yaw_hedef)

@@ -51,7 +51,14 @@ KILIT_PCT   = 0.06      # kutunun uzun ekseni / kadrajın o ekseni
 KILIT_AV_X  = 0.25      # yatay %25-%75 bandı
 KILIT_AV_Y  = 0.10      # dikey %10-%90 bandı
 KILIT_WIN_S = 10.0      # değerlendirme penceresi
-KILIT_GEREK = 5.0       # pencerede gereken kümülatif kilit
+KILIT_GEREK = 5.0       # pencerede gereken KÜMÜLATİF kilit (şartname 6.1.4)
+# ⭐ ANGAJMAN KAPISI (kullanıcı, 2026-08-26): TEK ŞART = 10 sn pencerede
+#   KÜMÜLATİF 5 sn kilit. Dolunca DOĞRUDAN çarpışmaya (angajman) geçilir.
+#   ("5 saniye kümülatif karşılaşırsa çarpışmaya geçelim.")
+#   ⚠ 3 sn KESİNTİSİZ şartı KALDIRILDI — kapıda değil. `_kilit_kesintisiz_max`
+#     yalnız BİLGİ amaçlı hesaplanır (şartname 6.1.3 "son 3 sn aktif takip"
+#     doğrulaması için ileride kullanılabilir), angajmanı ETKİLEMEZ.
+KILIT_KESINTISIZ_GEREK = 3.0    # yalnız telemetri/bilgi; kapıda DEĞİL
 _kilit_pencere = deque(maxlen=1200)     # (t, kilitli_mi)
 
 # ⭐ PANELDEN GÖREV BAŞLATMA (2026-08-25, kullanıcı isteği: "arayüzden göreve
@@ -225,6 +232,41 @@ def _kilit_suresi():
     return top
 
 
+def _kilit_kesintisiz_max():
+    """Son KILIT_WIN_S saniyede EN UZUN KESİNTİSİZ (aralıksız) kilit süresi (s).
+    Kilitsiz bir örnek YA DA >0.5 sn donma (kare atlaması) streak'i SIFIRLAR.
+    Kümülatifle AYNI pencereyi ve aynı 0.5 sn kırpmasını kullanır."""
+    if not _kilit_pencere:
+        return 0.0
+    simdi = _kilit_pencere[-1][0]
+    en_uzun = 0.0
+    streak = 0.0
+    onceki = None
+    for t, k in _kilit_pencere:
+        if simdi - t > KILIT_WIN_S:
+            onceki = t
+            continue
+        if k and onceki is not None and (t - onceki) <= 0.5:
+            streak += (t - onceki)           # kesintisiz sürüyor
+            en_uzun = max(en_uzun, streak)
+        else:
+            streak = 0.0                     # kilitsiz ya da donma -> KESİNTİ
+        onceki = t
+    return en_uzun
+
+
+def angajman_izin():
+    """Angajman (çarpışma) kapısı. Döner: (izin, kumulatif_s, kesintisiz_s).
+
+    izin = KÜMÜLATİF >= 5 sn (şartname 6.1.4). Dolunca DOĞRUDAN çarpışmaya.
+    ⚠ kesintisiz_s yalnız BİLGİ amaçlı döner — kapıya GİRMEZ (kullanıcı kuralı
+      2026-08-26: '5 saniye kümülatif karşılaşırsa çarpışmaya geçelim')."""
+    kum = _kilit_suresi()
+    kes = _kilit_kesintisiz_max()
+    izin = (kum >= KILIT_GEREK)
+    return izin, kum, kes
+
+
 def kilit_degerlendir(tespit, W=1920.0, H=1080.0):
     """Bu karede yarışma kilidi var mı — HESAP, çizim YOK.
     Dönüş: (kilitli_mi, av_icinde_mi, kaplama_yuzde)."""
@@ -334,7 +376,10 @@ def kare_koy(img_rgb, tespit=None, telem=None, kalite=62, olcek=0.5):
             _K["telem"]["kilit_simdi"] = int(_kl)
             _K["telem"]["kilit_av"] = int(_av)
             _K["telem"]["kilit_kaplama"] = round(_kap, 2)
-            _K["telem"]["kilit_pencere_s"] = round(_kilit_suresi(), 2)
+            _izin, _kum, _kes = angajman_izin()
+            _K["telem"]["kilit_pencere_s"] = round(_kum, 2)       # kümülatif
+            _K["telem"]["kilit_kesintisiz_s"] = round(_kes, 2)    # en uzun aralıksız
+            _K["telem"]["angajman_izin"] = int(_izin)             # 5 küm. VE 3 kes.
             _t = _K["telem"] or {}
             _et = f"{conf:.2f}"
             if _t.get("takip_id", -1) not in (-1, None):
@@ -348,7 +393,10 @@ def kare_koy(img_rgb, tespit=None, telem=None, kalite=62, olcek=0.5):
         if tespit is None:
             kilit_degerlendir(None)              # kilitsiz kare de pencereye girer
             _K["telem"]["kilit_simdi"] = 0
-            _K["telem"]["kilit_pencere_s"] = round(_kilit_suresi(), 2)
+            _izin, _kum, _kes = angajman_izin()
+            _K["telem"]["kilit_pencere_s"] = round(_kum, 2)       # kümülatif
+            _K["telem"]["kilit_kesintisiz_s"] = round(_kes, 2)    # en uzun aralıksız
+            _K["telem"]["angajman_izin"] = int(_izin)             # 5 küm. VE 3 kes.
 
         # kadraj merkezi
         cv2.line(im, (ww // 2 - 14, hh // 2), (ww // 2 + 14, hh // 2), (255, 170, 0), 1)

@@ -172,6 +172,15 @@ class Ayar:
     DEVIR_KARE      = int(_f("DOW_DEVIR_KARE", 10))   # ardışık TESPİT -> görsel
     KAYIP_KARE      = int(_f("DOW_KAYIP_KARE", 20))   # ardışık TESPİTSİZ -> GPS
 
+    # ================= ANGAJMAN KAPISI (kullanıcı 2026-08-26) =================
+    # "Yaklaşsın ama çarpmasın": görsel takipte drone TAM HIZLA, kaplama %6'dan
+    # temasa kadar SÜREKLİ yaklaşır (hız KISILMAZ, standoff YOK); kilit KÜMÜLATİF
+    # 5 sn dolana kadar yalnız son fiziksel TEMASI bekletir (temas kenarında
+    # TEMAS_MENZIL_M tutunur), izin gelince son adımı ÇARPAR. Kilit süresi 10 sn
+    # pencereden panel.angajman_izin() ile hesaplanır; kosu.py her tikte
+    # beyin.angajman_izin'e yazar. KAPALIYKEN: görsel temas -> doğrudan çarpma.
+    ANGAJMAN_KAPI   = _b("DOW_ANGAJMAN_KAPI", True)
+
     # ================= ⛔ GELİŞTİRME DEVİR KAPISI — YARIŞMADA KULLANILAMAZ ==
     # Kullanıcı kararı (2026-08-22), gerekçesiyle:
     #   Dedektör MENZİLE şiddetle bağlı (GK2, n=2097 istasyon karesi):

@@ -231,6 +231,13 @@ def _yeni_gorev(beyin=None):
         with mss.mss() as sct:
             img = np.array(sct.grab(BOLGE))[:, :, :3]
         if ucusta_mi(img):
+            # ⛔ E-RESPAWN drone'u DESPAWN edip SDK bağlantısını KAPATIR
+            #   (canli()->False). Oyun-sonu yolu yeniden bağlanıyordu ama bu
+            #   normal yol bağlanmıyordu -> taze spawn + bağlıyken çağrılınca
+            #   ilk tikte "baglanti_yok" düşüyordu. Simetrik: burada da bağlan.
+            if beyin is not None:
+                try: beyin.b.yeniden_bagla()
+                except Exception: pass
             return True
         oyunu_one_al(); time.sleep(1.0)
     # 'E' yetmedi -> görevi baştan kur
@@ -576,6 +583,12 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                 tespit = _gorus["tespit"]
                 tespit_yas = t - _gorus["tespit_t"] if _gorus["tespit"] else -1.0
 
+        # ⭐ ANGAJMAN KAPISI: kilit KÜMÜLATİF süresini (10 sn pencere) panelden
+        #   oku, beyine ver. Görsel takipte drone TAM HIZLA yaklaşır ama 5 sn
+        #   dolana kadar TEMAS menziline girmez (çarpmaz); dolunca dalar.
+        #   Kilit görüş ipliğinde birikir.
+        if Ayar.ANGAJMAN_KAPI:
+            beyin.angajman_izin = PANEL.angajman_izin()[0]
         sonuc = beyin.adim(t, dt)
         if sonuc is None:
             ihlal = "baglanti_yok"; break
