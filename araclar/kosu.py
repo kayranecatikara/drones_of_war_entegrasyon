@@ -698,6 +698,16 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                 tel["mesafe_m"] = round(math.dist(dp, hp), 2)
             if np.isfinite(_R):
                 tel["gercek_mesafe_m"] = round(float(_R), 2)
+            # ⭐ 3B KONUM GRAFİĞİ İÇİN HEDEF KONUMU (2026-08-26, kullanıcı isteği)
+            #   ⛔ §10: `h_*` YALNIZ hp varken yazılır ve GORSEL fazda hp YOKTUR
+            #     (o fazda hedefin GPS'i okunmaz) -> grafik orada DONARDI.
+            #     Bu yüzden truth kanalı kullanılıyor: her fazda dolu.
+            #   ⛔ Statüsü `gercek_mesafe_m` ile AYNI: YALNIZ EKRANA gider.
+            #     Görsel güdüm (`Beyin._gorsel_tik_kilitli`) bu alanların
+            #     hiçbirini görmez — girdisi yalnız görüntüdür (B1/B18/B19).
+            if _tr:
+                tel["t_x"], tel["t_y"], tel["t_z"] = [round(float(v), 2)
+                                                      for v in _hp]
             if tespit:
                 tel["vis_cx"], tel["vis_cy"] = round(tespit[0], 1), round(tespit[1], 1)
                 tel["vis_w"], tel["vis_h"] = round(tespit[2], 1), round(tespit[3], 1)

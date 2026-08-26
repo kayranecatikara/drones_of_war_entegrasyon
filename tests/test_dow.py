@@ -1428,3 +1428,47 @@ def test_B57_kacak_kosu_ERKEN_KESILIR():
     assert b2.ihlal is None, \
         f"uzak dogusta MESRU yaklasma iptal edildi: {b2.ihlal} " \
         "(kodda yazili '12 kosuluk blok cope gitti' tuzagi geri gelmis)"
+
+
+def test_B58_api_telemetry_COKMEDEN_CALISIR():
+    """⛔ /api/telemetry COKERSE PANELIN TAMAMI OLUR.
+
+    YASANDI (2026-08-26): 3B grafik icin hedef konumu eklerken yerel
+    degiskene `_hz` adi verdim. Modul duzeyinde `_hz()` diye bir FONKSIYON
+    var; Python, fonksiyon icinde bir ada ATAMA gorunce o adi TUM fonksiyon
+    boyunca YEREL sayar -> ayni fonksiyondaki onceki `_hz(_fps[...])`
+    cagrilari UnboundLocalError atti ve ucun tamami coktu.
+    Hicbir bekci bunu yakalamadi cunku /api/telemetry sinanmiyordu.
+
+    Bu bekci ucu GERCEKTEN cagirir ve sozlesmesini sinar.
+    """
+    import json
+    from dow import panel as P
+
+    # GORSEL fazi: `h_*` YOK (§10 -- o fazda hedefin GPS'i okunmaz).
+    # Hedef konumu truth kanalindan (`t_*`) gelmeli, yoksa 3B grafik DONAR.
+    P.telem_yaz({"durum": "GORSEL", "yukseklik": 90.0, "drone_hiz": 25.0,
+                 "d_x": 10.0, "d_y": -20.0, "d_z": 85.0,
+                 "d_roll": 1.0, "d_pitch": -2.0, "d_yaw": 70.0,
+                 "t_x": 40.0, "t_y": -10.0, "t_z": 92.0,
+                 "gercek_mesafe_m": 33.0})
+    d = P._api_telemetry()
+    json.dumps(d)                      # JSON'a cevrilebilmeli
+
+    # ⚠ `perf` KOSULLU bir alandir (FPS sayaclari beslenmediyse yok);
+    #   zorunlu tutmak testi yanlis yerden dusurur.
+    for a in ("connected", "drone", "target"):
+        assert a in d, f"/api/telemetry alani eksik: {a}"
+
+    for eksen in ("x", "y", "z"):
+        assert isinstance(d["drone"].get(eksen), (int, float)), \
+            f"drone.{eksen} sayi degil -- 3B grafik cizemez"
+        assert isinstance(d["target"].get(eksen), (int, float)), \
+            f"target.{eksen} GORSEL fazda BOS -- 3B grafikte hedef DONAR " \
+            "(truth kanali `t_*` baglanmamis)"
+
+    # `h_*` varsa O tercih edilmeli (truth yalnizca yedek)
+    P.telem_yaz({"h_x": 1.0, "h_y": 2.0, "h_z": 3.0})
+    d2 = P._api_telemetry()
+    assert (d2["target"]["x"], d2["target"]["y"], d2["target"]["z"]) == (1.0, 2.0, 3.0), \
+        "h_* varken truth kanali tercih edilmis -- oncelik ters"

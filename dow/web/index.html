@@ -128,6 +128,28 @@
     transition:.15s;display:flex;align-items:center;gap:9px;
   }
   .btn:hover{border-color:#3d4a5c;background:#1b2230}
+  /* ---- 3B konum grafiği ---- */
+  .baslik.g3b{display:flex;align-items:center;justify-content:space-between}
+  .g3btn{background:#161c27;border:1px solid #2a3342;color:#8fa3bd;
+    border-radius:5px;cursor:pointer;font-size:13px;line-height:1;
+    padding:3px 7px}
+  .g3btn:hover{border-color:#3d4a5c;color:#dce6f2}
+  .g3sar{position:relative;border:1px solid #2a3342;border-radius:7px;
+    background:#0b0f16;overflow:hidden}
+  .g3sar canvas{display:block;width:100%;height:190px;cursor:grab}
+  .g3sar canvas:active{cursor:grabbing}
+  .g3bilgi{position:absolute;top:6px;left:8px;right:8px;display:flex;
+    gap:10px;align-items:center;font-size:11px;color:#8fa3bd;
+    pointer-events:none}
+  .g3bilgi i{display:inline-block;width:8px;height:8px;border-radius:50%;
+    margin-right:4px;vertical-align:middle}
+  .g3bilgi b{margin-left:auto;color:#dce6f2;font-variant-numeric:tabular-nums}
+  .g3ipucu{position:absolute;bottom:5px;left:8px;font-size:10px;
+    color:#4a5768;pointer-events:none}
+  /* büyütülmüş hâl: ekranı kaplar */
+  .g3sar.buyuk{position:fixed;inset:3vh 3vw;z-index:60;height:auto;
+    box-shadow:0 20px 60px rgba(0,0,0,.6)}
+  .g3sar.buyuk canvas{height:94vh}
   .btn.basla{background:#0d4f3c;border-color:#17a97c;color:#eafff7;
              font-size:15px;padding:16px 14px;margin-bottom:16px}
   .btn.basla:hover{background:#12674e}
@@ -253,6 +275,24 @@
       <div><b id="f1">—</b><span>YAKALAMA</span></div>
       <div><b id="f2">—</b><span>DEDEKTÖR</span></div>
     </div>
+
+    <!-- ⭐ 3B KONUM GRAFİĞİ (2026-08-26, kullanıcı isteği)
+         Dış kütüphane YOK: izdüşüm elle hesaplanıyor. Sebep — sayfa yerel
+         sunucudan geliyor ve kampanya makinesinde internet garantisi yok;
+         CDN'e bağımlı bir grafik ilk kesintide boş kutu olurdu. -->
+    <div class="baslik g3b">
+      <span>3B Konum</span>
+      <button id="g3Buyut" class="g3btn" title="Büyüt / küçült">⤢</button>
+    </div>
+    <div id="g3sar" class="g3sar">
+      <canvas id="g3" class="g3"></canvas>
+      <div class="g3bilgi">
+        <span><i style="background:#31d0aa"></i>avcı</span>
+        <span><i style="background:#ff7043"></i>hedef</span>
+        <b id="g3mes">—</b>
+      </div>
+      <div class="g3ipucu">sürükle: döndür · tekerlek: yakınlaştır · çift tık: sıfırla</div>
+    </div>
   </div>
 </main>
 
@@ -283,6 +323,184 @@ function kipGoster(k){
     if(b) b.className = (ad===k) ? ("on "+snf) : "";
   }
 }
+
+// ============================================================
+// 3B KONUM GRAFİĞİ — avcı + hedef, izli
+// ============================================================
+// ⛔ DIŞ KÜTÜPHANE YOK. Sayfa yerel sunucudan geliyor ve kampanya
+//    makinesinde internet garantisi yok; CDN'e bağlı bir grafik ilk
+//    kesintide boş kutu olurdu. İzdüşüm elle hesaplanıyor (~80 satır).
+//
+// EKSEN: oyun dünyası metre. z = YUKARI. Grafik z'yi dikey eksen yapar.
+// ⛔ §10: buradaki hedef konumu YALNIZ EKRANA gider — görsel güdüm
+//    (`Beyin._gorsel_tik_kilitli`) bu veriyi görmez, girdisi yalnız
+//    görüntüdür. `gercek_mesafe_m` ile aynı statü.
+const G3 = {
+  az: -0.9, el: 0.55, olcek: 1,          // kamera açıları + yakınlaştırma
+  iz: {avci: [], hedef: []}, IZ_MAKS: 400,
+  merkez: null, yari: 60,                 // otomatik çerçeveleme
+  surukle: null,
+};
+
+function g3Boyut(){
+  const c = $("g3"); if(!c) return null;
+  const r = c.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  if(c.width !== Math.round(r.width*dpr) || c.height !== Math.round(r.height*dpr)){
+    c.width = Math.round(r.width*dpr); c.height = Math.round(r.height*dpr);
+  }
+  return {c, w:r.width, h:r.height, dpr};
+}
+
+// dünya (x,y,z) -> ekran (px,py). Basit yörünge kamerası + zayıf perspektif.
+function g3Yans(p, S){
+  const m = G3.merkez || {x:0,y:0,z:0};
+  let dx = p.x - m.x, dy = p.y - m.y, dz = p.z - m.z;
+  const ca = Math.cos(G3.az), sa = Math.sin(G3.az);
+  let X = dx*ca - dy*sa, Y = dx*sa + dy*ca;
+  const ce = Math.cos(G3.el), se = Math.sin(G3.el);
+  const Y2 = Y*ce - dz*se, Z2 = Y*se + dz*ce;
+  const k = (Math.min(S.w, S.h) * 0.42 / Math.max(1, G3.yari)) * G3.olcek;
+  return {x: S.w/2 + X*k, y: S.h/2 - Z2*k, derinlik: Y2};
+}
+
+function g3Ciz(){
+  const S = g3Boyut(); if(!S) return;
+  const g = S.c.getContext("2d");
+  g.setTransform(S.dpr,0,0,S.dpr,0,0);
+  g.clearRect(0,0,S.w,S.h);
+  g.fillStyle = "#0b0f16"; g.fillRect(0,0,S.w,S.h);
+  if(!G3.merkez){
+    g.fillStyle="#4a5768"; g.font="12px system-ui"; g.textAlign="center";
+    g.fillText("konum bekleniyor…", S.w/2, S.h/2); return;
+  }
+
+  // --- zemin ızgarası (hedefin irtifasında değil, MERKEZİN altında) ---
+  const adim = Math.max(10, Math.round(G3.yari/3/10)*10);
+  const n = 4, taban = G3.merkez.z - G3.yari*0.8;
+  g.strokeStyle = "#1a2230"; g.lineWidth = 1;
+  for(let i=-n;i<=n;i++){
+    for(const eksen of [0,1]){
+      const a = {x:G3.merkez.x + (eksen? i*adim : -n*adim),
+                 y:G3.merkez.y + (eksen? -n*adim : i*adim), z:taban};
+      const b = {x:G3.merkez.x + (eksen? i*adim :  n*adim),
+                 y:G3.merkez.y + (eksen?  n*adim : i*adim), z:taban};
+      const pa = g3Yans(a,S), pb = g3Yans(b,S);
+      g.beginPath(); g.moveTo(pa.x,pa.y); g.lineTo(pb.x,pb.y); g.stroke();
+    }
+  }
+  // ölçek etiketi
+  g.fillStyle="#3d4a5c"; g.font="10px system-ui"; g.textAlign="left";
+  g.fillText(adim+" m ızgara", 8, S.h-8);
+
+  // --- izler ---
+  const izCiz = (dizi, renk) => {
+    if(dizi.length < 2) return;
+    g.lineWidth = 1.5;
+    for(let i=1;i<dizi.length;i++){
+      const a = g3Yans(dizi[i-1],S), b = g3Yans(dizi[i],S);
+      g.strokeStyle = renk + Math.max(0.06, i/dizi.length*0.85).toFixed(2) + ")";
+      g.beginPath(); g.moveTo(a.x,a.y); g.lineTo(b.x,b.y); g.stroke();
+    }
+  };
+  izCiz(G3.iz.hedef, "rgba(255,112,67,");
+  izCiz(G3.iz.avci,  "rgba(49,208,170,");
+
+  // --- noktalar (derinliğe göre sırala: uzak önce) ---
+  const son = (d) => d.length ? d[d.length-1] : null;
+  const nok = [];
+  const a = son(G3.iz.avci), h = son(G3.iz.hedef);
+  if(h) nok.push({p:g3Yans(h,S), r:"#ff7043", ad:"hedef", w:h});
+  if(a) nok.push({p:g3Yans(a,S), r:"#31d0aa", ad:"avcı",  w:a});
+  nok.sort((u,v)=>v.p.derinlik-u.p.derinlik);
+
+  // ikisi arasındaki bağ
+  if(a && h){
+    const pa=g3Yans(a,S), ph=g3Yans(h,S);
+    g.strokeStyle="rgba(140,160,190,.35)"; g.setLineDash([4,4]); g.lineWidth=1;
+    g.beginPath(); g.moveTo(pa.x,pa.y); g.lineTo(ph.x,ph.y); g.stroke();
+    g.setLineDash([]);
+  }
+  for(const o of nok){
+    // zemine dik iz (irtifa hissi)
+    const ayak = g3Yans({x:o.w.x,y:o.w.y,z:taban},S);
+    g.strokeStyle="rgba(120,140,170,.22)"; g.lineWidth=1;
+    g.beginPath(); g.moveTo(o.p.x,o.p.y); g.lineTo(ayak.x,ayak.y); g.stroke();
+    g.fillStyle="rgba(120,140,170,.30)";
+    g.beginPath(); g.ellipse(ayak.x,ayak.y,3,1.5,0,0,6.284); g.fill();
+    // nokta
+    g.fillStyle=o.r; g.beginPath(); g.arc(o.p.x,o.p.y,5,0,6.284); g.fill();
+    g.strokeStyle="rgba(0,0,0,.5)"; g.lineWidth=1.5; g.stroke();
+  }
+}
+
+function g3Ekle(avci, hedef){
+  const ekle = (dizi, p) => {
+    if(!p) return;
+    const s = dizi[dizi.length-1];
+    if(s && Math.abs(s.x-p.x)<0.05 && Math.abs(s.y-p.y)<0.05
+         && Math.abs(s.z-p.z)<0.05) return;      // aynı nokta -> ekleme
+    dizi.push(p);
+    if(dizi.length > G3.IZ_MAKS) dizi.shift();
+  };
+  ekle(G3.iz.avci, avci); ekle(G3.iz.hedef, hedef);
+
+  // otomatik çerçeveleme: iki aracı da kapsa, ani zıplamasın
+  const hepsi = G3.iz.avci.concat(G3.iz.hedef);
+  if(!hepsi.length) return;
+  let mnx=1e9,mxx=-1e9,mny=1e9,mxy=-1e9,mnz=1e9,mxz=-1e9;
+  for(const p of hepsi){
+    mnx=Math.min(mnx,p.x); mxx=Math.max(mxx,p.x);
+    mny=Math.min(mny,p.y); mxy=Math.max(mxy,p.y);
+    mnz=Math.min(mnz,p.z); mxz=Math.max(mxz,p.z);
+  }
+  const hedefMerkez = {x:(mnx+mxx)/2, y:(mny+mxy)/2, z:(mnz+mxz)/2};
+  const hedefYari = Math.max(25, mxx-mnx, mxy-mny, mxz-mnz) * 0.75;
+  if(!G3.merkez){ G3.merkez = hedefMerkez; G3.yari = hedefYari; }
+  else{
+    const k = 0.08;                                  // yumuşat
+    G3.merkez.x += (hedefMerkez.x-G3.merkez.x)*k;
+    G3.merkez.y += (hedefMerkez.y-G3.merkez.y)*k;
+    G3.merkez.z += (hedefMerkez.z-G3.merkez.z)*k;
+    G3.yari     += (hedefYari-G3.yari)*k;
+  }
+}
+
+(function g3Kur(){
+  const c = $("g3"); if(!c) return;
+  c.addEventListener("mousedown", e => {
+    G3.surukle = {x:e.clientX, y:e.clientY, az:G3.az, el:G3.el};
+  });
+  window.addEventListener("mousemove", e => {
+    if(!G3.surukle) return;
+    G3.az = G3.surukle.az + (e.clientX-G3.surukle.x)*0.008;
+    G3.el = Math.max(-1.45, Math.min(1.45,
+              G3.surukle.el + (e.clientY-G3.surukle.y)*0.008));
+    g3Ciz();
+  });
+  window.addEventListener("mouseup", () => { G3.surukle = null; });
+  c.addEventListener("wheel", e => {
+    e.preventDefault();
+    G3.olcek = Math.max(0.25, Math.min(6, G3.olcek * (e.deltaY<0?1.12:0.89)));
+    g3Ciz();
+  }, {passive:false});
+  c.addEventListener("dblclick", () => {
+    G3.az=-0.9; G3.el=0.55; G3.olcek=1; g3Ciz();
+  });
+  const b = $("g3Buyut");
+  if(b) b.onclick = () => {
+    $("g3sar").classList.toggle("buyuk");
+    setTimeout(g3Ciz, 60);
+  };
+  window.addEventListener("resize", () => g3Ciz());
+  window.addEventListener("keydown", e => {
+    if(e.key === "Escape") {
+      const w = $("g3sar");
+      if(w && w.classList.contains("buyuk")){ w.classList.remove("buyuk"); setTimeout(g3Ciz,60); }
+    }
+  });
+  g3Ciz();
+})();
 
 // ---- görev başlat ----
 async function gorevBaslat(){
@@ -323,6 +541,27 @@ async function tik(){
     $("bagNokta").className = "nokta" + (bagli ? " on" : "");
     $("bagYazi").textContent = bagli ? "uçuş sürüyor" : "beklemede";
     if(bagli) $("baslaBtn").disabled = true;
+
+    // ---- 3B konum grafiği ----
+    //   hedef konumu GORSEL fazda `h_*`ten gelmez (§10: GPS okunmaz);
+    //   panel truth kanalına düşüyor, bu yüzden grafik donmuyor.
+    const d3 = t.drone || {}, h3 = t.target || {};
+    const say = v => (typeof v === "number" && isFinite(v)) ? v : null;
+    const pa = (say(d3.x)!==null && say(d3.y)!==null && say(d3.z)!==null)
+             ? {x:d3.x, y:d3.y, z:d3.z} : null;
+    const ph = (say(h3.x)!==null && say(h3.y)!==null && say(h3.z)!==null)
+             ? {x:h3.x, y:h3.y, z:h3.z} : null;
+    if(pa || ph){
+      g3Ekle(pa, ph);
+      g3Ciz();
+      const m = $("g3mes");
+      if(m){
+        if(pa && ph){
+          const dd = Math.hypot(pa.x-ph.x, pa.y-ph.y, pa.z-ph.z);
+          m.textContent = dd.toFixed(1) + " m";
+        } else m.textContent = "—";
+      }
+    }
 
     let h = "";
     for(const [ad, fn] of ALANLAR){

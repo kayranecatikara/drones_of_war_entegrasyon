@@ -165,9 +165,20 @@ def _api_telemetry():
              "coast": g("takip_coast", -1), "iz_sayisi": g("takip_n", 0),
              "kaynak": g("takip_kaynak", "")}
 
-    hedef = ({"x": t["h_x"], "y": t["h_y"], "z": t.get("h_z"),
+    # ⭐ HEDEF KONUMU — 3B grafik için truth kanalına DÜŞ (2026-08-26).
+    #   `h_*` yalnız GPS okunabildiğinde dolar; GORSEL fazda hp YOKTUR (§10)
+    #   ve grafik orada DONARDI. `t_*` truth kanalıdır, her fazda dolu.
+    #   ⛔ İkisi de YALNIZ EKRANA gider; görsel güdüm hiçbirini görmez.
+    #   ⚠ Değişken adı `_hz` OLAMAZ: modül düzeyindeki `_hz()` fonksiyonunu
+    #     gölgeler ve Python fonksiyonun TAMAMINDA onu yerel sayar ->
+    #     yukarıdaki `_hz(_fps[...])` çağrıları UnboundLocalError atar ve
+    #     /api/telemetry komple çöker. (2026-08-26'da tam bu yaşandı.)
+    _hedx = t.get("h_x") if t.get("h_x") is not None else t.get("t_x")
+    _hedy = t.get("h_y") if t.get("h_y") is not None else t.get("t_y")
+    _hedz = t.get("h_z") if t.get("h_z") is not None else t.get("t_z")
+    hedef = ({"x": _hedx, "y": _hedy, "z": _hedz,
               "speed_ms": None, "speed_kmh": None}
-             if t.get("h_x") is not None else {})
+             if _hedx is not None else {})
     return {
         "connected": True,
         "drone": {"x": g("d_x", 0.0), "y": g("d_y", 0.0), "z": g("d_z", 0.0),
