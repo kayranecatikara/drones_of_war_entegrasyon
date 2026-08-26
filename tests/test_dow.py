@@ -1506,3 +1506,48 @@ def test_B58_api_telemetry_COKMEDEN_CALISIR():
 # ⛔ B59 (lead bit-bit denkligi) SILINDI: ozellik 2026-08-26 aksami
 #    tamamen cikarildi (Ö-E notr, Ö-F her olcutte kotulesti).
 #    Gerekce ve sayilar B20'de. §5.12
+
+
+def test_B60_yavasla_KAPALIYKEN_BIT_BIT_AYNI():
+    """⭐ Ö-G · DONUSTE YAVASLA — 2026-08-26.
+
+    YAPISAL EKSIK (koddan cikarildi): hedef_boyut = 997/1.0 = 997 px, gercek
+    kutu 40-150 px -> v_istek ~315 m/s -> V_HUCUM'a kirpiliyor. Hiz ancak
+    kutu 917 px (=1.1 m menzil) olunca duser. Yani GORSEL FAZ BOYUNCA HIZ
+    DAIMA TAVANDA; gudum hizi donus kabiliyetiyle HIC takas etmiyor.
+
+    §5.11: R = V^2/(g*tan(theta)). Olculdu (KD1 daire, GORSEL): 21.8 m/s,
+    yatis p90 31.7 derece -> yaricap ~78 m. Hedefin dairesi 17.5 m.
+
+    SOZLESME: YAVASLA_TABAN=1.0 iken kesme=1.0 ve cikti BIT BIT bugunkuyle
+    ayni; acikken eps_yaw ile ORANTILI kisiyor ve tabanin altina INMIYOR.
+    """
+    from dow.gudum import ibvs
+    C = ibvs.IbvsCfg
+    eski = C.YAVASLA_TABAN
+    try:
+        # --- 1) KAPALIYKEN kesme YOK ---
+        C.YAVASLA_TABAN = 1.0
+        for cx in (200, 960, 1700):          # kucuk/buyuk nisan hatasi
+            _, _, _, _, ti = ibvs.komut(cx, 540, 60, 48, 0.0, -2.0, 3.0,
+                                        0.0, 0.02)
+            assert ti["ibvs_kesme"] == 1.0, \
+                f"kapaliyken kesme uygulandi: {ti['ibvs_kesme']}"
+
+        # --- 2) ACIKKEN: duz bacakta TAM HIZ, buyuk hatada KISIK ---
+        C.YAVASLA_TABAN = 0.55
+        _, _, _, _, t0 = ibvs.komut(960, 540, 60, 48, 0.0, -2.0, 3.0,
+                                    0.0, 0.02)   # nisan hatasi ~0
+        _, _, _, _, t1 = ibvs.komut(200, 540, 60, 48, 0.0, -2.0, 3.0,
+                                    0.0, 0.02)   # nisan hatasi BUYUK
+        assert t0["ibvs_kesme"] > t1["ibvs_kesme"], \
+            "nisan hatasi buyudugunde hiz KISILMIYOR"
+        assert t1["ibvs_kesme"] >= C.YAVASLA_TABAN - 1e-9, \
+            f"kesme tabanin ALTINA indi: {t1['ibvs_kesme']} < {C.YAVASLA_TABAN}"
+        assert t0["ibvs_kesme"] <= 1.0 + 1e-9
+
+        # --- 3) HIZ GERCEKTEN DUSMELI (yalniz sayac degil) ---
+        v0 = t0["ibvs_v"]; v1 = t1["ibvs_v"]
+        assert v1 < v0, f"kesme sayaci degisti ama hiz dusmedi: {v0} -> {v1}"
+    finally:
+        C.YAVASLA_TABAN = eski

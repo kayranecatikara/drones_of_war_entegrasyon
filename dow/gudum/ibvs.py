@@ -308,6 +308,36 @@ class IbvsCfg:
     #     Ö-F tersini gösterdi (0.58 -> 1.23). O düşüş koşu değişkenliğiymiş.
     #   Bekçi B20 `LEAD_*` adlarını yeniden YASAKLI listeye aldı.
 
+    # ⭐ Ö-G · DÖNÜŞTE YAVAŞLA — 2026-08-26
+    #
+    # YAPISAL EKSİK (koddan çıkarıldı, 2026-08-26):
+    #   hedef_boyut = MENZIL_C/HUCUM_MENZIL = 997/1.0 = 997 px
+    #   hata = 997 - kutu (tipik 40-150 px) -> v_istek = 0.35*900 ~ 315 m/s
+    #   -> V_HUCUM'a (28) kırpılıyor. Hız ancak kutu 917 px olunca düşer,
+    #      bu da 1.1 m menzil demek. YANİ GÖRSEL FAZ BOYUNCA HIZ DAİMA
+    #      TAVANDA. Güdüm hızı dönüş kabiliyetiyle HİÇ takas etmiyor.
+    #
+    # NEDEN ÖNEMLİ (§5.11 — "salınım sandığın şey fizik olabilir"):
+    #   R = V^2/(g·tan θ). Ölçüldü (KD1 daire, GORSEL fazı): hız 21.8 m/s,
+    #   yatış p90 31.7° -> dönüş yarıçapı ~78 m. Hedefin dairesi 17.5 m.
+    #   Hızı 0.55 katına indirmek yarıçapı 0.30 katına indirir (~24 m).
+    #
+    # YASA: nişan hatası büyükken hızı kıs, düz bacakta tam hız.
+    #   kesme = 1 - (1 - YAVASLA_TABAN) * min(1, |eps_yaw| / YAVASLA_ACI)
+    #   v = v * kesme
+    #   eps_yaw=0   -> kesme=1.00 (düz bacakta TAM HIZ)
+    #   eps_yaw>=25 -> kesme=YAVASLA_TABAN
+    #
+    # ⚠ §5.13 TASARIM ZARFI: bu bir "yayda yavaşla, düz kesimde hızlan"
+    #   çevrimidir. `daire`de düz kesim YOKTUR -> çevrimin ikinci yarısı
+    #   gerçekleşemez ve araç KALICI yavaş kalır (§5.10'daki Ö11 tuzağı).
+    #   Bu yüzden KAZANIM `kare`de ölçülür, REGRESYON `daire` ve `taban`da.
+    #
+    # ⚠ YAVASLA_TABAN = 1.0 VARSAYILAN -> hiç kısma yok, BİT BİT aynı.
+    # Açma: DOW_YAVASLA=0.55  (kapatma: 1.0)
+    YAVASLA_TABAN = _fi("DOW_YAVASLA", 1.0)    # hızın alt katsayısı
+    YAVASLA_ACI   = _fi("DOW_YAVASLA_ACI", 25.0)   # tam etki açısı (°)
+
     CONF_MIN      = 0.40    # ÖLÇÜLDÜ (dow/gorus/dedektor.py)
     BOYUT_MIN_PX  = 8.0     # px; bundan küçük kutu güvenilmez
     MENZIL_MAX_M  = 50.0    # m; ötesinde görsel devir YOK (tespit %10)
@@ -392,6 +422,15 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     hiz_I = _kirp(hiz_I + cfg.K_I * hata_px * dt, -cfg.I_MAX, cfg.I_MAX)
     v_istek = cfg.K_FWD * hata_px + hiz_I
     v = _kirp(v_istek, cfg.V_MIN, cfg.V_HUCUM)
+
+    # ⭐ Ö-G DÖNÜŞTE YAVAŞLA (bkz. IbvsCfg.YAVASLA_TABAN).
+    #   YAVASLA_TABAN=1.0 iken kesme=1.0 ve yasa BİT BİT bugünküyle aynı.
+    _kesme = 1.0
+    if cfg.YAVASLA_TABAN < 1.0:
+        _oran = min(1.0, abs(eps_yaw) / max(1e-6, cfg.YAVASLA_ACI))
+        _kesme = 1.0 - (1.0 - cfg.YAVASLA_TABAN) * _oran
+        v = v * _kesme
+    tani["ibvs_kesme"] = round(_kesme, 3)      # §5.1 mekanizma sütunu
 
     tani["ibvs_hata_px"] = hata_px
     tani["ibvs_v"] = v
