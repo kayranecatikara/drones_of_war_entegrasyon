@@ -268,6 +268,25 @@ olursa olsun çap 35 m kalır; yalnız tur süresi değişir.
 Çap `DAIRE_CAP` (cm) ile değişir. Görsel viraj yatışı `DAIRE_YATIS_MAX` ile
 sınırlıdır ve yalnız görseldir — uçuş geometrisini etkilemez.
 
+### Doğrulama (tek oturumda, uçtan uca)
+
+Kare → daire → kare → elle → bırak zinciri canlı olarak sınandı:
+
+```
+ARAYUZ KONTROLU ACIK - irtifa 93 m, yon -2
+KARE MODU ACIK  - kenar 40 m, kose 90 derece saga      <- kare
+DAIRE MODU ACIK - cap 35 m (yaricap 17.5 m)            <- daireye gecis
+KARE MODU ACIK  - kenar 40 m, kose 90 derece saga      <- kareye geri
+kare modu kapandi - elle kumandaya donuldu             <- elle
+arayuz kontrolu kapali - Talon kendi rotasina dondu    <- birak
+```
+
+Bu koşuda **13 kenar** (kare) ve **3 tur** (daire) tamamlandı. Geçişlerde
+takılma yok; her desen devralırken diğerini temiz kapatıyor.
+
+Ayrı ölçümler: kare **65 kenar üst üste, hepsi 40.1 m**; daire **58.3°/s,
+tur 6–7 s** (hesap 6.18 s).
+
 ### İki düğme birbirini dışlar
 
 Kare açıkken daireye basarsan kare kapanır, daire açılır. Açık olana tekrar
