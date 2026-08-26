@@ -42,8 +42,21 @@ for ad in "Google Chrome" "gedit"; do
 done
 xdotool windowactivate --sync "$W" 2>/dev/null; sleep 1
 
-echo "[4/6] PRESS FOR START"; xdotool mousemove 960 890 click 1; sleep 5
-echo "[5/6] FLY";            xdotool mousemove 188 477 click 1; sleep 9
+# ⛔⛔ TAZE ACILISTA **IKI** "PRESS FOR START" EKRANI VAR (2026-08-26).
+#   Betik tek tiklama yapiyordu ve oyun ana menuye HIC ulasamiyordu:
+#     1. ekran: kar/tank baslik ekrani      -> "PRESS FOR START"
+#     2. ekran: harita secim ekrani         -> "PRESS FOR START"
+#     3. ekran: hangar ana menusu           -> FLY dugmesi
+#   Sonuc: sim.py uc denemede de "HAZIRLANAMADI" diyordu; her deneme oyunu
+#   bastan aciyordu, yani 6+ dakika bosa gidiyordu. Gorev-sonu kurtarmasinda
+#   (PLAY AGAIN yolu) tek ekran cikiyor, o yuzden hata simdiye kadar
+#   gizlenmisti -- ancak oyun KOMPLE yeniden baslatilinca ortaya cikti.
+#   Care: tiklamayi TEKRARLA ve arada ana menuyu bekle. Fazla tiklama
+#   zararsiz (ana menude 960,890 bos alan).
+echo "[4/6] PRESS FOR START (x2 — taze acilista iki ekran var)"
+xdotool mousemove 960 890 click 1; sleep 5
+xdotool mousemove 960 890 click 1; sleep 6
+echo "[5/6] FLY";            xdotool mousemove 143 475 click 1; sleep 9
 echo "[6/6] E — drone spawn"
 xdotool windowactivate --sync "$W" 2>/dev/null; sleep 1
 xdotool key --window "$W" e; sleep 5
