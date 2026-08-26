@@ -254,6 +254,16 @@ def _truth_aspekt(beyin, dp, hp):
     if not hp or not dp: return out
     dx, dy = hp[0] - dp[0], hp[1] - dp[1]
     out["menzil_m"] = round(math.hypot(dx, dy), 1)
+    # ⭐ 3B MENZİL (2026-08-26) — KAÇIRMA TESPİTİ İÇİN ZORUNLU.
+    #   `menzil_m` YATAYDIR (dz yok). Kaçırma, "en yakın geçiş noktası"nın
+    #   yerel minimumlarından bulunuyor; hedefin tam üstünden/altından geçen
+    #   bir drone yatayda YAKIN görünür ve ıska KAÇIRILIR. 3B menzil şart.
+    #   ⛔ ÖLÇÜM-ONLY: güdüm bu sütunu görmez (§10; bekçi B1/B18/B19).
+    out["menzil3_m"] = round(math.dist(dp, hp), 1)
+    # kapanma işareti için hedefin gidiş yönüne izdüşüm: + = biz GERİDEYİZ
+    #   (henüz geçmedik), - = hedefi GEÇTİK. Yerel minimum bulmanın yanında
+    #   ikinci, bağımsız bir "geçti mi" kanıtı.
+    out["dz_m"] = round(hp[2] - dp[2], 1)
     try:
         out["drone_roll"] = round(math.degrees(beyin.b.yonelim()[0]), 1)
     except Exception:
@@ -290,7 +300,8 @@ class CikarimKaydi:
                "terminal_kabul",
                "iz_yas", "iz_w", "det_ms", "det_pencere",
                "takip_id", "takip_kaynak", "takip_coast", "takip_n",
-               "menzil_m", "aspekt_deg", "hedef_roll", "drone_roll"]
+               "menzil_m", "menzil3_m", "dz_m",
+               "aspekt_deg", "hedef_roll", "drone_roll"]
 
     def __init__(self, dizin):
         os.makedirs(dizin, exist_ok=True)
