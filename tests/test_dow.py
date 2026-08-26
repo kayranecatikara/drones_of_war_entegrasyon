@@ -1280,3 +1280,87 @@ def test_B54_zor_kayit_KOTU_ETIKET_YAZMAZ(tmp_path):
 
     n, _ = z.kapat()
     assert n == 1, f"yalnizca 1 gecerli ornek yazilmaliydi, {n} yazildi"
+
+
+def test_B55_kacamak_araci_GUDUME_SIZAMAZ():
+    """⛔ §10 YARIŞMA KISITI — tetiklenmis kacamak TEST DUZENEGIDIR.
+
+    `araclar/kacamak.py` hedefin GERCEK konumunu okur (tetigi ne zaman
+    cekecegini bilmek icin). Bu MESRUDUR: bilgi HEDEFI surmek icin
+    kullanilir, avcinin gudumune girmez -- hakemin hedefe manevra
+    yaptirmasi gibidir.
+
+    AMA o siniri KOD SEVIYESINDE tutmak gerekir. Bu bekci sunu sinar:
+      1) `dow/` altindaki HICBIR modul kacamak aracini ice aktarmaz
+      2) gudum kodu Talon koprusunu OKUMAZ (kopru tek yon: panel -> oyun)
+      3) gorsel yasa hala yalniz goruntu alir (B1/B18/B19 ayrica sinar)
+    """
+    import os
+    import inspect
+    kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # 1) dow/ altinda kacamak araci ice aktarilmamis
+    for dizin, _, dosyalar in os.walk(os.path.join(kok, "dow")):
+        if "__pycache__" in dizin:
+            continue
+        for d in dosyalar:
+            if not d.endswith(".py"):
+                continue
+            yol = os.path.join(dizin, d)
+            k = open(yol, encoding="utf-8").read()
+            assert "kacamak" not in k.replace("kacamak_", ""), \
+                f"gudum modulu kacamak aracina bagimli: {yol}"
+
+    # 2) GUDUM kodu Talon koprusunu OKUMAZ.
+    #    Kopruyu YALNIZ panel YAZAR (panel.py::talon_kopru_yaz).
+    from dow import ana
+    from dow.gudum import ibvs, gps, cevirici
+    for m in (ana, ibvs, gps, cevirici):
+        k = inspect.getsource(m)
+        assert "talon_kopru" not in k and "TALON_KOPRU" not in k, \
+            f"gudum modulu Talon koprusune bakiyor: {m.__name__}"
+
+    # 3) kacamak araci gercekten AYRI bir surec olarak tasarlanmis:
+    #    dow/ altindan degil, araclar/ altinda ve __main__ girisi var.
+    ky = os.path.join(kok, "araclar", "kacamak.py")
+    assert os.path.exists(ky), "kacamak araci yok"
+    k = open(ky, encoding="utf-8").read()
+    assert '__name__ == "__main__"' in k, \
+        "kacamak araci ayri surec girisi tasimiyor"
+    assert "from dow.ana import" not in k and "from dow.gudum import" not in k, \
+        "kacamak araci gudum modullerini ice aktariyor -- ayrik olmali"
+
+
+def test_B56_kacamak_taban_hizi_SPLINE_ILE_ESLESIR():
+    """⛔ `yok` KOLU GECERLI TABAN OLMALI (§3.3).
+
+    Talon spline ustunde 1800 cm/s uçuyor. Mod ucus modeli:
+        hiz = 300 + throttle * 3700   (cm/s)
+    Kontrolu devralinca taban throttle bu hizi VERMELI; vermezse hedefin
+    hizi degisir ve `yok` kolu artik kontrolsuz senaryonun tabani olmaz --
+    butun kiyas kayar."""
+    import importlib.util
+    import os
+    kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    spec = importlib.util.spec_from_file_location(
+        "kacamak", os.path.join(kok, "araclar", "kacamak.py"))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+
+    hiz_cms = 300.0 + m.TABAN_THR * 3700.0
+    assert abs(hiz_cms - 1800.0) <= 20.0, \
+        f"taban hizi {hiz_cms:.0f} cm/s, spline 1800 cm/s -- `yok` kolu bozuk"
+
+    # `yok` GERCEKTEN kacamaksiz olmali
+    assert m.KACAMAKLAR["yok"] is None, "`yok` kolu kacamak uyguluyor"
+    # §3.3'teki tum cesitler dursun
+    for ad in ("yatay", "dikey_yukari", "dikey_asagi", "capraz", "hizlan"):
+        assert ad in m.KACAMAKLAR, f"kacamak cesidi eksik: {ad}"
+    # eksenler -1..1 / throttle 0..1 sinirinda
+    for ad, v in m.KACAMAKLAR.items():
+        if v is None:
+            continue
+        thr, yaw, pit, rol = v
+        assert 0.0 <= thr <= 1.0, f"{ad}: throttle aralik disi"
+        for x in (yaw, pit, rol):
+            assert -1.0 <= x <= 1.0, f"{ad}: eksen aralik disi"
