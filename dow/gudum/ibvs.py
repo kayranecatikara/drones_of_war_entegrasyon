@@ -337,6 +337,15 @@ class IbvsCfg:
     # Açma: DOW_YAVASLA=0.55  (kapatma: 1.0)
     YAVASLA_TABAN = _fi("DOW_YAVASLA", 1.0)    # hızın alt katsayısı
     YAVASLA_ACI   = _fi("DOW_YAVASLA_ACI", 25.0)   # tam etki açısı (°)
+    # ⭐ ÖLÜ BANT — Ö-G'nin ölçülmüş kusurunun çaresi (2026-08-26 gecesi).
+    #   Ö-G'de kesme karelerin %83.7'sinde uygulandı (medyan 0.909): yasa
+    #   "keskin köşede yavaşla" değil "neredeyse her zaman biraz yavaşla"
+    #   olarak çalıştı. Görüş +22 puan kazandı ama kapanma öldü
+    #   (en yakın 5.12 -> 5.87 m, dört çiftin dördünde kontrol önde).
+    #   Ölü bant: nişan hatası bu eşiğin ALTINDAYKEN kesme HİÇ uygulanmaz,
+    #   böylece düz bacakta TAM HIZ korunur.
+    #   0 = ölü bant yok (Ö-G'deki davranış).
+    YAVASLA_OLU   = _fi("DOW_YAVASLA_OLU", 0.0)    # ölü bant (°)
 
     CONF_MIN      = 0.40    # ÖLÇÜLDÜ (dow/gorus/dedektor.py)
     BOYUT_MIN_PX  = 8.0     # px; bundan küçük kutu güvenilmez
@@ -427,7 +436,10 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     #   YAVASLA_TABAN=1.0 iken kesme=1.0 ve yasa BİT BİT bugünküyle aynı.
     _kesme = 1.0
     if cfg.YAVASLA_TABAN < 1.0:
-        _oran = min(1.0, abs(eps_yaw) / max(1e-6, cfg.YAVASLA_ACI))
+        # ölü bant: eşiğin altındaki nişan hatasında HİÇ kısma yok
+        _fazla = max(0.0, abs(eps_yaw) - cfg.YAVASLA_OLU)
+        _genis = max(1e-6, cfg.YAVASLA_ACI - cfg.YAVASLA_OLU)
+        _oran = min(1.0, _fazla / _genis)
         _kesme = 1.0 - (1.0 - cfg.YAVASLA_TABAN) * _oran
         v = v * _kesme
     tani["ibvs_kesme"] = round(_kesme, 3)      # §5.1 mekanizma sütunu
