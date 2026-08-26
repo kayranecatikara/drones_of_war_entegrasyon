@@ -40,8 +40,37 @@ TABAN HIZI NEDEN 0.405
   hedefin HIZI DEĞİŞMESİN diye taban bu. Değişseydi `yok` kolu, kontrolsüz
   senaryonun tabanı olmaktan çıkardı ve kıyas bozulurdu.
 
-KAÇAMAK ÇEŞİTLERİ (mod uçuş modelinden türetildi)
-      YAW += (yaw*35 + roll*20)*dt   Z += pitch*600*dt   hız = 300+thr*3700
+KAÇAMAK ÇEŞİTLERİ — ⭐ SİMDE ÖLÇÜLDÜ (2026-08-26), belgeden KOPYALANMADI
+
+  MANUEL_KONTROL.md uçuş modelini `pitch*600 cm/s` ve `roll*20 deg/s` diye
+  veriyor. İkisi de ölçüldü; biri tuttu, biri tutmadı:
+
+      komut          dikey m/s   dönüş °/s        belgedeki
+      pitch +0.5       +1.89        0.0
+      pitch +1.0       +3.96        0.0           6.0 m/s  (YÜKSEK)
+      pitch -0.5       -1.84        0.0
+      pitch -1.0       -3.67        0.0
+      roll  +0.25       0.03       +4.9
+      roll  +0.5       -0.04       +9.7
+      roll  +1.0        0.01      +19.4           20 °/s   (TUTTU)
+      throttle 0.405  -> yer hızı 18.0 m/s   ⭐ spline hızıyla BİREBİR
+      throttle 1.0    -> yer hızı 35.1 m/s
+
+  Her iki eksen de kumanda değerinde DOĞRUSAL. Dikey ve dönüş birbirine
+  KARIŞMIYOR (roll'da dikey ~0, pitch'te dönüş 0) — `capraz` kolunun ikisini
+  birden sınaması bu yüzden anlamlı.
+
+  ⚠ ÖLÇÜM TUZAĞI (yaşandı): yaw farkını iki uç noktadan almak SARMAYI
+    (359° -> 1°) yanlış okuyup 19.4 yerine 80 °/s veriyordu. Ayrıca ilk
+    ölçüm evresi bir önceki komutun kuyruğunu taşıyor — her evre arasına
+    2 s "oturma" konmadan alınan sayı GEÇERSİZDİR.
+
+  Kaçamak şiddetleri bu ölçümlerden seçildi (4 s uygulama ile):
+      yatay        roll 1.0  -> 19.4 °/s -> ~78° kırılma
+      dikey_yukari pitch 1.0 -> +4.0 m/s -> ~16 m tırmanış
+      dikey_asagi  pitch -1  -> -3.7 m/s -> ~15 m dalış
+      capraz       0.7/0.7   -> 13.6 °/s + 2.8 m/s
+      hizlan       thr 1.0   -> 18.0 -> 35.1 m/s (kapanmayı öldürür)
 --------------------------------------------------------------------------------
 Kullanım:
     python3 araclar/kacamak.py yatay --ad DENEME
