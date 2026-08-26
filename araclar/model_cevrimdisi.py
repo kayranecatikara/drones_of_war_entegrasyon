@@ -19,7 +19,7 @@
 
 Menzil, kareye eşlik eden meta.csv'den alınır (ÖLÇÜM-ONLY).
 
-Kullanım: python3 araclar/model_cevrimdisi.py talon_v3 talon_v3h
+Kullanım: python3 araclar/model_cevrimdisi.py talon_v3 <yeni_model>
 ================================================================================
 """
 import csv
@@ -133,7 +133,7 @@ def kos(model, kareler):
 
 def main():
     a = sys.argv[1] if len(sys.argv) > 1 else "talon_v3"
-    b = sys.argv[2] if len(sys.argv) > 2 else "talon_v3h"
+    b = sys.argv[2] if len(sys.argv) > 2 else "talon_v3"
     kareler = kare_listesi()
     if not kareler:
         print("⛔ kayıtlı kare yok"); return
