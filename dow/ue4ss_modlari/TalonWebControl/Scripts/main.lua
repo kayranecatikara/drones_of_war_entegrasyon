@@ -13,7 +13,7 @@
 --     pitch    : -1..1    alcal / tirman
 --     roll      : -1..1   sola / saga yatis
 --     sayac    : her yazmada artar (tazelik kontrolu)
---     kip      : 0 = elle (joystick/klavye)   1 = KARE deseni
+--     kip      : 0 = elle   1 = KARE deseni   2 = DAIRE deseni
 --                (istege bagli 7. alan; yoksa 0 varsayilir - eski
 --                 arayuzlerle geriye donuk uyumlu)
 --
@@ -47,12 +47,24 @@ local KARE_DONUS      = 90.0     -- kose acisi (derece), saga
 local KARE_DONUS_HIZI = 90.0     -- kose donus hizi (derece/s) -> 1 sn'lik kose
 local KARE_YATIS      = 35.0     -- kosede govde yatisi (derece, gorsel)
 
+-- ==== DAIRE DESENI ====
+-- CAP SABIT TUTULUYOR: donus hizi HIZDAN turetiliyor.
+--     omega = v / r   (rad/s)     ->   derece/s = omega * 180/pi
+-- Sabit bir donus hizi verseydik gaz artinca cap BUYURDU. Boylece throttle
+-- ne olursa olsun cap 35 m kaliyor; yalniz tur suresi degisiyor.
+-- Gorsel yatis gercek viraj formulunden: tan(fi) = v^2 / (r * g)
+local DAIRE_CAP       = 3500.0   -- cap (cm) = 35 m  ->  yaricap 17.5 m
+local DAIRE_YATIS_MAX = 60.0     -- gorsel yatis tavani (derece)
+local YERCEKIMI       = 981.0    -- cm/s^2
+local RAD2DEG         = 57.2957795
+
 local talon, aimove = nil, nil
 local acik = false
 local X, Y, Z, YAW = 0, 0, 0, 0
 local thr, yaw, pit, rol = 0.0, 0.0, 0.0, 0.0
 local kip = 0                                  -- 0 = elle, 1 = kare
 local kareAcik, kareEvre = false, "duz"        -- evre: "duz" | "kose"
+local daireAcik, daireYay, daireTur = false, 0.0, 0
 local kareYol, kareDonulen, kareKenarNo = 0.0, 0.0, 0
 local sonSayac, bayat, tikSayaci = -1, 0, 0
 
@@ -108,6 +120,7 @@ local function Baslat()
     YAW = r and r.Yaw or 0
     thr, yaw, pit, rol = 0.4, 0, 0, 0
     kareAcik, kareEvre, kareYol, kareDonulen, kareKenarNo = false, "duz", 0, 0, 0
+    daireAcik, daireYay, daireTur = false, 0.0, 0
     acik = true
     L(string.format("ARAYUZ KONTROLU ACIK - irtifa %.0f m, yon %.0f", Z/100, YAW))
     return true
@@ -117,7 +130,7 @@ local function Durdur()
     if aimove and aimove:IsValid() then pcall(function() aimove["isDead"] = false end) end
     acik = false
     yaw, pit, rol = 0, 0, 0
-    kareAcik = false
+    kareAcik, daireAcik = false, false
     L("arayuz kontrolu kapali - Talon kendi rotasina dondu")
 end
 
@@ -153,7 +166,7 @@ LoopAsync(TIK_MS, function()
     yaw = Kis(y, -1.0, 1.0)
     pit = Kis(p, -1.0, 1.0)
     rol = Kis(r, -1.0, 1.0)
-    kip = (k == 1) and 1 or 0
+    kip = (k == 1 or k == 2) and k or 0
 
     if not (talon and talon:IsValid()) then acik = false; talon = nil; aimove = nil; return end
 
@@ -165,6 +178,7 @@ LoopAsync(TIK_MS, function()
         -- Basildigi ANDAN itibaren: 40 m duz -> 90 derece saga -> 40 m duz -> ...
         -- Kip 0'a donene kadar suruyor. Elle eksenler (yaw/pitch/roll) YOK SAYILIR;
         -- yalniz throttle gecerli, boylece desen hizini ayarlayabiliyorsun.
+        if daireAcik then daireAcik = false end       -- daireden kareye gecis
         if not kareAcik then
             kareAcik, kareEvre = true, "duz"
             kareYol, kareDonulen, kareKenarNo = 0.0, 0.0, 0
@@ -192,10 +206,46 @@ LoopAsync(TIK_MS, function()
             gorselRoll = KARE_YATIS
         end
         gorselPitch = 0.0                             -- desende irtifa SABIT
+
+    elseif kip == 2 then
+        -- ============ DAIRE DESENI ============
+        -- Cap sabit: donus hizi hizdan turetiliyor (bkz. DAIRE_CAP notu).
+        if kareAcik then kareAcik = false end         -- kareden daireye gecis
+        if not daireAcik then
+            daireAcik, daireYay, daireTur = true, 0.0, 0
+            L(string.format("DAIRE MODU ACIK - cap %.0f m (yaricap %.1f m)",
+                            DAIRE_CAP / 100, DAIRE_CAP / 200))
+        end
+        -- ⚠ math.deg / math.atan KULLANILMIYOR: UE4SS Lua'sinda daire dali
+        --   ilk tikte sessizce oluyordu ve LoopAsync bir daha donmuyordu.
+        --   Ayni matematik duz aritmetikle yaziliyor (RAD2DEG = 180/pi).
+        local yaricap = DAIRE_CAP * 0.5
+        local omega   = (hiz / yaricap) * RAD2DEG     -- derece/s
+        local adim    = omega * dt
+        YAW = YAW + adim
+        daireYay = daireYay + adim
+        if daireYay >= 360.0 then
+            daireYay = daireYay - 360.0
+            daireTur = daireTur + 1
+            L(string.format("  tur %d tamamlandi - cap %.0f m, %.1f derece/s",
+                            daireTur, DAIRE_CAP / 100, omega))
+        end
+        -- Gorsel viraj yatisi. Gercegi tan(fi) = v^2/(r*g) ister ama atan'a
+        -- girmemek icin kucuk aci yaklasimi + tavan kullaniliyor; bu yalniz
+        -- GORSEL, ucus geometrisini etkilemiyor.
+        local fi = (hiz * hiz) / (yaricap * YERCEKIMI) * RAD2DEG
+        if fi > DAIRE_YATIS_MAX then fi = DAIRE_YATIS_MAX end
+        gorselRoll  = fi
+        gorselPitch = 0.0                             -- desende irtifa SABIT
+
     else
         if kareAcik then
             kareAcik = false
             L("kare modu kapandi - elle kumandaya donuldu")
+        end
+        if daireAcik then
+            daireAcik = false
+            L("daire modu kapandi - elle kumandaya donuldu")
         end
         -- Donus: dumen (yaw) + yatistan gelen koordineli donus (roll)
         YAW = YAW + (yaw * YAW_HIZI + rol * ROLL_DONUS) * dt
@@ -214,4 +264,4 @@ LoopAsync(TIK_MS, function()
     end)
 end)
 
-L("yuklendi (4 eksen + kare deseni) - kopru: " .. KOPRU)
+L("yuklendi (4 eksen + kare/daire deseni) - kopru: " .. KOPRU)
