@@ -63,6 +63,23 @@ for ((i=1; i<=TEKRAR; i++)); do
     #    Kardeş betik kacamak_ab.sh'de alt kabuğa sarılmıştı ve 5 süreç
     #    aynı anda köprüye yazıp kampanyayı geçersiz kıldı — OC_BAYAT.)
     pkill -f "araclar/kacamak.py" 2>/dev/null
+    # ⛔⛔ KÖR KOŞU KAPISI (2026-08-26, İKİ KAMPANYA BÖYLE YANDI).
+    #   Oyun "press E to spawn" durumunda kalabiliyor; o ekranda da pusula
+    #   HUD'i göründügü icin `ucusta_mi` UÇUŞTA diyor ve kosu baslıyor.
+    #   Dedektör bos manzaraya bakiyor: 962 cikarim / 0 tespit, arac 14 m'de
+    #   takili kaliyor, `spawn_cok_uzak` ihlali. Kampanyanin TAMAMI cope
+    #   gidiyor. Bir kosuda HIC tespit yoksa kampanyayi ORADA durdur.
+    SON="logs/$AD/$ETIKET/k01/cikarim.csv"
+    if [ -f "$SON" ]; then
+      TESPIT=$(awk -F, 'NR>1 && $3==1' "$SON" | wc -l)
+      if [ "$TESPIT" -eq 0 ]; then
+        echo "⛔⛔ KÖR KOŞU: $ETIKET içinde HİÇ TESPİT YOK."
+        echo "    Oyun muhtemelen 'press E' durumunda — FPV görüntüsü yok."
+        echo "    Düzelt: python3 araclar/sim.py  (sonra kampanyayı yeniden başlat)"
+        echo "=== KAMPANYA $AD DURDURULDU ==="
+        exit 1
+      fi
+    fi
     echo "    bitti"
   done
 done
