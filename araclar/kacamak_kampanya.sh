@@ -58,6 +58,11 @@ for ((i=1; i<=TEKRAR; i++)); do
     wait $KOSU_PID
     kill $KAC_PID 2>/dev/null
     wait $KAC_PID 2>/dev/null
+    # ⭐ EMNİYET: sağ kalan kaçamak süreci bir sonraki koşuya SIZMASIN.
+    #   (Bu betikte alt kabuk yok, `$!` python'un kendisi -> kill çalışır.
+    #    Kardeş betik kacamak_ab.sh'de alt kabuğa sarılmıştı ve 5 süreç
+    #    aynı anda köprüye yazıp kampanyayı geçersiz kıldı — OC_BAYAT.)
+    pkill -f "araclar/kacamak.py" 2>/dev/null
     echo "    bitti"
   done
 done
