@@ -567,20 +567,28 @@ değişmezdir. Kazanç mütevazı: yayılım 0.19 → 0.11.
 
 11.265 kare, sekiz kampanya, arka kareler çıkarılmış, hedef kadraj içinde:
 
-| hedef \|yatış\| | kare | **tespit** | görsel R / gerçek |
+| hedef \|yatış\| | kare | **tespit** | C = max(w,h)·R |
 |---|---|---|---|
-| 0-10° (düz) | 827 | **%86** | 1.08 |
-| 10-25° | 6539 | **%64** | 1.15 |
-| 25-40° | 3552 | **%63** | 1.29 |
-| 40°+ | 347 | **%57** | 1.28 |
+| 0-10° (düz) | 827 | **%86** | 928 |
+| 10-25° | 6539 | **%64** | 862 |
+| 25-40° | 3552 | **%63** | 779 |
+| 40°+ | 347 | **%57** | 820 |
+
+⚠ Tespit yüzdeleri BAĞIMSIZ kaynakla doğrulandı (`meta.csv`, 1 Hz):
+%84 / %67 / %61 / %77 — aynı şekil. Kutu boyutundan bağımsız oldukları
+için `vis_h` eksikliği bunları ETKİLEMEDİ.
+`C` sütunu ise doğru ölçütle (`max(w,h)`) yeniden hesaplandı: düz uçuşta
+928, 25-40° yatışta 779 — yani yatış menzili **%16 şişiriyor**, daha
+önce yazdığım gibi iki kat DEĞİL.
 
 **Angajmanın %93'ü yatık bantlarda geçiyor** (10.438 / 11.265 kare).
 Yani sistem neredeyse HER ZAMAN bozulmuş rejimde çalışıyor.
 
 **Tek kök neden, iki ayrı hasar:**
 1. Tespit %86 → %57-64 (25 puan)
-2. Kutu daralıyor → `R = 997/kutu` şişiyor → menzile bağlı TÜM kapılar
-   yanlış yerde açılıyor (Ö-L freni hiç ateşlemedi, Ö-I %1'de kaldı)
+2. Kutu daralıyor → `R = 997/kutu` **%16 şişiyor** (C 928 → 779) →
+   menzile bağlı kapılar kayıyor. Buna koddaki `MENZIL_C = 997`'nin
+   düz-uçuş değerine kalibre olması eklenince toplam sapma ~%15-30.
 
 **Ve bu, 2 m'nin içinde vuranı ıskalayandan ayıran TEK ölçülebilir
 farkla birebir örtüşüyor:** son 0.7 s tespiti vuruşlarda %80,
