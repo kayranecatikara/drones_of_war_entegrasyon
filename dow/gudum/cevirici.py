@@ -57,7 +57,11 @@ class CevCfg:
     # K_V birimi 1/s; zaman sabiti tau = 1/K_V.
     # Yatış tau'su 0.211 s. İç döngü ondan YAVAŞ olmalı, yoksa iki döngü
     # birbirini kovalar ve salınır. K_V=1.5 -> tau=0.67 s = 3.2 kat yavaş.
-    K_V = 1.5
+    # ⚠ CANLI: K_V=1.5 seyirde ileri-pitch'i ~0.63'te dengeliyor -> drone yalnız
+    #   ~20 m/s gidiyor. Kaçan hedef (17.5 m/s) ancak ~2 m/s marjla kapanır, bu
+    #   marjı tırmanma yiyor. Daha yüksek K_V küçük hata için tam pitch komutlar
+    #   -> drone tam hıza (~34 m/s) çıkar, hedefi hızla kapatır. Env ile tune.
+    K_V = float(os.environ.get("DOW_K_V", "1.5"))
 
     # --- [3] İVME -> ÇUBUK ---
     # İki aday model (hangisinin doğru olduğu G2 ölçümüyle belirlenecek):
@@ -102,9 +106,15 @@ class CevCfg:
     #   Ölçülen eğim ~6 (m/s)/pitch -> alçalma komutu (vz<0) pitch'e nose-down
     #   bias olarak eklenir. thr modeli KORUNUR (tamamlayıcı). 0 = kapalı.
     # CANLI AYAR (2026-08-27): 0.16 irtifayı tuttu ama ileriyi KESTİ (pitch
-    #   nose-down -> forward yok). 0.08 dengeli: irtifa sınırlı (~90m, hedef 86m)
-    #   VE ileri hareket korunuyor (pitch +0.24). Env ile ince ayar yapılabilir.
-    K_DIKEY_PITCH = float(os.environ.get("DOW_K_DIKEY_PITCH", "0.08"))  # pitch / (m/s)
+    #   nose-down -> forward yok). 0.08 de SEYİRDE ZARARLI çıktı: drone istasyon
+    #   çizgisinin üstüne çıkınca (alçalma isterken) bu terim ileri-pitch'i
+    #   0.6'dan 0.38'e düşürüp KOVALAMAYI yavaşlattı; hedef kaçtı, tavana takıldı
+    #   (ölçüldü fsm_vurus k01: ileri 14.6 m/s, menzil 3092->5296 BÜYÜDÜ).
+    #   Kök denge zaten throttle'da var: pitch+0.6 (22 m/s ileri +6.3 tırman) ile
+    #   thr-1.0 (-6.95 alçal) ~seviye uçuş verir. Bu yüzden VARSAYILAN 0 (kapalı)
+    #   = orijinal seyir davranışı (kullanıcı: "vurabiliyorduk"). Terminal
+    #   dalışta gerekirse env ile açılır.
+    K_DIKEY_PITCH = float(os.environ.get("DOW_K_DIKEY_PITCH", "0.0"))  # pitch / (m/s)
 
     # --- YAW ---
     # Araç 214 °/s yapabiliyor AMA hızlı yaw görüntüyü bulandırıp dedektörü

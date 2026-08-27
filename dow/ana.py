@@ -98,6 +98,7 @@ class Beyin:
         (Yeni spawn = gerçekten yerdeyiz; zemin referansı burada meşru.)"""
         self.durum = "KALKIS"
         self._zemin_z = None
+        self._oz_p = None; self._oz_t = None; self._oz_v = (0.0, 0.0)  # öz-hız tahmini
         self._son_tespit = None
         self._bu_kare_tespit = False
         self._cikarim_yapildi = True   # çıkarım bu tikte koştu mu (sayaç kapısı)
@@ -407,7 +408,25 @@ class Beyin:
         yon = self.b.yonelim()
         own_roll = math.degrees(yon[0]); own_pitch = math.degrees(yon[1])
         own_yaw = math.degrees(yon[2])
-        v_olculen = self.b.hiz_vektoru()
+        v_sdk = self.b.hiz_vektoru()
+        # ⭐ ÖZ YATAY HIZ — KONUMDAN TÜRET (2026-08-27, hiz_probe ile ölçüldü).
+        #   SDK'nın hiz_vektoru() drone için ~1.8x ŞİŞİK: gerçek yer hızı 18 m/s
+        #   iken SDK 32 diyor. Bu, cevirici'nin ileri denetleyicisini "zaten
+        #   V_MAX'tayım" diye aldatıp pitch'i 0.01'e düşürüyor -> drone kendi
+        #   max'ının YARISINDA (~8 m/s) sürünüyor, 17.5 m/s hedefi yakalayamıyor.
+        #   ÇÖZÜM: YATAY geri beslemeyi konumdan türet (hedef hızını da böyle
+        #   güveniyoruz, HedefIzleyici). DİKEY (vz) throttle modeli SDK ile
+        #   kalibre olduğu için vz SDK'dan bırakılır.
+        _op = getattr(self, "_oz_p", None); _ot = getattr(self, "_oz_t", None)
+        _ov = getattr(self, "_oz_v", (0.0, 0.0))
+        if _op is not None and _ot is not None and (t - _ot) > 1e-3:
+            _dt = t - _ot
+            _hx = (dp[0] - _op[0]) / _dt; _hy = (dp[1] - _op[1]) / _dt
+            if math.hypot(_hx, _hy) < 80.0:            # ışınlanma/bozuk paket kapısı
+                _a = 0.35
+                _ov = (_a * _hx + (1 - _a) * _ov[0], _a * _hy + (1 - _a) * _ov[1])
+        self._oz_p = dp; self._oz_t = t; self._oz_v = _ov
+        v_olculen = (_ov[0], _ov[1], v_sdk[2])
 
         if self._zemin_z is None:
             self._zemin_z = dp[2]
