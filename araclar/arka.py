@@ -44,7 +44,10 @@ class ArkaBekci:
         self.esik = esik_deg
         self.T = []
         self.AZ = []
+        # koşu dizini (<ad>/k01/meta.csv) ya da doğrudan k* dizini kabul edilir
         y = os.path.join(kosu_dizini, "k01", "meta.csv")
+        if not os.path.exists(y):
+            y = os.path.join(kosu_dizini, "meta.csv")
         if not os.path.exists(y):
             return
         for r in csv.DictReader(open(y)):

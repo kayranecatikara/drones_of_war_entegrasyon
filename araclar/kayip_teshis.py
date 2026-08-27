@@ -40,6 +40,9 @@ import statistics as st
 import sys
 
 KOK = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if KOK not in sys.path:
+    sys.path.insert(0, KOK)
+from araclar.arka import ArkaBekci
 IMG_W, IMG_H = 1920.0, 1080.0
 
 
@@ -61,9 +64,10 @@ def teshis(kdizin):
     t0 = _f(R[0], "t") or 0.0
     d = {"ad": os.path.basename(os.path.dirname(kdizin)) + "/" +
          os.path.basename(kdizin), "n": len(R),
-         "A": 0, "B": 0, "C": 0, "bilinmiyor": 0, "basarili": 0,
+         "A": 0, "B": 0, "C": 0, "ARK": 0, "bilinmiyor": 0, "basarili": 0,
          "manevra_kayip": 0, "manevra_kare": 0, "sakin_kayip": 0,
          "sakin_kare": 0, "seriler": []}
+    _ab = ArkaBekci(kdizin)
     seri = 0
     for r in R:
         hr = _f(r, "hedef_roll")
@@ -84,7 +88,11 @@ def teshis(kdizin):
             d["sakin_kayip"] += 1
         bx, by = _f(r, "bek_cx"), _f(r, "bek_cy")
         ad_ = _f(r, "yerel_aday")
-        if bx is None or by is None:
+        # ⭐ ARK: hedef ARKAMIZDA — üstünden geçtik, bu KAYIP DEĞİL.
+        #   Ayrılmazsa geçiş geometrisi güdüm kusuru sanılır (bkz. arka.py).
+        if _ab is not None and _ab.var and _ab.arkada(_f(r, "t")):
+            d["ARK"] += 1
+        elif bx is None or by is None:
             d["bilinmiyor"] += 1
         elif not (0 <= bx < IMG_W and 0 <= by < IMG_H):
             d["A"] += 1
@@ -109,26 +117,31 @@ def main():
     print("\n" + "=" * 78)
     print("  KAYIP TEŞHİSİ — %s" % kok)
     print("=" * 78)
-    print("\n  A=kadraj dışı (GÜDÜM)  B=dedektör kör (MODEL)  C=kapı eledi (KOD)\n")
-    print("  %-16s %5s %7s %6s %6s %6s %9s" %
-          ("koşu", "çık", "tespit%", "A", "B", "C", "bilinmiyor"))
-    print("  " + "-" * 62)
-    T = {"n": 0, "basarili": 0, "A": 0, "B": 0, "C": 0, "bilinmiyor": 0}
+    print("\n  A=kadraj dışı (GÜDÜM)  B=dedektör kör (MODEL)  C=kapı eledi (KOD)")
+    print("  ⭐ ARK=hedef ARKAMIZDA (üstünden geçtik) — KAYIP DEĞİL, bkz. arka.py\n")
+    print("  %-16s %5s %7s %6s %6s %6s %6s %9s" %
+          ("koşu", "çık", "tespit%", "A", "B", "C", "ARK", "bilinmiyor"))
+    print("  " + "-" * 68)
+    T = {"n": 0, "basarili": 0, "A": 0, "B": 0, "C": 0, "ARK": 0,
+         "bilinmiyor": 0}
     for d in hepsi:
-        print("  %-16s %5d %7.1f %6d %6d %6d %9d" %
+        print("  %-16s %5d %7.1f %6d %6d %6d %6d %9d" %
               (d["ad"], d["n"], 100.0 * d["basarili"] / d["n"],
-               d["A"], d["B"], d["C"], d["bilinmiyor"]))
+               d["A"], d["B"], d["C"], d["ARK"], d["bilinmiyor"]))
         for k in T:
             T[k] += d[k]
     kayip = T["n"] - T["basarili"]
-    print("  " + "-" * 62)
-    print("  %-16s %5d %7.1f %6d %6d %6d %9d" %
+    print("  " + "-" * 68)
+    print("  %-16s %5d %7.1f %6d %6d %6d %6d %9d" %
           ("TOPLAM", T["n"], 100.0 * T["basarili"] / T["n"],
-           T["A"], T["B"], T["C"], T["bilinmiyor"]))
+           T["A"], T["B"], T["C"], T["ARK"], T["bilinmiyor"]))
     if kayip:
         bilinen = T["A"] + T["B"] + T["C"]
-        print("\n  KAYIPLARIN DAĞILIMI (%d kayıp karenin %d'i sınıflanabildi)"
-              % (kayip, bilinen))
+        print("\n  ⭐ %d kare hedef ARKAMIZDAYKEN — bunlar KAYIP DEĞİL, geçiş"
+              % T["ARK"])
+        print("     sonrası kareler. Payda dışı bırakılır (bkz. arka.py).")
+        print("\n  GERÇEK KAYIPLARIN DAĞILIMI (%d kayıptan %d'i sınıflandı)"
+              % (kayip - T["ARK"], bilinen))
         if bilinen:
             for k, ad in (("A", "kadraj dışı  -> GÜDÜM/GEOMETRİ"),
                           ("B", "dedektör kör -> MODEL"),
