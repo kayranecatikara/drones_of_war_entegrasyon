@@ -428,3 +428,37 @@ Uyarı `araclar/terminal_nisan.py` başlığına ve çıktısına gömüldü.
 `None` döndürüp medyandan SESSİZCE düşürüyordu. KJ1'de deney kolunun
 6 koşusundan 2'si böyle düştü, kontrol kolunun 0'ı — ölçüt "terminalde
 kör kalmayı" ödüllendiriyordu. Artık "ÖLÇÜLEMEDİ" diye raporlanıyor.
+
+## Ö-K · HÜCUM HIZI TAVANI — **ELENDİ** (kampanya erken kesildi)
+
+Kırpma tavanı 28 → 40 m/s. **Mekanizma mükemmel çalıştı:**
+
+| kol | KOMUT | GERÇEKLEŞEN | açık |
+|---|---|---|---|
+| kapali | 28.0 | **22.0** | 5.9 |
+| acik | 40.0 | **30.6** | 9.4 |
+
+⭐ **Yeni bilgi:** aracın 22 m/s'de oturması SÜRÜKLEME SINIRI DEĞİLMİŞ —
+tamamen hız döngüsünün oransal kalıcı hatasıymış. Araç 30.6 m/s yapabiliyor.
+
+**Ama sonuç felaket** (n=3/kol, mekanizma 3/3 geçerli):
+
+| kol | kaçırma | ortalama |
+|---|---|---|
+| kapali | 1, 3, 0 | **1.33** |
+| acik | **18**, 2, 6 | **8.67** |
+
+`acik__t1`: 110 s'de **18 kez** üstünden geçti, en yakını 2.8 m. Kapanma
+12.6 m/s olunca son metrelerde düzeltmeye vakit kalmıyor, içinden geçiyor.
+Kampanya §1.1 uyarınca erken kesildi, KK2 regresyonu hiç koşulmadı.
+
+## ⛔ ÜÇÜNCÜ METODOLOJİK DERS: KORELASYONU KALDIRAÇ SANMAK
+
+40 koşuluk havuzda "kapanma hızı" iyi/kötü koşuyu ayıran en güçlü
+değişkendi (2.1 vs 0.5 m/s) ve ben bunu **kaldıraç** sandım. Deney
+tersini gösterdi: kapanmayı ZORLA artırmak sonucu 6.5 kat kötüleştirdi.
+
+Doğrusu: kötü koşular yavaş kapanıyor ÇÜNKÜ geometrileri bozuk — yavaş
+kapandıkları için kötü değiller. Ok yönünü ters kurmuşum. Bu, gözlemsel
+bir ayrımın nedensel sanılmasının bedeli; ancak taze uçuş A/B'si
+ayırt edebilirdi (§2: replay/istatistik hipotez üretir, KARAR VERMEZ).
