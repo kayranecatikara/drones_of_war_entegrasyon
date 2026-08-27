@@ -577,3 +577,35 @@ farkla birebir örtüşüyor:** son 0.7 s tespiti vuruşlarda %80,
 YATIK hedef kareleri eklenmeli. Yatık tespiti %63'ten %86'ya çıkarsa
 son saniye sürekliliği %67 → ~%90 olur — bu, ölçülen tek ayırıcı
 değişkendir.
+
+## Ö-L · TERMİNAL FREN — **ELENDİ** (en sert regresyon)
+
+Son 12 görsel metrede hız tavanı 28 → 24 m/s (gerçekleşen ~19.5).
+
+**Mekanizma tam öngörüldüğü gibi çalıştı:** komut 24 → gerçekleşen
+19.5 m/s (doğrusal modelin öngörüsü 19.3). Fren KL1'de 19/22, KL2'de
+30/32 geçişte aktifti.
+
+| ölçüt | KL1 `kademeli` (n=6) | KL2 `yok` = TABAN (n=4) |
+|---|---|---|
+| kaçırma kapalı | 1,4,3,1,0,2 → **1.83** | 0,0,2,3 → **1.25** |
+| kaçırma açık | 1,1,4,0,3,7 → **2.67** | 8,7,9,11 → **8.75** |
+| geçiş / vuruş (açık) | 22 / 5 | **32 / 0** |
+| Rmin p50 kapalı → açık | 1.30 → 1.60 m | 1.10 → 1.95 m |
+
+Manevrasız tabanda fren açıkken **32 geçişte SIFIR vuruş**.
+
+**MEKANİZMA ÇALIŞTI, ÖNGÖRÜ YANLIŞTI.** "Donmuş düzeltme hatası"
+modeli doğruydu ama baskın etki değildi: yavaşlayınca terminal bölgede
+**3 kat uzun** kalıyoruz (8 m içinde koşu başına 1.5 s → 4.8 s) ve
+hedefe sıyrılma vakti veriyoruz.
+
+## ⭐ SONUÇ: TERMİNAL HIZ İKİ YÖNDE DE KALDIRAÇ DEĞİL
+
+| deneme | gerçekleşen hız | kaçırma (tasarım zarfı) |
+|---|---|---|
+| Ö-K hızlandır | 22.0 → 30.6 m/s | 1.33 → **8.67** |
+| **mevcut** | **22.0 m/s** | **~1.2-1.8** |
+| Ö-L yavaşlat | 22.0 → 19.5 m/s | 1.25 → **8.75** (tabanda) |
+
+Mevcut hız YEREL OPTİMUM ve iki yanı da diktir. Bu kapı kapandı.
