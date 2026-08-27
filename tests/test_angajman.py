@@ -61,11 +61,12 @@ def _oku(p):
     with open(os.path.join(_KOK, p), encoding="utf-8") as f:
         return f.read()
 
-def test_ana_temas_kapisi_izne_bagli():
+def test_ana_temas_kapisi_FSM_STRIKE_e_bagli():
+    """Angajman (tam dalış) artık FSM STRIKE durumunun türevi (2026-08-27)."""
     k = _oku("dow/ana.py")
-    assert "self.angajman_izin" in k
+    assert "self._fsm_state" in k
     assert "self.cfg.TEMAS_MENZIL_M" in k and "takip_menzil=_tmenzil" in k
-    assert "not self.cfg.ANGAJMAN_KAPI) or self.angajman_izin" in k
+    assert "State.STRIKE" in k          # tam hücum yalnız STRIKE'ta
 
 def test_kosu_izni_enjekte_ediyor():
     k = _oku("araclar/kosu.py")

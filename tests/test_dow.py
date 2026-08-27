@@ -159,18 +159,17 @@ def test_B13_devir_kapisi_YALNIZ_KAMERA_GPS_YOK():
 
     k = inspect.getsource(ana.Beyin.adim)
 
-    # 2) devir tetigi YALNIZ ardisik tespit sayaci
-    assert "self._kilit >= self.cfg.DEVIR_KARE" in k, \
-        "kamera devir kapisi (ardisik tespit) kaybolmus"
-    assert Ayar.DEVIR_KARE == 10, "devir 10 ardisik TESPIT olmali"
-    assert Ayar.KAYIP_KARE == 20, "kayip 20 ardisik TESPITSIZ kare olmali"
+    # 2) devir tetigi FSM durumundan (kamera kilit geometrisi) — GPS'e BAKMAZ.
+    #    Eski "10 ardisik tespit" kamera kapisi GorevFSM'e devredildi (2026-08-27):
+    #    faz artik FSM durumunun turevi, FSM girdisi _son_tespit (kamera) + kilit
+    #    kriteri; hedefin GPS'ine HIC dokunmaz (part 5 bunu sinar).
+    assert "self._fsm_state" in k and "_gorsel_fsm" in k, \
+        "faz gecisi FSM durumuna bagli degil"
+    assert 'self.durum = "GORSEL"' in k, "GORSEL devri yok"
 
-    # 3) geri donus kapisi duruyor ve YALNIZ hibrit kipte
-    assert "self._kayip >= self.cfg.KAYIP_KARE" in k, \
-        "20-kayip geri donus kapisi kaybolmus"
-    i2 = k.index("self._kayip >= self.cfg.KAYIP_KARE")
-    assert 'kip == "hibrit"' in k[max(0, i2 - 200):i2], \
-        "geri donus kapisi hibrit kipe bagli degil"
+    # 3) geri donus (GORSEL->ISTASYON) YALNIZ hibrit kipte + FSM gorsel-disi durumda
+    assert 'kip == "hibrit"' in k and 'not _gorsel_fsm' in k, \
+        "geri donus kapisi hibrit + FSM durumuna bagli degil"
 
     # 4) sayaclar CIKARIM basina (tik basina saymak 20 kareyi 0.45 s yapardi)
     assert "self._cikarim_yapildi" in k, \

@@ -30,6 +30,10 @@ from dow.gorus.iz import Iz, IzCfg
 from dow.gorus.tracker import TalonTracker, TargetLock, TakipCfg
 from dow.gudum import ibvs
 from dow.fusion.gnss_filtre import GNSSDuzeltici
+from dow.fsm.mission_fsm import GorevFSM, Girdi, State
+from dow.fsm.kilit_sure import KilitSure
+from dow.fsm.kilit_kriteri import kriter_degerlendir
+from dow.fsm.sabitler import AYAR as FSM_AYAR
 
 
 class Beyin:
@@ -75,10 +79,15 @@ class Beyin:
         self._bayat_birak_say = 0      # §5.1 mekanizma sütunu (B)
         self._kilit = 0
         self._kayip = 0
-        # ANGAJMAN KAPISI: kilit kümülatif 5 sn dolunca kosu.py bunu True yapar
-        # (panel.angajman_izin). False iken drone TAM HIZLA yaklaşır ama TEMAS
-        # menziline girmez (çarpmaz), tutunur; True olunca son metreyi dalar.
-        self.angajman_izin = False
+        self.angajman_izin = False     # (kosu.py yazar; artik FSM turevi, bkz. fsm)
+        # ⭐ GÖREV FSM (hamidiyesim/gorselgudum_fazlar'dan) — FAZ KARARINI VERİR.
+        #   Devir kapısı (ISTASYON<->GORSEL) ve angajman (temas kapısı) bunun
+        #   TÜREVİDİR. Kilit süreleri tek kaynaktan (KilitSure), anlık kilit
+        #   _son_tespit'ten kilit_kriteri ile (merkez AV + kaplama %6).
+        self.fsm = GorevFSM(log_fn=lambda s: None)
+        self.kilit_sure = KilitSure()
+        self._anlik_kilit = False
+        self._fsm_state = State.SEARCH
         self._son_komut = (0.0, 0.0, 0.0, 0.0)
         self.hiz_I = 0.0
         self.tani = {}
@@ -101,6 +110,8 @@ class Beyin:
         self._bayat_birak_say = 0      # §5.1 mekanizma sütunu (B)
         self._terminal_kabul = 0       # §5.1 mekanizma sütunu (Ö-A)
         self._kilit = 0; self._kayip = 0
+        self.fsm.reset(); self.kilit_sure.reset()
+        self._anlik_kilit = False; self._fsm_state = State.SEARCH
         self.hiz_I = 0.0
         self.izleyici.sifirla()
         self.cev.sifirla()
@@ -351,6 +362,39 @@ class Beyin:
             return None
         return (cx, cy, k["w"], k["h"], k["conf"])
 
+    # ---------------- GÖREV FSM köprüsü ----------------
+    def _fsm_adim(self, t):
+        """_son_tespit'ten anlık kilit + kilit sürelerini hesaplar, FSM'i ilerletir.
+
+        anlık kilit = hedef merkezi AV içinde ([0.25W,0.75W]×[0.10H,0.90H]) VE
+        kaplama ≥%6 (histerezisli: giriş %6, çıkış %5.2). Kilit süreleri (10 sn
+        pencerede kümülatif + anlık kesintisiz) KilitSure'dan TEK KAYNAK.
+        Döner: FSM durumu. Faz/angajman kararı bunun türevi."""
+        W = float(ibvs.KAM.IMG_W); H = float(ibvs.KAM.IMG_H)
+        tsp = self._son_tespit
+        # Tazelik: köprü süresi içindeki kutu geçerli (bayat kutu kilit sayılmaz).
+        taze = (tsp is not None
+                and (t - self._son_tespit_t) <= max(0.3, ibvs.IbvsCfg.KOPRU_S))
+        anlik = False; oran = 0.0
+        if taze:
+            cx, cy, w, h = tsp[0], tsp[1], tsp[2], tsp[3]
+            kr = kriter_degerlendir(cx, cy, w, h, W, H)
+            oran = max(w / W, h / H)
+            esik = (FSM_AYAR.AH_ORAN_CIKIS if self._anlik_kilit
+                    else FSM_AYAR.AH_ORAN_GIRIS)
+            anlik = kr.merkez_av_icinde and (oran >= esik)
+        self._anlik_kilit = anlik
+        sd = self.kilit_sure.guncelle(t, anlik)
+        self._fsm_state = self.fsm.step(Girdi(
+            t=t, tespit_var=bool(taze), anlik_kilit=anlik,
+            kumulatif_sn=sd.kumulatif_sn, kesintisiz_sn=sd.kesintisiz_sn,
+            ah_oran=oran))
+        self.tani["fsm"] = self._fsm_state.value
+        self.tani["anlik_kilit"] = int(anlik)
+        self.tani["kilit_kumulatif"] = round(sd.kumulatif_sn, 2)
+        self.tani["kilit_kesintisiz"] = round(sd.kesintisiz_sn, 2)
+        return self._fsm_state
+
     # ---------------- ana adım ----------------
     def adim(self, t, dt):
         """Bir kontrol tiki. Döner: (thr, pitch, roll, yaw) ya da None
@@ -402,6 +446,10 @@ class Beyin:
                      "kopru_kare": self._kopru_say,
                      "bayat_birak": self._bayat_birak_say}
 
+        # ⭐ GÖREV FSM — her tik ilerlet. Faz (ISTASYON<->GORSEL) ve angajman
+        #   (temas kapısı) kararı artık FSM durumunun TÜREVİDİR.
+        self._fsm_adim(t)
+
         # ---- KALKIS ----
         if self.durum == "KALKIS":
             hedef_z = hp[2] if hp else None
@@ -431,41 +479,34 @@ class Beyin:
         # ---- DEVİR SAYAÇLARI (yalnız KAMERA verisi) ----
         # Kullanıcının şartı: 10 ardışık TESPİT -> görsel; 20 ardışık
         # TESPİTSİZ kare -> GPS'e dön.
+        # Eski DEVIR/KAYIP sayaçları — artık YALNIZ telemetri (geçiş FSM'den).
         if self.cfg.GORSEL_AKTIF and self._cikarim_yapildi:
-            # ⚠ SAYAÇLAR ÇIKARIM BAŞINA SAYAR, kontrol tiki başına DEĞİL.
-            #   Çıkarım 10 Hz, kontrol ~48 Hz; tik başına saymak "20 ardışık
-            #   tespitsiz kare" kuralını 0.4 saniyeye indirirdi.
             if self._bu_kare_tespit:
-                self._kilit += 1
-                self._kayip = 0
+                self._kilit += 1; self._kayip = 0
             else:
-                self._kayip += 1
-                self._kilit = 0
+                self._kayip += 1; self._kilit = 0
             self.tani["kilit_kare"] = self._kilit
             self.tani["kayip_kare"] = self._kayip
-            # ---- ⭐ DEVİR KAPISI — YALNIZ KAMERA (2026-08-25) ----
-            # ⛔ GPS'e BAKMAZ. Eskiden burada "istasyona otur + ≤15 m menzil"
-            #   diye ikinci bir kapı vardı ve hedefin GPS'ini okuyordu;
-            #   yarışma kuralı gereği (§10) TAMAMEN SİLİNDİ (§5.12).
-            #   Tek tetik: ardışık TESPİT sayacı. Sayaç `_cikarim_yapildi`
-            #   kapısının arkasında olduğu için ÇIKARIM başına artar
-            #   (~9 Hz -> 10 kare ≈ 1.1 s), kontrol tiki başına DEĞİL.
-            if (kip != "gps" and self.durum != "GORSEL"
-                    and self._kilit >= self.cfg.DEVIR_KARE):
+
+        # ---- ⭐ FAZ = FSM TÜREVİ ----
+        # GORSEL durumlar (DETECT/TRACK_LOCK/ENGAGE/STRIKE) -> görsel güdüm;
+        # SEARCH/APPROACH/TRACK_LOST -> GPS istasyon. Eski "10 tespit / 20 kayıp"
+        # kamera kapısının yerine FSM'in kilit-geometrisi tabanlı geçişi geçti.
+        _gorsel_fsm = self._fsm_state in (
+            State.DETECT, State.TRACK_LOCK, State.ENGAGE, State.STRIKE)
+        if self.cfg.GORSEL_AKTIF:
+            if (_gorsel_fsm and kip != "gps"
+                    and self.durum not in ("KALKIS", "GORSEL")):
                 self.durum = "GORSEL"; self.hiz_I = 0.0
-            # "gorsel" kipinde GERİ DÖNÜLMEZ; yalnız "hibrit"te geri dönüş var
-            elif (kip == "hibrit" and self.durum == "GORSEL"
-                    and self._kayip >= self.cfg.KAYIP_KARE):
+            elif (kip == "hibrit" and not _gorsel_fsm
+                    and self.durum == "GORSEL"):
                 self.durum = "ISTASYON"
-                # ⚠ GÖRÜŞ KİLİDİ: bu satırlar KONTROL iş parçacığında koşar,
-                #   gorsel_tik ise (GORUS_ISP açıkken) GÖRÜŞ iş parçacığında.
-                #   Kilitsiz sıfırlamak, takipçi kendini güncellerken içini
-                #   boşaltmak demektir.
+                # GÖRÜŞ KİLİDİ: kontrol ipliği; kilitsiz sıfırlamak takipçiyi bozar.
                 with self._kilit_g:
                     self._son_tespit = None
-                    self.iz.sifirla()   # temas koptu: eski iz yeni yakalamayı ELEMESİN
+                    self.iz.sifirla()
                     if self.kilit is not None:
-                        self.kilit.reset()   # ve eski KİMLİK yeni yakalamayı ELEMESİN
+                        self.kilit.reset()
 
         if self.durum == "GORSEL":
             if self._son_tespit is None:
@@ -513,7 +554,10 @@ class Beyin:
             #   yalnız son fiziksel TEMASI bekletir — temas kenarına
             #   (TEMAS_MENZIL_M) gelince tutunur, izin gelince son adımı ÇARPAR.
             #   Kapı KAPALIYSA doğrudan tam hücum (çarpar).
-            _tam_hucum = (not self.cfg.ANGAJMAN_KAPI) or self.angajman_izin
+            # ⭐ ANGAJMAN = FSM TÜREVİ: yalnız STRIKE durumunda TAM DALIŞ (temasa
+            #   gir). DETECT/TRACK_LOCK/ENGAGE'de temas kenarında tutun (çarpma).
+            _tam_hucum = ((not self.cfg.ANGAJMAN_KAPI)
+                          or self._fsm_state == State.STRIKE)
             _tmenzil = None if _tam_hucum else self.cfg.TEMAS_MENZIL_M
             self.tani["angajman"] = "vurus" if _tam_hucum else "takip"
             (vx, vy), vz_ned, yaw_hedef, self.hiz_I, ti = ibvs.komut(
