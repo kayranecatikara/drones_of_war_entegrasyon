@@ -713,7 +713,6 @@ def test_b33_pencere_tam_kadraj_koordinati_dondurur():
     d.son_imgsz = 1920; d.son_pencere = 0; d.son_ms = 0.0
     d.pencere_say = d.tam_say = d.iska_tam = 0
     d._fp16 = False
-    d._model_yuklu = D.DetCfg.MODEL
 
     eski = D.DetCfg.PENCERE_PX
     try:
@@ -759,7 +758,6 @@ def test_b34_pencere_kenarda_kadraj_disina_tasmaz():
     d.son_imgsz = 1920; d.son_pencere = 0; d.son_ms = 0.0
     d.pencere_say = d.tam_say = d.iska_tam = 0
     d._fp16 = False
-    d._model_yuklu = D.DetCfg.MODEL
     eski_p, eski_i = D.DetCfg.PENCERE_PX, D.DetCfg.ISKA_TAM
     try:
         D.DetCfg.PENCERE_PX = 640; D.DetCfg.ISKA_TAM = False

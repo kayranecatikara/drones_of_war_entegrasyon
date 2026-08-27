@@ -728,3 +728,105 @@ onayına bağlı (§8). Doğal ikinci adım: iş parçacığı ayrıldığına g
 `GORSEL_DET_HZ` tavanı artık semptom değil — 10 → 25 denenebilir
 (donanım 34 Hz'e izin veriyor, çıkarım 29 ms). Ö-M kararı verilmeden
 başlanmaz (§0.1).
+
+---
+
+# 2026-08-27 · talon_v5 ELENDİ (TAMAMEN) ve KARMA10 KARAKTERİZASYONU
+
+## A · ÜÇ GÜN BOYUNCA YANLIŞ MODEL KOŞMUŞ — §5.12'nin tam örneği
+
+Gecikme ölçümü yaparken ortaya çıktı: `dedektor.py` model adını **iki ayrı
+yerde** tanımlıyordu ve varsayılanları FARKLIYDI.
+
+| yer | varsayılan |
+|---|---|
+| `MODEL_YOLU` (satır 86) | `talon_v3` |
+| `DetCfg.MODEL` (satır 173) | `talon_v5` |
+
+`Dedektor.__init__` v3'ü yüklüyor, sonra `_tara()` içindeki
+`_model_uygula()` **ilk çıkarımda** `DetCfg.MODEL` ile karşılaştırıp
+sessizce **v5'e geçiyordu.** Canlı üretildi:
+
+```
+1) kuruluşta yüklenen : talon_v3 | modeller/talon_v3.pt
+   DetCfg.MODEL değeri: talon_v5
+2) bir çıkarım SONRASI: talon_v5 | modeller/talon_v5.pt
+```
+
+v5 **24 Ağustos'ta ölçümle elenmişti** (v3 4/4 imha / 0.43 m · v5 3/4 /
+0.94 m) ama 27 Ağustos'a kadar bütün uçuşlar v5 ile koştu. Kapı MODEL20
+kampanyasının dönüşümlü koşu şartı (§4) için yazılmış, kampanya bitince
+kaldırılmamıştı.
+
+⚠ **A/B kıyaslarını geçersiz KILMAZ** (iki kolda da aynı model vardı) ama
+Ö-I…Ö-M kampanyalarının MUTLAK sayıları elenmiş modelin sayılarıdır.
+
+**SİLME (§5.12 kontrol listesi):** `DetCfg.MODEL` · `_model_uygula()` ·
+`self._model_yuklu` + `_tara()` çağrısı · 2 birim test satırı ·
+`model_kiyas.py`, `model_kiyas20.py`, `model_cevrimdisi.py`,
+`model_ab.sh` · README. Ağırlık dosyası depodan çıkarıldı.
+**Doğrulama:** canlı kodda sıfır iz · 60/60 bekçi · **bit bit denklik
+400 tikte BİREBİR AYNI.**
+
+## B · KARMA10 — hedef davranışına göre karakterizasyon (10 uçuş)
+
+Kullanıcı: *"hedef araca farklı rotalar çizdir... bazısında kare bazısında
+daire. görsel güdüm ile yaklaşırken manevra yaptırıp reaksiyona bakalım."*
+
+Model `talon_v3` (tek model), Ö-M AÇIK, `hibrit`, 150 s/koşu, dönüşümlü sıra.
+**İhlal: 0/10.** Mekanizma kapıları (§5.1) üçü de kanıtlandı: kare → dört yön
+90° aralıklı (%20 her biri) · daire → 8 yön kovası eşit (%12-13), kutu 35×35 m
+· kademeli → SERT, GÖRSEL fazda 14.4-14.7 m'de, tiklerin %17-21'i.
+
+| kol | n | isabet | kaçırma | en yakın | tespit | kutu p90 | kesinti |
+|---|---|---|---|---|---|---|---|
+| taban | 2 | **2/2** | 2.5 | 0.64 m | %49.2 | 1.78 s | 9.9 s |
+| kademeli | 2 | **2/2** | **0.0** | 0.96 m | **%75.2** | **0.25 s** | 0.9 s |
+| kare | 3 | 0/3 | 12.0 | 6.69 m | %18.8 | 2.42 s | 34.4 s |
+| daire | 3 | 0/3 | 14.0 | 6.01 m | **%7.2** | 2.54 s | 42.1 s |
+
+**VURUŞ KALİTESİ: 4 vuruşun DÖRDÜ DE KONTROLLÜ, sıfır ŞANS.**
+
+**KAÇIRMALARIN SEBEBİ** (geçiş anında görsel temas var mıydı):
+
+| kol | KÖR geçti (görüş hatası) | GÖRDÜ ıskaladı (güdüm hatası) |
+|---|---|---|
+| taban | 4 (%80) | 1 (%20) |
+| kare | 25 (%76) | 8 (%24) |
+| daire | 35 (%81) | 8 (%19) |
+
+## C · SONUÇ — ayrım manevranın SERTLİĞİ değil SÜRESİ
+
+Hedef görsel fazda **31.5° yatarak sert kaçarken** drone iki koşuda da
+vurdu (0.83 m ve 1.09 m), üstelik kaçamak iki farklı yönde tetiklendi.
+O kolda tespit EN YÜKSEK (%75.2) ve kutu yaşı EN DÜŞÜK (0.25 s).
+
+Buna karşılık kare/daire'de **6 koşuda sıfır vuruş**. Fark, hedefin
+sürekli yatık kalması: tespit %49 → %19 → %7 çöküyor, kutu yaşı p90
+1.8 → 2.5 s'ye çıkıyor (18 m/s'de 45 m hedef hareketi, öldürücü yarıçapın
+22 katı). Kaçırmaların **%76-81'i KÖR geçiş** — güdüm hatası değil,
+GÖRÜŞ hatası.
+
+⚠ **Salınım sayıları taban/kare/daire kollarında HÜKME GİREMEZ** (§5.2):
+görsel temas %60 eşiğinin altında, salınım yalnız kutulu karelerde ölçülüyor.
+
+⚠ **n=2-3/kol — §5.4 gereği hüküm cümlesi değil, GÜÇLÜ ARA VERİ.** Kol içi
+tekrarlanabilirlik alışılmadık derecede dar (kademeli tespit %75.8/%74.7;
+daire %7.2/%8.6/%7.2), bu yüzden yön güvenilir; kesin hüküm n=4 ister.
+
+## D · ÖLÇÜLEMEYEN — kayıt eksiği
+
+`cikarim.csv`'de **`vis_h` sütunu yok.** Kutu boyutu × gerçek menzil sabit
+çıkmalı; yalnız genişlikle 950 → 350'ye düşüyor. Ama güdüm `max(w,h)`
+kullanıyor ve hedef yatıkken h > w olur. Bu, 2026-08-26'da "görsel menzil
+2 kat sapıyor" diye yazılıp geri alınan artefaktın AYNISI. **Sütun
+eklenmeden bu ölçülemez.**
+
+## E · SIRADAKİ — görüş hattı, güdüm hattı değil
+
+Kaçırmaların %76-81'i kör geçiş olduğuna göre kazanım güdüm yasasında
+değil GÖRÜŞTE. Sıradaki adaylar (§0.1: teker teker):
+1. `GORSEL_DET_HZ` 10 → 25 (Ö-M iş parçacığı bunu mümkün kıldı)
+2. `PANEL_YAKALA_HZ` 15 → 30 (ölçüldü: kopyalama 2.4 ms, 191 Hz kaldırır)
+3. `vis_h` sütunu — ölçüm borcu
+4. Yatık hedef için dedektör eğitimi (en büyük kaldıraç, en pahalı)

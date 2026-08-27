@@ -148,9 +148,18 @@ def main():
     ap.add_argument("kok", nargs="?", default="logs/KN1")
     ap.add_argument("--pencere", type=float, default=2.0)
     a = ap.parse_args()
+    # İKİ ADLANDIRMA DÜZENİ DESTEKLENİR:
+    #   A/B kampanyaları  : "<kol>__t<N>"        (kol = "__" öncesi)
+    #   karma kampanyalar : "<NN>_<kol>"          (kol = ilk "_" sonrası)
+    # Yalnız birincisi aranırsa karma kampanyada "koşu yok" denir ve VURUŞ
+    # SINIFLANDIRMASI SESSİZCE ATLANIR — §4 gereği zorunlu olan adım kaybolur.
     kollar = {}
     for d in sorted(glob.glob(os.path.join(KOK, a.kok, "*__t*"))):
         kollar.setdefault(os.path.basename(d).split("__")[0], []).append(d)
+    if not kollar:
+        for d in sorted(glob.glob(os.path.join(KOK, a.kok, "[0-9][0-9]_*"))):
+            ad = os.path.basename(d)
+            kollar.setdefault(ad.split("_", 1)[1], []).append(d)
     if not kollar:
         print("⛔ koşu yok: %s" % a.kok)
         return

@@ -82,7 +82,21 @@ import numpy as np
 #   3. "hedef farklı davranıyor"     -> hız/manevra/irtifa tüm oturumlarda AYNI
 #   Güdüm de değişmemiş: istasyon hatası ve devir menzili iki dönemde de aynı.
 #
-# Geri dönüş: DOW_MODEL=talon_v5
+# ⛔⛔ talon_v5 SİSTEMDEN TAMAMEN SİLİNDİ (2026-08-27, §5.12) — KULLANICI KARARI.
+#   Yukarıdaki ölçüm kaydı DURUYOR (silinen özelliğin kararı kaybolmaz), ama
+#   ağırlık dosyası, çalışma-anı model değiştirme kapısı (`DetCfg.MODEL` +
+#   `_model_uygula`) ve model A/B araçları koddan ÇIKARILDI.
+#
+#   ⚠ NEDEN ÇIKARILMAK ZORUNDAYDI — §5.12'nin tarif ettiği hata BİREBİR yaşandı:
+#     model adı İKİ ayrı yerde tanımlıydı ve varsayılanları FARKLIYDI
+#     (`MODEL_YOLU` -> talon_v3, `DetCfg.MODEL` -> talon_v5). Dedektör kuruluşta
+#     v3'ü yüklüyor, İLK ÇIKARIMDA model-değişti kapısı devreye girip sessizce
+#     v5'e geçiyordu. 24 Ağustos'ta v5 ELENDİĞİ HÂLDE 27 Ağustos'a kadar bütün
+#     uçuşlar v5 ile koştu. Kapı, MODEL20 kampanyasının dönüşümlü koşu şartı
+#     (§4) için yazılmıştı; kampanya bitince kaldırılmadı.
+#     -> Elenen özellikten kalan artık, üç gün boyunca her ölçümün altını oydu.
+#
+#   Artık model YALNIZ kuruluşta, TEK yerden seçilir; çalışma anında değişmez.
 MODEL_YOLU = "modeller/%s.pt" % os.environ.get("DOW_MODEL", "talon_v3")
 IMGSZ_UZAK = 1920      # ÖLÇÜLDÜ: 960 kullanmak 40-60 m'de tespiti %56 -> %7 düşürür
 IMGSZ_YAKIN = 960      # yakında hız kazanmak için (24 ms vs 60 ms)
@@ -170,7 +184,8 @@ class DetCfg:
     bulursa hızlıyız, bulamazsa zaten tam kadraj koşuyoruz. Bedel yalnız
     ıska karelerinde (~3 ms fazla).
     """
-    MODEL         = os.environ.get("DOW_MODEL", "talon_v5")
+    # ⛔ `MODEL` BURADAN SİLİNDİ (2026-08-27, §5.12): ikinci bir model
+    #   varsayılanıydı ve `MODEL_YOLU` ile ÇELİŞİYORDU; ayrıntı dosya başında.
     # ⭐ FP16 AÇILDI (2026-08-25). ÖLÇÜLDÜ (talon_v3, 40 gerçek kare, oyun
     #   KAPALI, ayrı süreçlerde — `araclar/motor_olc.py`):
     #       .pt fp32   28.6 ms   (35.0 FPS)   <- eski varsayılan
@@ -207,7 +222,6 @@ class Dedektor:
         self.son_ms = 0.0                # §5.1 mekanizma: tarama süresi
         self.pencere_say = 0; self.tam_say = 0; self.iska_tam = 0
         self._fp16 = False               # modelin O ANKİ gerçek hassasiyeti
-        self._model_yuklu = os.path.splitext(os.path.basename(yol))[0]
 
     def isit(self, img):
         for iz in (IMGSZ_YAKIN, IMGSZ_UZAK):
@@ -221,22 +235,10 @@ class Dedektor:
         # kutu yoksa (son_w=0) DAİMA duyarlı kol
         return IMGSZ_YAKIN if self._son_w >= self.yakin_esik else IMGSZ_UZAK
 
-    def _model_uygula(self):
-        """DetCfg.MODEL değişmişse ağırlıkları YENİDEN YÜKLE.
-
-        NEDEN GEREKLİ: A/B kampanyasında iki modeli DÖNÜŞÜMLÜ koşmak şart
-        (§4) — bir modelin hepsini arka arkaya koşmak sim kaymasını kola
-        yazar. Model yalnız başlangıçta okunursa dönüşüm imkânsızdır.
-        ⚠ Yeniden yükleme predictor'ı sıfırlar; bu yüzden fp16 durumu da
-        sıfırlanır ve `_hassasiyet_uygula` bir sonraki karede yeniden
-        uygular.
-        """
-        istenen = str(DetCfg.MODEL)
-        if istenen == self._model_yuklu: return
-        from ultralytics import YOLO
-        self.m = YOLO("modeller/%s.pt" % istenen)
-        self._model_yuklu = istenen
-        self._isindi = False; self._fp16 = False; self._son_w = 0.0
+    # ⛔ `_model_uygula` BURADAN SİLİNDİ (2026-08-27, §5.12): MODEL20
+    #   kampanyasının dönüşümlü koşusu için yazılmış çalışma-anı model
+    #   değiştirme kapısıydı; kampanya bitti, elenen modeli sessizce geri
+    #   yüklüyordu. Model artık YALNIZ `__init__`'te seçilir.
 
     def _hassasiyet_uygula(self):
         """⛔ FP16 BAYRAĞINI GERÇEKTEN UYGULA — yoksa kol SAHTE kalır.
@@ -300,7 +302,6 @@ class Dedektor:
           son_pencere : bu karede kullanılan pencere kenarı (0 = tam kadraj)
           son_ms      : bu karenin toplam tarama süresi (ms)
         """
-        self._model_uygula()
         if not self._isindi: self.isit(img)
         self._hassasiyet_uygula()          # §5.1: bayrak GERÇEKTEN uygulansın
         t0 = time.perf_counter()
