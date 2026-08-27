@@ -495,15 +495,14 @@ function kipGoster(k){
     b.className = (ad===k) ? ('on '+snf) : '';
   }
 }
-async function ozellik(a){
-  const r=await (await fetch('/ozellik',{method:'POST',
-                 body:JSON.stringify({ad:a})})).json();
-  ozellikGoster(r.acik);
-}
+// ⚠ §0.1: panelde sınanan özellik YOK; düğme de yok. Yeni özellik
+//   eklenince bu iki işlev ona bağlanır (git tarihçesi: Ö-I / Ö-J).
+//   ⛔ ozellikGoster'in ESKİ hâli silinen düğmeyi arıyordu; düğme
+//      yokken getElementById null döner ve telemetri döngüsü ÇÖKERDİ.
 function ozellikGoster(v){
   const b=document.getElementById('o_hizli');
+  if(!b) return;                      // düğme yoksa sessizce geç
   b.className = v ? 'on v' : '';
-  b.textContent = v ? '🎯 Ö-J İNTEGRAL: AÇIK (0.8/s)' : '🎯 Ö-J İNTEGRAL: kapalı';
 }
 function fps(el,v,tav){
   document.getElementById(el).innerHTML =
