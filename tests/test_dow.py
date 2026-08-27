@@ -1598,3 +1598,66 @@ def test_B62_arka_yarikure_izdusum_kapisi():
         "170° yükseliş (dik=143.5°) ARKADA — None dönmeli"
 
 
+
+
+# ---------------------------------------------------------------- B61
+def test_B61_terminal_fren():
+    """⭐ Ö-L · TERMİNAL FREN — son metrelerde hız tavanını indir.
+
+    ÖLÇÜM GEREKÇESİ (182 geçiş, 58 koşu):
+      * ÖLÜMCÜL YARIÇAP 2.0 m, KESKİN — üstünde 86 geçişte SIFIR vuruş.
+      * İçeride vuruş oranı ~%50 ve yakınlıkla ARTMIYOR (%46/%51/%58).
+      * Hassasiyet tabanı: en yakın menzil p50 1.10 m; 58 koşudan 1'i
+        0.8 m altına inebilmiş.
+      * Tabanın kaynağı hesaplandı: τ = 1/K_V = 0.67 s, kapanma 4 m/s ->
+        son düzeltme 2.7 m'de DONAR, o menzildeki yanal hata ~0.83 m.
+        Ölçülen taban 0.9-1.3 m — model tutuyor.
+      * Ö-K bu modelin kanıtı: kapanma 12.6 m/s -> kaçırma 1.33 -> 8.67.
+
+    Bekçi:
+      1. VARSAYILAN (FREN_V == V_HUCUM) -> hız BİT BİT aynı, mekanizma 0.
+      2. Fren menzilinin İÇİNDE hız tavanı FREN_V'ye iner, sütun 1 olur.
+      3. Fren menzilinin DIŞINDA hiç dokunulmaz.
+      4. FREN_V saçma küçük verilse bile V_MIN korunur.
+    """
+    from dow.gudum import ibvs
+    C = ibvs.IbvsCfg
+    eski = (C.FREN_V, C.FREN_MENZIL)
+    # kutu boyutundan menzil: yakın = fren içi, uzak = fren dışı
+    b_yakin = ibvs.KAM.MENZIL_C / 4.0          # 4 m
+    b_uzak = ibvs.KAM.MENZIL_C / 30.0          # 30 m
+    ARG = dict(own_yaw_deg=0.0, own_pitch_deg=0.0, own_roll_deg=0.0)
+
+    def _c(w):
+        return ibvs.komut(960.0, 540.0, w, w * 0.8, ARG["own_yaw_deg"],
+                          ARG["own_pitch_deg"], ARG["own_roll_deg"], 0.0, 0.05)
+
+    try:
+        # --- 1) KAPALI: fren yok, mekanizma sütunu 0 ---
+        C.FREN_V = C.V_HUCUM
+        _, _, _, _, t0 = _c(b_yakin)
+        assert t0["ibvs_fren"] == 0, "varsayılan KAPALI olmalı"
+        assert abs(t0["ibvs_v"] - C.V_HUCUM) < 1e-9, \
+            "kapalıyken hız V_HUCUM'da kalmalı (%.3f)" % t0["ibvs_v"]
+
+        # --- 2) AÇIK + fren menzilinin İÇİNDE ---
+        C.FREN_V, C.FREN_MENZIL = 20.0, 6.0
+        _, _, _, _, t1 = _c(b_yakin)
+        assert t1["ibvs_fren"] == 1, "fren menzilinde mekanizma 1 olmalı"
+        assert abs(t1["ibvs_v"] - 20.0) < 1e-9, \
+            "fren menzilinde hız FREN_V olmalı (%.3f)" % t1["ibvs_v"]
+        assert t1["ibvs_v"] < t0["ibvs_v"], "fren hızı DÜŞÜRMELİ"
+
+        # --- 3) fren menzilinin DIŞINDA dokunulmaz ---
+        _, _, _, _, t2 = _c(b_uzak)
+        assert t2["ibvs_fren"] == 0, "fren menzili dışında mekanizma 0"
+        assert abs(t2["ibvs_v"] - C.V_HUCUM) < 1e-9, \
+            "fren menzili dışında hız V_HUCUM olmalı (%.3f)" % t2["ibvs_v"]
+
+        # --- 4) saçma küçük FREN_V V_MIN'in altına indirmemeli ---
+        C.FREN_V = 0.0
+        _, _, _, _, t3 = _c(b_yakin)
+        assert t3["ibvs_v"] >= C.V_MIN - 1e-9, \
+            "FREN_V sıfır olsa bile V_MIN korunmalı (%.3f)" % t3["ibvs_v"]
+    finally:
+        C.FREN_V, C.FREN_MENZIL = eski

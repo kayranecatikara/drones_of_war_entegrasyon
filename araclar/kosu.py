@@ -298,6 +298,7 @@ class CikarimKaydi:
                "bek_cx", "bek_cy", "bek_w",
                "yerel_aday", "yerel_uygun", "red_konum", "red_boyut",
                "terminal_kabul", "kesme", "ibvs_v", "olcum_hiz", "olcum_vz",
+               "fren",
                "iz_yas", "iz_w", "det_ms", "det_pencere",
                "takip_id", "takip_kaynak", "takip_coast", "takip_n",
                "menzil_m", "menzil3_m", "dz_m",
@@ -479,6 +480,7 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                   "terminal_kabul": cti.get("terminal_kabul"),
                   "kesme": cti.get("ibvs_kesme"),
                   # ⚠ ÖLÇÜM-ONLY: komut vs gerçekleşen hız, 20 Hz (§5.3)
+                  "fren": cti.get("ibvs_fren"),   # ⭐ Ö-L mekanizma
                   "ibvs_v": cti.get("ibvs_v"),
                   "olcum_hiz": cti.get("olcum_hiz"),
                   "olcum_vz": cti.get("olcum_vz"),
@@ -776,7 +778,8 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                       "iz_yas", "iz_w",
                       "takip_id", "takip_kaynak", "takip_coast", "takip_n",
                       "ibvs_nisan_elev", "ibvs_vz_kirpildi", "ibvs_e_cy",
-                      "ibvs_vz_yukari", "ibvs_v", "olcum_hiz", "olcum_vz"):
+                      "ibvs_vz_yukari", "ibvs_v", "olcum_hiz", "olcum_vz",
+                      "ibvs_fren"):
                 if k in ti: sat[k] = round(ti[k], 2) if isinstance(ti[k], float) else ti[k]
             if tespit:
                 sat.update({"vis_cx": round(tespit[0], 1), "vis_cy": round(tespit[1], 1),

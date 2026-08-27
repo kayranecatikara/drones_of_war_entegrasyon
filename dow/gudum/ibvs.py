@@ -83,6 +83,43 @@ def _kirp(x, lo, hi):
 class IbvsCfg:
     # --- hız yasası ---
     V_HUCUM       = 28.0    # m/s; hücum hızı tavanı (hedef 17.98 -> kapanma ~10)
+
+    # ⭐ Ö-L · TERMİNAL FREN — 2026-08-27
+    #
+    # ÖLÇÜLDÜ (182 geçiş, 58 koşu, yedi kampanya havuzu):
+    #   ÖLÜMCÜL YARIÇAP 2.0 m ve KESKİN — 2 m üstünde 86 geçişte SIFIR vuruş.
+    #   2 m'nin İÇİNDE vuruş oranı ~%50 ve YAKINLIKLA ARTMIYOR:
+    #       0.5-1.0 m %46  ·  1.0-1.5 m %51  ·  1.5-2.0 m %58
+    #   Ve 2 m içindeki geçişlerde vuran ile ıskalayanı ölçtüğüm HİÇBİR
+    #   büyüklük ayırmıyor (Rmin 1.30 vs 1.20, aspekt 25.5 vs 28.8,
+    #   kapanma 4.45 vs 4.19, hedef yatışı 26 vs 31.5). Tek fark: son
+    #   0.7 s tespit %80 vs %67. Yani içerideki yazı-tura simülatörün
+    #   gövde çarpışma geometrisinde; kesin vuruş için gövdenin İÇİNE
+    #   girmek (~0.5 m altı) gerekir.
+    #
+    # HASSASİYET TABANI (58 koşu): en yakın menzil p25 1.00 · p50 1.10 ·
+    #   p75 1.30 m. Yalnız 1 koşu 0.8 m altına inebilmiş.
+    #
+    # TABANIN KAYNAĞI — hesaplandı ve ölçümle tuttu:
+    #     τ = 1/CevCfg.K_V = 1/1.5 = 0.67 s        (hız döngüsü)
+    #     kapanma ~4 m/s  ->  son etkili düzeltme  0.67×4 ≈ 2.7 m'de DONAR
+    #     o menzildeki yanal hata  ≈ 3 × 150/540 ≈ 0.83 m
+    #   Ölçülen taban 0.9-1.3 m. MODEL TUTUYOR.
+    #
+    # Ö-K BU MODELİN KANITI: tavanı 40'a çıkarınca kapanma 12.6 m/s oldu,
+    #   son düzeltme 8.4 m'de dondu ve kaçırma 1.33 -> 8.67 fırladı.
+    #   SİMETRİK ÖNGÖRÜ: terminalde YAVAŞLAMAK son düzeltmeyi 1.35 m'ye
+    #   çeker ve donmuş hatayı YARIYA indirir.
+    #
+    # YASA: R <= FREN_MENZIL iken hız tavanı FREN_V'ye iner.
+    #   Hedef ~18 m/s; FREN_V=20 -> kapanma 2 m/s (hâlâ kapanıyoruz).
+    #
+    # ⚠ RİSK: çok yavaşlarsak hedef kaçar. Bu yüzden FREN_V hedef hızının
+    #   ÜSTÜNDE tutulur ve fren YALNIZ son metrelerde açılır.
+    # ⚠ FREN_V = V_HUCUM varsayılan -> kırpma değişmez, BİT BİT aynı (B61).
+    #   Açma: DOW_FREN_V=20 DOW_FREN_M=6
+    FREN_V        = _fi("DOW_FREN_V", 28.0)   # m/s; terminal hız tavanı
+    FREN_MENZIL   = _fi("DOW_FREN_M", 6.0)    # m; bu menzilin altında fren
     V_MIN         = 0.0     # m/s; asla geri gitme
     HUCUM_MENZIL_M= 1.0     # m; PI'nın sıfır noktası = TEMAS menzili.
                             # "Şu menzilde dur" noktası YOK -> hata hep pozitif
@@ -432,6 +469,15 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     hiz_I = _kirp(hiz_I + cfg.K_I * hata_px * dt, -cfg.I_MAX, cfg.I_MAX)
     v_istek = cfg.K_FWD * hata_px + hiz_I
     v = _kirp(v_istek, cfg.V_MIN, cfg.V_HUCUM)
+    # ⭐ Ö-L TERMİNAL FREN (bkz. IbvsCfg.FREN_V).
+    #   FREN_V >= V_HUCUM iken tavan değişmez -> BİT BİT aynı.
+    _fren = 0
+    if cfg.FREN_V < cfg.V_HUCUM and R is not None and R <= cfg.FREN_MENZIL:
+        _tavan = max(cfg.FREN_V, cfg.V_MIN)
+        if v > _tavan:
+            v = _tavan
+        _fren = 1
+    tani["ibvs_fren"] = _fren                  # §5.1 MEKANİZMA SÜTUNU
 
     # ⭐ Ö-G DÖNÜŞTE YAVAŞLA (bkz. IbvsCfg.YAVASLA_TABAN).
     #   YAVASLA_TABAN=1.0 iken kesme=1.0 ve yasa BİT BİT bugünküyle aynı.

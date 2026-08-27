@@ -442,8 +442,10 @@ body{margin:0;background:var(--bg);color:var(--y);
     <button id=k_gps    onclick="kip('gps')">GPS</button>
     <button id=k_gorsel onclick="kip('gorsel')">Görsel</button>
   </div>
-  <!-- ⚠ §0.1: panelde AYNI ANDA EN FAZLA BİR yeni özellik durur ve
-       kararı verilince düğmesi SİLİNİR. Şu an sınanan özellik YOK. -->
+  <!-- ⚠ §0.1: panelde AYNI ANDA EN FAZLA BİR yeni özellik durur. -->
+  <div class=kip>
+    <button id=o_hizli onclick="ozellik('fren')">🛑 Ö-L TERMİNAL FREN</button>
+  </div>
   <div class=fps>
     <div><b id=f1>—</b><span>yakalama</span></div>
     <div><b id=f2>—</b><span>dedektör</span></div>
@@ -497,12 +499,16 @@ function kipGoster(k){
 //   eklenince bu iki işlev ona bağlanır (git tarihçesi: Ö-I / Ö-J).
 //   ⛔ ozellikGoster'in ESKİ hâli silinen düğmeyi arıyordu; düğme
 //      yokken getElementById null döner ve telemetri döngüsü ÇÖKERDİ.
-// ⚠ §0.1: panelde sınanan özellik YOK; düğme de yok. Yeni özellik
-//   eklenince bu işlev ona bağlanır (git tarihçesi: Ö-I / Ö-J / Ö-K).
+async function ozellik(a){
+  const r=await (await fetch('/ozellik',{method:'POST',
+                 body:JSON.stringify({ad:a})})).json();
+  ozellikGoster(r.acik);
+}
 function ozellikGoster(v){
   const b=document.getElementById('o_hizli');
   if(!b) return;                      // düğme yoksa sessizce geç
   b.className = v ? 'on v' : '';
+  b.textContent = v ? '🛑 Ö-L FREN: AÇIK (20 m/s @6 m)' : '🛑 Ö-L FREN: kapalı';
 }
 function fps(el,v,tav){
   document.getElementById(el).innerHTML =
@@ -778,16 +784,24 @@ class _H(BaseHTTPRequestHandler):
                              "application/json", 400)
             return
         if self.path == "/ozellik":
-            # ⚠ §0.1: şu an panelde sınanan özellik YOK (Ö-I, Ö-J, Ö-K
-            #   elendi). Yeni özellik eklenince bu uç ona bağlanır.
+            # 🛑 Ö-L TERMİNAL FREN — son 6 m'de hız tavanı 20 m/s'ye iner.
+            #   Gerekçe: son etkili düzeltme τ·kapanma menzilinde DONAR
+            #   (0.67 s × 4 m/s ≈ 2.7 m). Yavaşlayınca 1.35 m'ye iner ve
+            #   donmuş yanal hata yarıya düşer. Canlı açılır/kapanır (§6).
+            n = int(self.headers.get("Content-Length", 0))
             try:
-                n = int(self.headers.get("Content-Length", 0))
                 self.rfile.read(n)
-            except Exception:
-                pass
-            self._gonder(json.dumps({"ok": False,
-                                     "hata": "sınanan özellik yok"}).encode(),
-                         "application/json", 400)
+                from dow.gudum.ibvs import IbvsCfg
+                acik = IbvsCfg.FREN_V >= IbvsCfg.V_HUCUM
+                IbvsCfg.FREN_V = 20.0 if acik else IbvsCfg.V_HUCUM
+                telem_yaz({"_hizli": int(acik)})
+                print("[panel] Ö-L TERMİNAL FREN -> %s"
+                      % ("AÇIK 20 m/s" if acik else "kapalı"), flush=True)
+                self._gonder(json.dumps({"ok": True, "acik": int(acik)}).encode(),
+                             "application/json")
+            except Exception as e:
+                self._gonder(json.dumps({"ok": False, "hata": str(e)}).encode(),
+                             "application/json", 400)
             return
         if self.path != "/telem":
             self.send_response(404); self.send_header("Content-Length", "0")
