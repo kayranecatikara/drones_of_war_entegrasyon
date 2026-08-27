@@ -150,14 +150,6 @@ class Ayar:
     ISTASYON_KP     = _f("DOW_IST_KP", 0.9)         # 1/s; konum hatası -> hız
     ISTASYON_KP_Z   = _f("DOW_IST_KPZ", 0.9)
     ISTASYON_ILERI  = _b("DOW_IST_ILERI", True)     # hedef hızı ileri besle
-    # ⭐ SEVİYE SEYİR (2026-08-27, ölçüldü hiz_probe + test1 uçuş incelemesi):
-    #   Bu oyunda seyirde thr=-1 (istasyonun alt irtifasına agresif iniş) hem
-    #   TIRMANDIRIYOR hem İLERİ HIZI ÖLDÜRÜYOR — mission'da drone ~5 m/s'de
-    #   sürünüp 12-17 m/s hedefi yakalayamıyor. Probe: thr~0 (seviye) + pitch 0.6
-    #   -> 18 m/s. Bu yüzden SEYİRDE iniş NAZİK sınırlanır (thr HOVER'a yakın
-    #   kalır, ileri hız öncelikli); asıl iniş/dalış görsel/terminal fazda olur.
-    #   0 = kapalı (eski davranış). Env ile ince ayar.
-    ISTASYON_SEYIR_ALCAL_MAX = _f("DOW_IST_SEYIR_ALCAL", 1.0)  # m/s; seyirde max iniş
     # ⛔ ISTASYON_DONUS_ILERI ÇIKARILDI (2026-08-23) — ölçüldü, elendi.
     #    Ayrıntı ve sayılar: dow/gudum/gps.py başındaki not.
     V_MAX           = _f("DOW_V_MAX", 33.0)         # m/s (araç 34.6 yapabiliyor)

@@ -141,13 +141,6 @@ def komut(drone_p, drone_yaw_deg, hedef_p, hedef_v, hedef_yon_deg, cfg=Ayar):
         vx *= cfg.V_MAX / n; vy *= cfg.V_MAX / n
 
     vz_yukari = ff_z + cfg.ISTASYON_KP_Z * ez
-    # ⭐ SEVİYE SEYİR: agresif iniş (thr=-1) bu oyunda tırmandırıp ileri hızı
-    #   öldürüyor (bkz. ayarlar.ISTASYON_SEYIR_ALCAL_MAX). Seyirde inişi nazik
-    #   sınırla -> thr HOVER'a yakın kalır -> drone ~18 m/s ileri gider ve hedefi
-    #   yakalar. Asıl iniş/dalış görsel/terminal fazda olur. 0 = kapalı.
-    _alcal_max = getattr(cfg, "ISTASYON_SEYIR_ALCAL_MAX", 0.0)
-    if _alcal_max > 0.0 and vz_yukari < -_alcal_max:
-        vz_yukari = -_alcal_max
     vz_yukari = _kirp(vz_yukari, -cfg.VZ_MAX_ALCAL, cfg.VZ_MAX_TIRMAN)
 
     # BURUN: her zaman HEDEFE dönük (kamera hedefe baksın ki görsel devir
