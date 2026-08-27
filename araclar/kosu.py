@@ -313,7 +313,13 @@ class CikarimKaydi:
     ⚠ ÖLÇÜM-ONLY: truth sütunları (bek_*) analiz içindir, güdüme GİRMEZ.
     """
     ALANLAR = ["t", "kare_t", "basarili", "durum",
-               "vis_cx", "vis_cy", "vis_w", "vis_conf",
+               # ⭐ `vis_h` EKLENDİ (2026-08-27): kutu YÜKSEKLİĞİ olmadan
+               #   "kutu boyutu gerçek menzille tutarlı mı" çaprazlaması
+               #   YAPILAMIYOR. Güdüm `max(w,h)` kullanıyor; yalnız genişlikle
+               #   bakınca hedef YATIKKEN sahte bir sapma çıkıyor ve iki kez
+               #   (2026-08-26 ve 08-27) bu yüzden hüküm kurulamadı.
+               #   ⛔ ÖLÇÜM-ONLY: yeni sütun, hiçbir güdüm kodu okumuyor.
+               "vis_cx", "vis_cy", "vis_w", "vis_h", "vis_conf",
                "bek_cx", "bek_cy", "bek_w",
                "yerel_aday", "yerel_uygun", "red_konum", "red_boyut",
                "terminal_kabul", "kesme", "ibvs_v", "olcum_hiz", "olcum_vz",
@@ -513,6 +519,7 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                 _c.update({"vis_cx": round(ctespit[0], 1),
                            "vis_cy": round(ctespit[1], 1),
                            "vis_w": round(ctespit[2], 1),
+                           "vis_h": round(ctespit[3], 1),
                            "vis_conf": round(ctespit[4], 3)})
             _bg = _gecmis_beklenen(_halka, ckare_t if ckare_t else ct)
             if _bg:
