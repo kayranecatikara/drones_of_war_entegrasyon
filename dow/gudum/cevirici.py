@@ -101,7 +101,10 @@ class CevCfg:
     #   Alçalmak için BURUN AŞAĞI (pit-) gerek: pit-0.6+thr-1 -> -1.1 m/s.
     #   Ölçülen eğim ~6 (m/s)/pitch -> alçalma komutu (vz<0) pitch'e nose-down
     #   bias olarak eklenir. thr modeli KORUNUR (tamamlayıcı). 0 = kapalı.
-    K_DIKEY_PITCH = float(os.environ.get("DOW_K_DIKEY_PITCH", "0.16"))  # pitch / (m/s)
+    # CANLI AYAR (2026-08-27): 0.16 irtifayı tuttu ama ileriyi KESTİ (pitch
+    #   nose-down -> forward yok). 0.08 dengeli: irtifa sınırlı (~90m, hedef 86m)
+    #   VE ileri hareket korunuyor (pitch +0.24). Env ile ince ayar yapılabilir.
+    K_DIKEY_PITCH = float(os.environ.get("DOW_K_DIKEY_PITCH", "0.08"))  # pitch / (m/s)
 
     # --- YAW ---
     # Araç 214 °/s yapabiliyor AMA hızlı yaw görüntüyü bulandırıp dedektörü
