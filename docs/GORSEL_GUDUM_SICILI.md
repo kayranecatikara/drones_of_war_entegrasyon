@@ -516,3 +516,36 @@ kutu bayatlığı (terminalde ~0 s), dönüş tavanı (%2 aşım), yerellik
 kapısı (<10 m'de 12 kare), dikey kanal, hız döngüsü, hedef manevrası
 (LOS dönüşü iyi/kötü koşuda AYNI), aracın hızı (artırmak 6.5 kat
 kötüleştirdi), nişan yanlılığı (düzeltmek regresyon üretti).
+
+## ⭐⭐ GÖRSEL MENZİL KALİBRASYONU — bütün menzil kapılarını etkiliyor
+
+Güdüm menzili KUTU BOYUTUNDAN kestirir: `R = MENZIL_C / boyut`, C = 997.
+Bu kestirim gerçekle kıyaslandı (3100+ taze kutu, dört kampanya):
+
+| gerçek menzil | görsel tahmin | oran | kutu medyan |
+|---|---|---|---|
+| 0-3 m | 3.0 m | 1.39 | 331 px |
+| **3-6 m** | **9.3 m** | **2.04** | 107 px |
+| 6-12 m | 12.3 m | 1.28 | 81 px |
+| 12-25 m | 16.3 m | 1.12 | 61 px |
+| 25-50 m | 41.5 m | 1.27 | 24 px |
+
+**Her yerde UZAK görüyor, en kötüsü 3-6 m bandında (iki kat)** — yani tam
+terminal kararların verildiği yerde.
+
+**Sebep:** terminalde hedef 26-31° YATIK. Yatık uçağın kutusu daralır,
+`R = C/kutu` olduğu için menzil ŞİŞER. (C = 997, düz uçan hedefin
+kutusuna göre kalibre edilmiş.)
+
+**Etkisi:** menzile bağlı HER kapı sandığımızdan farklı yerde açılıyor:
+* Ö-L freni `FREN_MENZIL=6` ile 11 geçişin HİÇBİRİNDE ateşlemedi
+  (§5.1 kapısı yakaladı, kampanya geçersiz sayıldı ve tekrarlandı).
+* Ö-I'nın %0.78-1.08 aktiflikte kalması da bununla açıklanıyor.
+* Ö-A terminal süreklilik istisnası ve `MENZIL_MIN_M` reddi de aynı
+  sapmadan etkileniyor.
+
+⚠ AÇIK BORÇ: doğrusu menzil kestirimini yatıştan bağımsız hâle getirmek
+   (ör. kutu ALANI ya da yükseklik ekseni). Bu güdüm davranışını her
+   fazda değiştirir — ayrı karar, ayrı regresyon (§5.10).
+   Şimdilik menzil kapıları GÖRSEL birimde ayarlanıyor ve bu her
+   özelliğin başlığında açıkça yazılıyor.

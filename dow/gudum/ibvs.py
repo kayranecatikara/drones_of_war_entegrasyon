@@ -130,7 +130,20 @@ class IbvsCfg:
     # ⚠ FREN_V = V_HUCUM varsayılan -> kırpma değişmez, BİT BİT aynı (B61).
     #   Açma: DOW_FREN_V=20 DOW_FREN_M=6
     FREN_V        = _fi("DOW_FREN_V", 28.0)   # m/s; terminal hız tavanı
-    FREN_MENZIL   = _fi("DOW_FREN_M", 6.0)    # m; bu menzilin altında fren
+    # ⛔⛔ FREN_MENZIL GÖRSEL MENZİL BİRİMİNDEDİR, GERÇEK MENZİL DEĞİL.
+    #   Güdüm menzili KUTU BOYUTUNDAN kestirir (R = MENZIL_C/boyut) ve bu
+    #   kestirim ÖLÇÜLDÜ, HER YERDE UZAK GÖRÜYOR:
+    #       gerçek 0-3 m   -> görsel 3.0 m   (oran 1.39)
+    #       gerçek 3-6 m   -> görsel 9.3 m   (oran 2.04)  <- EN KÖTÜ
+    #       gerçek 6-12 m  -> görsel 12.3 m  (oran 1.28)
+    #       gerçek 12-25 m -> görsel 16.3 m  (oran 1.12)
+    #   SEBEP: terminalde hedef 26-31° YATIK; yatık uçağın kutusu daralır,
+    #   R = C/kutu olduğu için menzil ŞİŞER. En kötü bant tam da terminal
+    #   kararların verildiği yer.
+    #   YAŞANDI: FREN_MENZIL=6 ile fren 11 geçişin HİÇBİRİNDE ateşlemedi
+    #   (§5.1 kapısı yakaladı, kampanya geçersiz sayıldı).
+    #   ~6 m GERÇEK menzil, görselde ~12 m'ye denk gelir.
+    FREN_MENZIL   = _fi("DOW_FREN_M", 12.0)   # GÖRSEL m; altında fren
     V_MIN         = 0.0     # m/s; asla geri gitme
     HUCUM_MENZIL_M= 1.0     # m; PI'nın sıfır noktası = TEMAS menzili.
                             # "Şu menzilde dur" noktası YOK -> hata hep pozitif
