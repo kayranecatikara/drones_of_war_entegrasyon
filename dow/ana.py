@@ -494,11 +494,17 @@ class Beyin:
         # kamera kapısının yerine FSM'in kilit-geometrisi tabanlı geçişi geçti.
         _gorsel_fsm = self._fsm_state in (
             State.DETECT, State.TRACK_LOCK, State.ENGAGE, State.STRIKE)
+        # ⭐ FALLBACK: FSM anlık kilidi (merkez+%6) GPS yaklaşmasında hedef
+        #   merkezde olmayınca tetiklenmeyebilir -> drone GÖRSEL'e hiç girmez,
+        #   saldırmaz. Eski DEVIR_KARE (ardışık tespit) kapısı görsel saldırıyı
+        #   GARANTİLER: tespit varsa görsele geç, IBVS merkeze alsın, çarpsın.
+        _gorsel_devir = (self._cikarim_yapildi and self._kilit >= self.cfg.DEVIR_KARE)
         if self.cfg.GORSEL_AKTIF:
-            if (_gorsel_fsm and kip != "gps"
+            if ((_gorsel_fsm or _gorsel_devir) and kip != "gps"
                     and self.durum not in ("KALKIS", "GORSEL")):
                 self.durum = "GORSEL"; self.hiz_I = 0.0
-            elif (kip == "hibrit" and not _gorsel_fsm
+            elif (kip == "hibrit" and not _gorsel_fsm and not _gorsel_devir
+                    and self._kayip >= self.cfg.KAYIP_KARE
                     and self.durum == "GORSEL"):
                 self.durum = "ISTASYON"
                 # GÖRÜŞ KİLİDİ: kontrol ipliği; kilitsiz sıfırlamak takipçiyi bozar.

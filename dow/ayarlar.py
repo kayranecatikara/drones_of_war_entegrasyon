@@ -172,14 +172,17 @@ class Ayar:
     DEVIR_KARE      = int(_f("DOW_DEVIR_KARE", 10))   # ardışık TESPİT -> görsel
     KAYIP_KARE      = int(_f("DOW_KAYIP_KARE", 20))   # ardışık TESPİTSİZ -> GPS
 
-    # ================= ANGAJMAN KAPISI (kullanıcı 2026-08-26) =================
-    # "Yaklaşsın ama çarpmasın": görsel takipte drone TAM HIZLA, kaplama %6'dan
-    # temasa kadar SÜREKLİ yaklaşır (hız KISILMAZ, standoff YOK); kilit KÜMÜLATİF
-    # 5 sn dolana kadar yalnız son fiziksel TEMASI bekletir (temas kenarında
-    # TEMAS_MENZIL_M tutunur), izin gelince son adımı ÇARPAR. Kilit süresi 10 sn
-    # pencereden panel.angajman_izin() ile hesaplanır; kosu.py her tikte
-    # beyin.angajman_izin'e yazar. KAPALIYKEN: görsel temas -> doğrudan çarpma.
-    ANGAJMAN_KAPI   = _b("DOW_ANGAJMAN_KAPI", True)
+    # ================= ANGAJMAN KAPISI =================
+    # ⛔ VARSAYILAN KAPALI (2026-08-27): AÇIKKEN drone'u TEMAS kenarında (2 m)
+    #   bekletiyordu ama orada hedef kadrajı doldurup MERKEZ AV'den çıkınca kilit
+    #   BİRİKMİYOR -> STRIKE hiç gelmiyor -> DEADLOCK (drone sonsuza dek tutunur,
+    #   ÇARPAMAZ). Şartname 6.1.3: "ANGAJMAN'da merkez/%5 aranmaz" — yakında bu
+    #   kriter bozulur. Bu yüzden fiziksel çarpma kiliti BEKLEMEZ: drone yaklaşıp
+    #   ÇARPAR (Talon otomatik uçuşta da). Kilit/kırmızı dörtgen/kümülatif süre
+    #   YİNE hesaplanır (FSM + panel: puanlama/hakem paketi) ama çarpmayı ENGELLEMEZ.
+    #   AÇIK (=1) istenirse: kilit temas ÖNCESİ birikecek şekilde menzil-tutucu
+    #   (hamidiyesim) taşınmalı; şu anki sert temas-kenarı tutma DEADLOCK yapar.
+    ANGAJMAN_KAPI   = _b("DOW_ANGAJMAN_KAPI", False)
 
     # ================= ⛔ GELİŞTİRME DEVİR KAPISI — YARIŞMADA KULLANILAMAZ ==
     # Kullanıcı kararı (2026-08-22), gerekçesiyle:
