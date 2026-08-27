@@ -72,6 +72,17 @@
   .pfill{height:100%;width:0;background:var(--accent);transition:width .2s}
   .kSay{font-size:13px;color:var(--muted)}
   .kSay b{color:var(--text);font-family:Consolas,monospace;font-size:15px}
+  /* Kayan 10 sn penceresi: kümülatif 5 sn'nin NASIL dolduğunu gösterir.
+     Sağ kenar = ŞİMDİ. Dolu dilim = o anda kilitliydi. */
+  #kilitSerit{display:flex;gap:1px;height:16px;width:200px;flex:0 0 auto;
+              padding:2px;background:#0a0e14;border:1px solid var(--border);
+              border-radius:4px;overflow:hidden}
+  #kilitSerit i{flex:1;border-radius:1px;background:#1b2331}   /* -1 veri yok */
+  #kilitSerit i.k0{background:#2a3446}                          /* kilitsiz */
+  #kilitSerit i.k1{background:var(--accent)}                    /* KİLİT */
+  .rozet{font-size:11px;font-weight:700;letter-spacing:.4px;padding:3px 8px;
+         border-radius:4px;border:1px solid var(--border);color:var(--muted)}
+  .rozet.ac{border-color:var(--accent);color:var(--accent);background:#0d2a20}
 
   /* --- gövde --- */
   main{display:grid;grid-template-columns:220px 1fr 250px;min-height:0}
@@ -213,7 +224,10 @@
   <span id="kilitMetin">KİLİT YOK</span>
   <div class="pbar"><div class="pfill" id="kilitFill"></div></div>
   <span class="kSay"><b id="kilitSure">0.0</b> / 5.0 s</span>
+  <div id="kilitSerit" title="Kayan 10 sn penceresi — sağ kenar ŞİMDİ. Dolu dilim = kilitliydi."></div>
+  <span class="kSay">kesintisiz <b id="kilitKes">0.0</b> s</span>
   <span class="kSay" id="kilitDetay">boyut — · merkez —</span>
+  <span class="rozet" id="kilitRozet">KAPI KAPALI</span>
 </div>
 
 <main>
@@ -583,6 +597,28 @@ async function tik(){
       "boyut " + (kl.kaplama_pct!=null ? kl.kaplama_pct.toFixed(1)+"%" : "—")
       + " / 6% · merkez " + (kl.av ? "içinde ✓" : "dışında ✗");
 
+    // ---- kayan 10 sn penceresi ----
+    //   Kümülatif sayı 5 sn'ye NASIL vardığını söylemiyor (kesikli birikebilir,
+    //   şartname 6.1.4 buna izin veriyor). Şerit onu gösterir: sağ kenar ŞİMDİ,
+    //   sola doğru 10 sn geriye. Dolu dilim = o dilimde kilit vardı.
+    const sr = kl.serit || [];
+    const el = $("kilitSerit");
+    if(sr.length){
+      if(el.childElementCount !== sr.length){
+        el.innerHTML = Array(sr.length).fill("<i></i>").join("");
+      }
+      const hh = el.children;
+      for(let i=0;i<sr.length;i++)
+        hh[i].className = sr[i]===1 ? "k1" : (sr[i]===0 ? "k0" : "");
+    }
+    $("kilitKes").textContent = (kl.kesintisiz||0).toFixed(1);
+    // Kapı KAPALIYKEN (varsayılan) kilit yalnız PUANLAMA sinyali — çarpmayı
+    // engellemez. Operatör hangi kipte olduğunu görmeli.
+    const rz = $("kilitRozet");
+    rz.textContent = !kl.kapi_acik ? "KAPI KAPALI · kilit = puan"
+                                   : (kl.izin ? "ANGAJMAN SERBEST" : "ANGAJMAN BEKLİYOR");
+    rz.className = "rozet" + ((kl.kapi_acik && kl.izin) ? " ac" : "");
+
     const p = (t.gorsel && t.gorsel.perf) || {};
     // Kaynak kapısı: sunucu kareyi HUD imzasıyla sınıyor. ok=false ise
     // yayın DONDURULDU (son iyi kare duruyor) — operatör bunu bilmeli.
@@ -598,7 +634,7 @@ async function tik(){
     $("bagYazi").textContent = "sunucu kapalı";
   }
 }
-setInterval(tik, 400); tik();
+setInterval(tik, 150); tik();   // 400 ms, 5 sn'lik kilit penceresi için fazla kaba
 
 // ===========================================================================
 //  HEDEF İHA (Talon) ELLE KONTROL — iki sanal joystick + klavye

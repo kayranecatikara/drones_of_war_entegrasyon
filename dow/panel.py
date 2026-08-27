@@ -162,7 +162,15 @@ def _api_telemetry():
                   "sure": kl_s, "gerek": KILIT_GEREK, "pencere": KILIT_WIN_S,
                   "ok": kl_s >= KILIT_GEREK, "esik_pct": KILIT_PCT,
                   "kaplama_pct": g("kilit_kaplama", 0.0),
-                  "av": bool(g("kilit_av", 0))},
+                  "av": bool(g("kilit_av", 0)),
+                  # ⭐ 2026-08-27: birikmenin GÖRÜNÜR hali. `serit` kayan 10 sn
+                  #   penceresi (arayüz çizer), `kesintisiz` yalnız bilgi
+                  #   (kapıda DEĞİL, bkz. angajman_izin), `izin` = kapı sonucu.
+                  "kesintisiz": round(float(g("kilit_kesintisiz_s", 0.0) or 0.0), 2),
+                  "kesintisiz_gerek": KILIT_KESINTISIZ_GEREK,
+                  "izin": bool(g("angajman_izin", 0)),
+                  "kapi_acik": bool(Ayar.ANGAJMAN_KAPI),
+                  "serit": _kilit_serit()},
         "serit": serit, "ham_tespit_oran": oran,
     }
 
@@ -253,6 +261,32 @@ def _kilit_kesintisiz_max():
             streak = 0.0                     # kilitsiz ya da donma -> KESİNTİ
         onceki = t
     return en_uzun
+
+
+def _kilit_serit(n=60):
+    """Son KILIT_WIN_S saniyeyi n dilime bölüp her dilimin kilit durumunu döner.
+
+    ⭐ 2026-08-27, kullanıcı isteği: kümülatif sürenin NASIL dolduğu (kesikli
+      mi, nerede koptu) tek sayıdan okunmuyor. Arayüz bu şeridi çizince
+      birikme görünür hale geliyor. Pencere KAYAR: en yeni dilim en sağda.
+    Değerler: 1 = dilimde kilit vardı · 0 = kare vardı ama kilit yoktu ·
+              -1 = dilimde HİÇ kare yok (yayın donması / uçuş yok)."""
+    serit = [-1] * n
+    if not _kilit_pencere:
+        return serit
+    simdi = _kilit_pencere[-1][0]
+    dilim = KILIT_WIN_S / n
+    for t, k in _kilit_pencere:
+        yas = simdi - t
+        if yas < 0.0 or yas > KILIT_WIN_S:
+            continue
+        i = n - 1 - int(yas / dilim)
+        i = 0 if i < 0 else (n - 1 if i >= n else i)
+        if k:
+            serit[i] = 1
+        elif serit[i] != 1:
+            serit[i] = 0
+    return serit
 
 
 def angajman_izin():
