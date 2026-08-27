@@ -507,6 +507,16 @@ class Beyin:
                 cx, cy, w, h, own_yaw, own_pitch, own_roll, self.hiz_I, dt,
                 own_vz=v_olculen[2])      # Unreal Z yukarı; KENDİ hızımız
             self.tani.update(ti)
+            # ⚠ ÖLÇÜM-ONLY (2026-08-27): görsel fazda araç düz uçuşta
+            #   22.1 m/s, istasyon fazında 25.6 m/s ölçüldü — aynı araç,
+            #   aynı düz uçuş, 4 m/s fark. Kapanma bütçesi zaten ~4 m/s
+            #   olduğu için bu açık kritik. Sebebi bulmak için KOMUT ile
+            #   GERÇEKLEŞENİ 20 Hz'te yan yana loglamak şart; `ibvs_v` hiç
+            #   loglanmıyordu ve meta.csv 1 Hz olduğu için §5.3'ü ihlal
+            #   ediyordu. Güdüme HİÇBİR etkisi yok, yalnız CSV.
+            self.tani["olcum_hiz"] = round(
+                math.hypot(v_olculen[0], v_olculen[1]), 2)
+            self.tani["olcum_vz"] = round(v_olculen[2], 2)
             e = (yaw_hedef - own_yaw + 180.0) % 360.0 - 180.0
             _tv = self.cfg.YAW_RATE_MAX
             yaw_rate = max(-_tv, min(_tv, 3.0 * e))

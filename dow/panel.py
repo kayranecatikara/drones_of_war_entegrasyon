@@ -442,9 +442,10 @@ body{margin:0;background:var(--bg);color:var(--y);
     <button id=k_gps    onclick="kip('gps')">GPS</button>
     <button id=k_gorsel onclick="kip('gorsel')">Görsel</button>
   </div>
-  <div class=kip>
-    <button id=o_hizli onclick="ozellik('term_i')">🎯 Ö-J TERMİNAL İNTEGRAL</button>
-  </div>
+  <!-- ⚠ §0.1: panelde AYNI ANDA EN FAZLA BİR yeni özellik durur ve
+       kararı verilince düğmesi SİLİNİR. Şu an sınanan özellik YOK
+       (Ö-I ve Ö-J elendi, §5.12 ile tamamen çıkarıldı). Yeni özellik
+       eklenince düğmesi buraya, /ozellik ucu da aşağıya konur. -->
   <div class=fps>
     <div><b id=f1>—</b><span>yakalama</span></div>
     <div><b id=f2>—</b><span>dedektör</span></div>
@@ -778,23 +779,16 @@ class _H(BaseHTTPRequestHandler):
                              "application/json", 400)
             return
         if self.path == "/ozellik":
-            # 🎯 Ö-J TERMİNAL KERTERİZ İNTEGRALİ — son 12 m'de kalıcı
-            #   nişan yanlılığını kapatır. Uçuş sırasında canlı açılır/
-            #   kapanır (§6). Kampanya A/B'si env + tam restart (§4).
-            n = int(self.headers.get("Content-Length", 0))
+            # ⚠ §0.1: şu an panelde sınanan özellik YOK. Yeni özellik
+            #   eklenince bu uç ona bağlanır (bkz. git tarihçesi: Ö-I/Ö-J).
             try:
+                n = int(self.headers.get("Content-Length", 0))
                 self.rfile.read(n)
-                from dow.gudum.ibvs import IbvsCfg
-                acik = IbvsCfg.TERM_I_KI <= 0.0
-                IbvsCfg.TERM_I_KI = 0.8 if acik else 0.0
-                telem_yaz({"_hizli": int(acik)})
-                print("[panel] Ö-J TERMİNAL İNTEGRAL -> %s"
-                      % ("AÇIK 0.8/s" if acik else "kapalı"), flush=True)
-                self._gonder(json.dumps({"ok": True, "acik": int(acik)}).encode(),
-                             "application/json")
-            except Exception as e:
-                self._gonder(json.dumps({"ok": False, "hata": str(e)}).encode(),
-                             "application/json", 400)
+            except Exception:
+                pass
+            self._gonder(json.dumps({"ok": False,
+                                     "hata": "sınanan özellik yok"}).encode(),
+                         "application/json", 400)
             return
         if self.path != "/telem":
             self.send_response(404); self.send_header("Content-Length", "0")
