@@ -340,6 +340,12 @@ def kare_koy(img_rgb, tespit=None, telem=None, kalite=62, olcek=0.5):
         zoom = None
         odak = None
 
+        # ⭐ SARI AV KUTUSU (şartname 6.1.4 Şekil 2) — SABİT kilit bölgesi:
+        #   hedefin MERKEZİ bu kutunun içinde olmalı. Sabit olduğu için titremez.
+        cv2.rectangle(im, (int(KILIT_AV_X * ww), int(KILIT_AV_Y * hh)),
+                      (int((1 - KILIT_AV_X) * ww), int((1 - KILIT_AV_Y) * hh)),
+                      (0, 255, 255), 1)                       # SARI (BGR)
+
         if tespit is not None:
             cx, cy, w, h = [v * o for v in tespit[:4]]
             conf = tespit[4]
@@ -376,6 +382,12 @@ def kare_koy(img_rgb, tespit=None, telem=None, kalite=62, olcek=0.5):
             _K["telem"]["kilit_simdi"] = int(_kl)
             _K["telem"]["kilit_av"] = int(_av)
             _K["telem"]["kilit_kaplama"] = round(_kap, 2)
+            # ⭐ KIRMIZI KİLİT DÖRTGENİ (şartname 6.1.4: #FF0000, çizgi ≤3 px) —
+            #   anlık kilit VARKEN (merkez AV içinde + kaplama %6) hedef kutusuna.
+            #   Videoya GÖMÜLÜ (30 Hz senkron, hakem videosu doğru). Kilit yoksa
+            #   çizilmez (kaybolur).
+            if _kl:
+                cv2.rectangle(im, (x1, y1), (x2, y2), (0, 0, 255), 3)   # KIRMIZI
             _izin, _kum, _kes = angajman_izin()
             _K["telem"]["kilit_pencere_s"] = round(_kum, 2)       # kümülatif
             _K["telem"]["kilit_kesintisiz_s"] = round(_kes, 2)    # en uzun aralıksız
