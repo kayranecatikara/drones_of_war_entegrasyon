@@ -1618,3 +1618,48 @@ def test_B61_terminal_guven_istisnasi():
                 "güçlü kutu istisnaya GİRMEMELİ, normal yoldan geçmeli"
     finally:
         C.TERM_CONF, C.TERM_MENZIL = eski_tc, eski_tm
+
+
+# ---------------------------------------------------------------- B62
+def test_B62_arka_yarikure_izdusum_kapisi():
+    """⛔ ARKA YARIKÜRE — arkadaki hedef "kadraj içinde" görünmemeli.
+
+    YAŞANMIŞ HATA (2026-08-27): izdüşüm zinciri kamera ekseni bileşenine
+    (`ileri`) böler; hedef arkadayken bu bileşen NEGATİF olur ve bölme
+    işareti çevirerek KADRAJIN İÇİNDE bir piksel üretir. `tan()` de aynı
+    şeyi yapar: tan(170°) = -0.176 -> cx = 960 - 0.176·F.
+
+    Sonuç: "üstünden geçtiğimiz" kareler, kayıp sınıflandırmasında
+    "kadraj içinde ama dedektör kör" sayıldı. Manevralı koşularda
+    menzil<12 m kayıplarının %47'si buydu; manevrasızda %0.
+
+    ⚠ Bu bekçi ÖLÇÜM yolunu korur. Güdümdeki `seviye_piksel` bilerek
+      dokunulmadan bırakıldı (davranış değişikliği ayrı karar, §8).
+    """
+    from dow.gorus import kamera as KAM
+
+    # --- önde: normal izdüşüm, kadraj içinde ---
+    on = KAM.beklenen_kadraj(50.0, 0.0, 0.0, 0.0, 0.0)
+    assert on is not None, "önümüzdeki hedef için izdüşüm dönmeli"
+    assert 0 <= on[0] < KAM.IMG_W, "önümüzdeki hedef kadrajda olmalı"
+
+    # --- tam arka: None dönmeli (ESKİDEN kadraj içi piksel üretiyordu) ---
+    for az in (95.0, 135.0, 170.0, 179.0, -95.0, -170.0):
+        assert KAM.beklenen_kadraj(50.0, 0.0, az, 0.0, 0.0) is None, \
+            "azimut %.0f° ARKADA — izdüşüm None olmalı" % az
+
+    # --- kenar: kadraj dışı ama ÖNDE ise izdüşüm dönmeye devam etmeli;
+    #     "kadraj dışı"(A kovası) ile "arkada" ayrı şeylerdir ---
+    yan = KAM.beklenen_kadraj(50.0, 0.0, 75.0, 0.0, 0.0)
+    assert yan is not None, "75° hâlâ ÖNDE — A kovası olarak ölçülebilmeli"
+    assert yan[0] >= KAM.IMG_W, "75° kadraj DIŞINDA olmalı"
+
+    # --- dikeyde de aynı kapı ---
+    #   ⚠ KONVANSİYON (ölçüldü, varsayılmadı): dik = yükseliş − TILT − pitch.
+    #     TILT = 26.5° olduğu için 100° yükseliş kamera çerçevesinde 73.5°'ye
+    #     düşer ve kapıyı AÇMAZ — doğrusu budur, o yön hâlâ görüntü
+    #     düzleminin ÖNÜNDEDİR. Kapı, kamera çerçevesindeki açıya bakar.
+    assert KAM.beklenen_kadraj(50.0, 100.0, 0.0, 0.0, 0.0) is not None, \
+        "100° yükseliş kamera çerçevesinde 73.5° — hâlâ ÖNDE"
+    assert KAM.beklenen_kadraj(50.0, 170.0, 0.0, 0.0, 0.0) is None, \
+        "170° yükseliş (dik=143.5°) ARKADA — None dönmeli"

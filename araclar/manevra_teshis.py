@@ -31,8 +31,12 @@ import json
 import math
 import os
 import statistics as st
+import sys
 
 KOK = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if KOK not in sys.path:
+    sys.path.insert(0, KOK)          # doğrudan çalıştırıldığında da bulunsun
+from araclar.arka import ArkaBekci
 IMG_W, IMG_H = 1920.0, 1080.0
 
 
@@ -86,19 +90,23 @@ def main():
     # ---------- 1) EVREYE GÖRE TESPİT + KAYIP SEBEBİ ----------
     print("\n  EVREYE GÖRE — A=kadraj dışı(GÜDÜM) B=dedektör kör(MODEL) "
           "C=kapı(BİZİM KOD)")
-    print("  %-10s %-7s %6s %8s | %5s %5s %5s %6s %9s"
-          % ("kol", "evre", "kare", "tespit%", "A", "B", "C", "gec_red",
-             "hedef|roll|"))
-    print("  " + "-" * 74)
+    print("  ⭐ ARK = hedef ARKAMIZDA (üstünden geçtik) — KAYIP DEĞİL.")
+    print("     Bu kova ayrılmazsa geçiş geometrisi güdüm kusuru sanılır;")
+    print("     ölçüldü: manevralı kolda kayıpların %47'si, manevrasızda %0.")
+    print("  %-10s %-7s %6s %8s | %5s %5s %5s %6s %5s %8s"
+          % ("kol", "evre", "kare*", "tespit%", "A", "B", "C", "gec_red",
+             "ARK", "hedef|roll|"))
+    print("  " + "-" * 78)
     for kol in sorted(K):
         for evre in ("bos", "hafif", "sert"):
-            n = ok = A = B = C = GR = 0
+            n = ok = A = B = C = GR = ARK = 0
             rl = []
             for d in K[kol]:
                 y = os.path.join(d, "k01", "cikarim.csv")
                 if not os.path.exists(y):
                     continue
                 ts, ev = evre_serisi(d)
+                ab = ArkaBekci(d)
                 R0 = list(csv.DictReader(open(y)))
                 if not R0:
                     continue
@@ -109,6 +117,11 @@ def main():
                     if m is None or t is None or m > a.menzil:
                         continue
                     if evre_bul(ts, ev, t - t0) != evre:
+                        continue
+                    # ⭐ ARKA KOVA: hedefin üstünden geçtiğimiz kareler
+                    #   payda dışı bırakılır — "kayıp" değiller.
+                    if ab.var and ab.arkada(t):
+                        ARK += 1
                         continue
                     n += 1
                     hr = _f(r, "hedef_roll")
@@ -130,8 +143,8 @@ def main():
                     else:
                         GR += 1
             if n >= 10:
-                print("  %-10s %-7s %6d %7.1f%% | %5d %5d %5d %6d %8s"
-                      % (kol, evre, n, 100.0 * ok / n, A, B, C, GR,
+                print("  %-10s %-7s %6d %7.1f%% | %5d %5d %5d %6d %5d %7s"
+                      % (kol, evre, n, 100.0 * ok / n, A, B, C, GR, ARK,
                          "%.0f°" % st.median(rl) if rl else "—"))
 
     # ---------- 2) SERT EVREYE TEPKİ ----------
