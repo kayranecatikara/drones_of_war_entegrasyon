@@ -517,38 +517,51 @@ kapısı (<10 m'de 12 kare), dikey kanal, hız döngüsü, hedef manevrası
 (LOS dönüşü iyi/kötü koşuda AYNI), aracın hızı (artırmak 6.5 kat
 kötüleştirdi), nişan yanlılığı (düzeltmek regresyon üretti).
 
-## ⭐⭐ GÖRSEL MENZİL KALİBRASYONU — bütün menzil kapılarını etkiliyor
+## ⛔ GERİ ÇEKİLDİ — "görsel menzil 2 kat sapıyor" İDDİAM YANLIŞTI
 
-Güdüm menzili KUTU BOYUTUNDAN kestirir: `R = MENZIL_C / boyut`, C = 997.
-Bu kestirim gerçekle kıyaslandı (3100+ taze kutu, dört kampanya):
+Bu bölümde önce şunu yazmıştım: *"kutu tabanlı menzil 3-6 m bandında
+2.04 kat uzak görüyor"*. **BU BİR ANALİZ ARTEFAKTIYDI.**
 
-| gerçek menzil | görsel tahmin | oran | kutu medyan |
-|---|---|---|---|
-| 0-3 m | 3.0 m | 1.39 | 331 px |
-| **3-6 m** | **9.3 m** | **2.04** | 107 px |
-| 6-12 m | 12.3 m | 1.28 | 81 px |
-| 12-25 m | 16.3 m | 1.12 | 61 px |
-| 25-50 m | 41.5 m | 1.27 | 24 px |
+**HATA:** `cikarim.csv`'de `vis_h` sütunu YOK. Analizde
+`boyut = max(w, h or 0)` yazmıştım; `h` None olduğu için bu yalnız
+GENİŞLİĞE indi. Güdüm ise `max(w, h)` kullanıyor. Yatık hedefte
+yükseklik genişliği aşabildiği için yalnız genişlik kullanmak boyutu
+küçük gösterip menzili şişiriyor — ölçtüğüm 2.04, benim ölçütümün
+sapmasıydı, sistemin değil.
 
-**Her yerde UZAK görüyor, en kötüsü 3-6 m bandında (iki kat)** — yani tam
-terminal kararların verildiği yerde.
+**DOĞRUSU** (`meta.csv`, `vis_h` var, taze kutu, n=2674):
+`C = boyut × gerçek menzil` bantlar arasında ÇOK KARARLI:
 
-**Sebep:** terminalde hedef 26-31° YATIK. Yatık uçağın kutusu daralır,
-`R = C/kutu` olduğu için menzil ŞİŞER. (C = 997, düz uçan hedefin
-kutusuna göre kalibre edilmiş.)
+| bant | C = max(w,h)·R | C = köşegen·R |
+|---|---|---|
+| 0-3 m | 848 | 932 |
+| 3-6 m | 853 | 937 |
+| 6-12 m | 852 | 936 |
+| 12-25 m | 880 | 951 |
+| 25-40 m | 828 | 888 |
 
-**Etkisi:** menzile bağlı HER kapı sandığımızdan farklı yerde açılıyor:
-* Ö-L freni `FREN_MENZIL=6` ile 11 geçişin HİÇBİRİNDE ateşlemedi
-  (§5.1 kapısı yakaladı, kampanya geçersiz sayıldı ve tekrarlandı).
-* Ö-I'nın %0.78-1.08 aktiflikte kalması da bununla açıklanıyor.
-* Ö-A terminal süreklilik istisnası ve `MENZIL_MIN_M` reddi de aynı
-  sapmadan etkileniyor.
+Yani **bant bağımlı çarpıklık YOK** (±%3). Tek gerçek sorun tekdüze:
+kodda `MENZIL_C = 997`, ölçülen **866** — menzil her yerde **%15 uzak**
+okunuyor.
 
-⚠ AÇIK BORÇ: doğrusu menzil kestirimini yatıştan bağımsız hâle getirmek
-   (ör. kutu ALANI ya da yükseklik ekseni). Bu güdüm davranışını her
-   fazda değiştirir — ayrı karar, ayrı regresyon (§5.10).
-   Şimdilik menzil kapıları GÖRSEL birimde ayarlanıyor ve bu her
-   özelliğin başlığında açıkça yazılıyor.
+**YATIŞ BAĞIMLILIĞI VAR AMA KÜÇÜK** (0-10° bandından kalibre, oran):
+
+| ölçüt | 0-10° | 10-25° | 25-40° | 40°+ | yayılım |
+|---|---|---|---|---|---|
+| `max(w,h)` (mevcut) | 1.00 | 1.08 | 1.19 | 1.13 | **0.19** |
+| **köşegen √(w²+h²)** | 1.00 | 1.04 | 1.11 | 1.00 | **0.11** |
+| √(w·h) | 1.00 | 0.95 | 0.98 | 0.83 | 0.17 |
+
+Köşegen daha düz çünkü düzlem içi dönmeye karşı (ince cisim için tam)
+değişmezdir. Kazanç mütevazı: yayılım 0.19 → 0.11.
+
+**Ö-L freninin ateşlememesi de %15 ile açıklanıyor:** gerçek 5.7 m'de
+`R ≈ 6.5 m` okunuyor ve 6 m kapısının HEMEN DIŞINDA kalıyor.
+
+⚠ AÇIK ÖNERİ (kullanıcı onayı bekliyor): `MENZIL_C` 997 → 866 ve
+   ölçüt `max(w,h)` → köşegen (C = 944). İkisi de menzile bağlı HER
+   kapıyı ve hız PI'sının sıfır noktasını kaydırır — her fazda davranış
+   değişir, ayrı regresyon ister (§5.10, §8).
 
 ## ⭐⭐⭐ EN BÜYÜK KALDIRAÇ: dedektör YATIK hedefte 25 puan kaybediyor
 
