@@ -31,7 +31,6 @@ TERİMLER (CLAUDE.md §0.2 — hiçbir terim tanımsız bırakılmaz):
 ================================================================================
 """
 import math
-import os
 
 
 class CevCfg:
@@ -57,11 +56,7 @@ class CevCfg:
     # K_V birimi 1/s; zaman sabiti tau = 1/K_V.
     # Yatış tau'su 0.211 s. İç döngü ondan YAVAŞ olmalı, yoksa iki döngü
     # birbirini kovalar ve salınır. K_V=1.5 -> tau=0.67 s = 3.2 kat yavaş.
-    # ⚠ CANLI: K_V=1.5 seyirde ileri-pitch'i ~0.63'te dengeliyor -> drone yalnız
-    #   ~20 m/s gidiyor. Kaçan hedef (17.5 m/s) ancak ~2 m/s marjla kapanır, bu
-    #   marjı tırmanma yiyor. Daha yüksek K_V küçük hata için tam pitch komutlar
-    #   -> drone tam hıza (~34 m/s) çıkar, hedefi hızla kapatır. Env ile tune.
-    K_V = float(os.environ.get("DOW_K_V", "1.5"))
+    K_V = 1.5
 
     # --- [3] İVME -> ÇUBUK ---
     # İki aday model (hangisinin doğru olduğu G2 ölçümüyle belirlenecek):
@@ -100,21 +95,6 @@ class CevCfg:
     #   -49 m/s verirdi, ÖLÇÜLEN -6.95. Belge bu maddede güvenilmez.
     # ⚠ ASİMETRİ 4.8 KAT: tırmanma 33.5, alçalma 6.95. Tek VZ_MAX kullanmak
     #   alçalma komutunu ~5 kat abartır.
-    # ⭐ DİKEY-PITCH ASİSTİ (2026-08-27, ÖLÇÜLDÜ canlı DoW): İLERİ-PİTCH
-    #   TIRMANDIRIR (pit+0.6 -> +6.3 m/s), throttle-aşağı otoritesi zayıf.
-    #   Alçalmak için BURUN AŞAĞI (pit-) gerek: pit-0.6+thr-1 -> -1.1 m/s.
-    #   Ölçülen eğim ~6 (m/s)/pitch -> alçalma komutu (vz<0) pitch'e nose-down
-    #   bias olarak eklenir. thr modeli KORUNUR (tamamlayıcı). 0 = kapalı.
-    # CANLI AYAR (2026-08-27): 0.16 irtifayı tuttu ama ileriyi KESTİ (pitch
-    #   nose-down -> forward yok). 0.08 de SEYİRDE ZARARLI çıktı: drone istasyon
-    #   çizgisinin üstüne çıkınca (alçalma isterken) bu terim ileri-pitch'i
-    #   0.6'dan 0.38'e düşürüp KOVALAMAYI yavaşlattı; hedef kaçtı, tavana takıldı
-    #   (ölçüldü fsm_vurus k01: ileri 14.6 m/s, menzil 3092->5296 BÜYÜDÜ).
-    #   Kök denge zaten throttle'da var: pitch+0.6 (22 m/s ileri +6.3 tırman) ile
-    #   thr-1.0 (-6.95 alçal) ~seviye uçuş verir. Bu yüzden VARSAYILAN 0 (kapalı)
-    #   = orijinal seyir davranışı (kullanıcı: "vurabiliyorduk"). Terminal
-    #   dalışta gerekirse env ile açılır.
-    K_DIKEY_PITCH = float(os.environ.get("DOW_K_DIKEY_PITCH", "0.0"))  # pitch / (m/s)
 
     # --- YAW ---
     # Araç 214 °/s yapabiliyor AMA hızlı yaw görüntüyü bulandırıp dedektörü
@@ -220,12 +200,6 @@ class HizCubukCevirici:
         # --- DİKEY: ölçülmüş iki kollu ters model (yukarıdaki tabloya bak) ---
         vz_yukari = c.Z_ISARET * vz_h_ned          # NED aşağı -> Unreal yukarı
         thr_ham = self._vz_cubuk(vz_yukari)
-        # ⭐ DİKEY-PİTCH ASİSTİ: alçalma istenince (vz_yukari<0) BURUN AŞAĞI.
-        #   Ölçüldü (canlı): ileri-pitch tırmandırır, throttle-aşağı yetmez;
-        #   pitch nose-down alçaltır. Tırmanmada (vz>=0) dokunma.
-        if vz_yukari < 0.0 and c.K_DIKEY_PITCH > 0.0:
-            pitch_ham = _kirp(pitch_ham + c.K_DIKEY_PITCH * vz_yukari)
-            self.tani["cev_pitch_alcal"] = round(c.K_DIKEY_PITCH * vz_yukari, 3)
 
         # --- YAW ---
         yaw_ham = _kirp(yaw_rate_hedef_deg / c.YAW_RATE_MAX_DEG)

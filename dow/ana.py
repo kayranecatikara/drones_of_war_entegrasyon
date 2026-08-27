@@ -98,7 +98,6 @@ class Beyin:
         (Yeni spawn = gerçekten yerdeyiz; zemin referansı burada meşru.)"""
         self.durum = "KALKIS"
         self._zemin_z = None
-        self._oz_p = None; self._oz_t = None; self._oz_v = (0.0, 0.0)  # öz-hız tahmini
         self._son_tespit = None
         self._bu_kare_tespit = False
         self._cikarim_yapildi = True   # çıkarım bu tikte koştu mu (sayaç kapısı)
@@ -409,14 +408,6 @@ class Beyin:
         own_roll = math.degrees(yon[0]); own_pitch = math.degrees(yon[1])
         own_yaw = math.degrees(yon[2])
         v_olculen = self.b.hiz_vektoru()
-        # NOT (2026-08-27): "öz yatay hızı konumdan türet" denemesi TERS TEPTİ —
-        #   gerçek düşük hızı (4 m/s) görünce ileri denetleyici pitch'i 1.0'a
-        #   doyurup burnu -60°'ye sürüyor, drone O attitude'de MUSH yapıp daha da
-        #   yavaşlıyor (test1: 4.3 m/s). SDK hızının "şişik" olması kazara pitch'i
-        #   ~0.6 sweet-spot'ta tutuyormuş. Asıl yavaşlık nedeni PİTCH değil,
-        #   TIRMANMA: seyirde thr=-1 (istasyon altına inme komutu) bu oyunda hem
-        #   tırmandırıp hem ileri hızı öldürüyor. Çözüm gps.py'de seviye uçuş
-        #   (bkz. ISTASYON_SEYIR_SEVIYE). Bu yüzden v_olculen SDK'dan bırakıldı.
 
         if self._zemin_z is None:
             self._zemin_z = dp[2]

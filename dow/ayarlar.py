@@ -217,11 +217,7 @@ class Ayar:
 
     # ================= BEKÇİ (uçuş sağlık bandı) =================
     BEKCI_AKTIF        = _b("DOW_BEKCI", True)
-    BEKCI_ALT_MAX_M    = _f("DOW_B_ALT", 1200.0)  # zemine göreli tavan
-    #   ⚠ 300 -> 1200 (2026-08-27): yarışmada İRTİFA SINIRI YOK (kullanıcı teyit).
-    #   300 m tavanı geçerli kovalamaları "irtifa_tavani" ile iptal edip drone'u
-    #   RX-LOSS'a düşürüyordu. Serbest irtifada güdüm hedefe en verimli yoldan
-    #   gider; tavan yalnız kaçak-tırmanma güvenlik ağı olarak yüksekte durur.
+    BEKCI_ALT_MAX_M    = _f("DOW_B_ALT", 300.0)   # zemine göreli tavan
     BEKCI_MENZIL_MAX_M = _f("DOW_B_MENZIL", 500.0)
     # ⭐ 2026-08-26 — 1500 -> 600 (kullanıcı isteği: "drone başlangıç
     #   konumundan 500 metre falan uzaklaşırsa uçuşu durdur").
