@@ -508,7 +508,7 @@ function ozellikGoster(v){
   const b=document.getElementById('o_hizli');
   if(!b) return;                      // düğme yoksa sessizce geç
   b.className = v ? 'on v' : '';
-  b.textContent = v ? '🛑 Ö-L FREN: AÇIK (20 m/s @6 m)' : '🛑 Ö-L FREN: kapalı';
+  b.textContent = v ? '🛑 Ö-L FREN: AÇIK (24 m/s @6 m)' : '🛑 Ö-L FREN: kapalı';
 }
 function fps(el,v,tav){
   document.getElementById(el).innerHTML =
@@ -793,10 +793,10 @@ class _H(BaseHTTPRequestHandler):
                 self.rfile.read(n)
                 from dow.gudum.ibvs import IbvsCfg
                 acik = IbvsCfg.FREN_V >= IbvsCfg.V_HUCUM
-                IbvsCfg.FREN_V = 20.0 if acik else IbvsCfg.V_HUCUM
+                IbvsCfg.FREN_V = 24.0 if acik else IbvsCfg.V_HUCUM
                 telem_yaz({"_hizli": int(acik)})
                 print("[panel] Ö-L TERMİNAL FREN -> %s"
-                      % ("AÇIK 20 m/s" if acik else "kapalı"), flush=True)
+                      % ("AÇIK 24 m/s" if acik else "kapalı"), flush=True)
                 self._gonder(json.dumps({"ok": True, "acik": int(acik)}).encode(),
                              "application/json")
             except Exception as e:

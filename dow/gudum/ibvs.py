@@ -114,8 +114,19 @@ class IbvsCfg:
     # YASA: R <= FREN_MENZIL iken hız tavanı FREN_V'ye iner.
     #   Hedef ~18 m/s; FREN_V=20 -> kapanma 2 m/s (hâlâ kapanıyoruz).
     #
-    # ⚠ RİSK: çok yavaşlarsak hedef kaçar. Bu yüzden FREN_V hedef hızının
-    #   ÜSTÜNDE tutulur ve fren YALNIZ son metrelerde açılır.
+    # ⛔ FREN_V SECIMI KOMUT DEĞİL GERÇEKLEŞEN HIZA GÖRE YAPILIR.
+    #   ÖLÇÜLDÜ: gerçekleşen hız komuttan sistematik DÜŞÜK —
+    #       komut 28.0 -> gerçek 22.1   (KH1, 20 Hz, 4 uçuş)
+    #       komut 40.0 -> gerçek 30.6   (KK1)
+    #   Doğrusal uydurma: gerçek ~= 0.708·komut + 2.28.
+    #   Buna göre FREN_V=20 komutu ~16.4 m/s ÜRETİR — hedefin 18 m/s'sinin
+    #   ALTINDA, yani fren açıkken hedefi HİÇ yakalayamayız (Ö-K'nın aynası
+    #   bir felaket olurdu). FREN_V=24 -> ~19.3 m/s -> kapanma ~1.3 m/s:
+    #   hâlâ kapanıyoruz ama son düzeltme 0.67×1.3 ~= 0.87 m'de donuyor
+    #   (bugünkü 2.7 m yerine).
+    # ⚠ RİSK: çok yavaşlarsak hedef kaçar. Bu yüzden FREN_V GERÇEKLEŞEN
+    #   hız hedefin üstünde kalacak şekilde seçilir ve fren YALNIZ son
+    #   metrelerde açılır.
     # ⚠ FREN_V = V_HUCUM varsayılan -> kırpma değişmez, BİT BİT aynı (B61).
     #   Açma: DOW_FREN_V=20 DOW_FREN_M=6
     FREN_V        = _fi("DOW_FREN_V", 28.0)   # m/s; terminal hız tavanı
