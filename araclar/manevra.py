@@ -50,6 +50,7 @@ Kullanım:
 """
 import argparse
 import json
+import math
 import os
 import signal
 import sys
@@ -61,6 +62,24 @@ TABAN_THR = 0.405              # 18 m/s — spline hızıyla eşleşir
 
 HAFIF_ROLL = 0.35              # ~7°/s dönüş, yatış ~20°
 SERT_ROLL = 0.70               # ~14°/s dönüş, yatış ~35°
+
+# ⭐⭐ MANEVRA YÖNÜ AVCIDAN UZAĞA — 2026-08-27, KM1'de ölçülen kusurun çaresi.
+#   KM1'de yön SABİTTİ (hep sağa) ve senaryo TUTARSIZ çıktı: manevralı
+#   süreler 9.5 · 65.2 · 26.8 · 10.8 s. Üçü tabandan HIZLI, biri felaket.
+#   Sebep geometri: sabit yön bazen hedefi avcıya DOĞRU çeviriyor, yani
+#   manevra bazen İŞİMİZİ KOLAYLAŞTIRIYOR. Kaçamak sayılmaz.
+#   Çare: her manevrada avcının hedefe göre bağıl kerterizi hesaplanır ve
+#   hedef TERS yöne döndürülür.
+#
+#   İŞARET (simde ölçüldü 2026-08-26): mod `YAW += roll*20 °/s` ve
+#   `X += cos(YAW)*v, Y += sin(YAW)*v` -> POZİTİF roll YAW'ı ARTIRIR,
+#   yani +x'ten +y'ye doğru (saat yönünün TERSİ) döndürür.
+#   Avcı hedefin SOLUNDAYSA (bağıl kerteriz > 0) saat yönü tersi ona DOĞRU
+#   gider -> ters yön seçilir.  roll = -sign(bağıl) * şiddet
+#
+#   ⛔ §10: bu hesap HEDEFİ sürer; avcının güdümü bu bilgiyi GÖRMEZ.
+#      Hakemin hedefe manevra yaptırması gibidir (bekçi B55).
+YON_UZAGA = True
 
 
 def _post(port, yol, veri, zaman_asimi=1.0):
@@ -122,6 +141,8 @@ def main():
     son_bilgi = 0.0
     olaylar = []          # (t, evre, menzil)
     sayac = {"bos": 0, "hafif": 0, "sert": 0}
+    hedef_iz = []         # (t, hx, hy) — hedefin yönünü kestirmek için
+    yon_isaret = 1.0      # evre başında seçilir, evre boyunca SABİT kalır
 
     try:
         while True:
@@ -147,21 +168,44 @@ def main():
                 evre = "bos"
             sayac[evre] += 1
 
+            # --- hedefin yörüngesini izle (yön kestirimi için) ---
+            hx = tel.get("t_x") if tel.get("t_x") is not None else tel.get("h_x")
+            hy = tel.get("t_y") if tel.get("t_y") is not None else tel.get("h_y")
+            dx_, dy_ = tel.get("d_x"), tel.get("d_y")
+            if hx is not None and hy is not None:
+                hedef_iz.append((simdi, hx, hy))
+                if len(hedef_iz) > 40:
+                    hedef_iz.pop(0)
+
             if evre != son_evre:
+                # ⭐ YÖN SEÇİMİ — evre BAŞINDA bir kez, sonra sabit.
+                #   Evre içinde her tikte yeniden hesaplamak, hedef dönerken
+                #   işareti çevirip manevrayı ZIKZAK yapardı.
+                if evre != "bos" and YON_UZAGA and len(hedef_iz) >= 5 \
+                        and dx_ is not None and dy_ is not None:
+                    _t, _x0, _y0 = hedef_iz[0]
+                    _, _x1, _y1 = hedef_iz[-1]
+                    if (abs(_x1 - _x0) + abs(_y1 - _y0)) > 1.0:
+                        h_yon = math.atan2(_y1 - _y0, _x1 - _x0)
+                        av_ker = math.atan2(dy_ - _y1, dx_ - _x1)
+                        bagil = (av_ker - h_yon + math.pi) % (2 * math.pi) - math.pi
+                        yon_isaret = -1.0 if bagil > 0 else 1.0
                 olaylar.append({"t": round(simdi - t0, 2), "evre": evre,
-                                "menzil": R, "faz": faz})
-                print("  [%6.1fs] evre -> %-6s  menzil %s  faz %s"
+                                "menzil": R, "faz": faz,
+                                "yon": yon_isaret})
+                print("  [%6.1fs] evre -> %-6s  menzil %s  faz %-9s yön %s"
                       % (simdi - t0, evre.upper(),
-                         ("%.1f m" % R) if R is not None else "—", faz or "—"),
+                         ("%.1f m" % R) if R is not None else "—", faz or "—",
+                         "SAĞ" if yon_isaret < 0 else "SOL"),
                       flush=True)
                 son_evre = evre
 
             if evre == "bos":
                 akt, thr, rol = 0, 0.0, 0.0
             elif evre == "hafif":
-                akt, thr, rol = 1, TABAN_THR, HAFIF_ROLL
+                akt, thr, rol = 1, TABAN_THR, HAFIF_ROLL * yon_isaret
             else:
-                akt, thr, rol = 1, TABAN_THR, SERT_ROLL
+                akt, thr, rol = 1, TABAN_THR, SERT_ROLL * yon_isaret
             try:
                 _post(a.port, "/api/talon",
                       {"aktif": akt, "throttle": thr, "yaw": 0.0,
