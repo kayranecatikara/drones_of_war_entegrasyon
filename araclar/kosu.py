@@ -417,6 +417,16 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
     os.makedirs(dizin, exist_ok=True)
     kayit = Kayit(dizin, Ayar.KAYIT_ARALIK) if Ayar.KAYIT_AKTIF else None
     ckayit = CikarimKaydi(dizin) if Ayar.KAYIT_AKTIF else None
+    # ⭐ TERMİNAL KAYDI — DÖNGÜ HIZINDA (2026-08-28). ÖLÇÜM-ONLY.
+    #   NEDEN: `cikarim.csv` ÇIKARIM hızında yazılıyor (ölçüldü: terminalde
+    #   101 ms aralık). Terminal kapanma 4.8 m/s olduğu için iki kayıt
+    #   arasında araç 0.49 m yol alıyor ve "en yakın menzil" ±0.24 m
+    #   yanılabiliyor. Iska-vuruş farkı 0.16 m — yani BELİRSİZLİĞİN İÇİNDE
+    #   ve o ölçütle vuranı vuramayandan ayıramıyorum (§5.3: örnekleme
+    #   hızı, ölçtüğü şeyin değişim hızının 5 katı olmalı).
+    #   Kontrol döngüsü ZATEN 45-49 Hz'te gerçek menzili biliyor; burada
+    #   yalnız o sayıyı bir listeye alıyoruz. Güdüme HİÇBİR şey vermiyoruz.
+    _term_kayit = []          # (t, R, dz, yatay, elev)
     # ⭐ ZOR ÖRNEK KAYDEDİCİ (DOW_ZOR_KAYIT=1) — bkz. araclar/zor_kayit.py
     #   Iskalanan ama hedefin KADRAJDA olduğu kareleri etiketiyle diske yazar.
     #   VARSAYILAN KAPALI: normal koşuya disk/CPU yükü bindirmez.
@@ -666,6 +676,11 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                     _temas_ivme = _iv; _temas_menzil = _R; _temas_t = t - t0
                     _temas_geri = _geri
             _v_onceki = _vv
+            # ⭐ ÖLÇÜM-ONLY: yalnız YAKINDA kaydet (dosya şişmesin), döngü hızında
+            if _R < 6.0:
+                _term_kayit.append((round(t - t0, 4), round(_R, 4),
+                                    round(_gdz, 4), round(_gyat, 4),
+                                    round(_gelev, 2)))
             _halka.append((t, dp, (math.degrees(_yon[0]), math.degrees(_yon[1]),
                                    math.degrees(_yon[2])), _hp))
         if beyin.durum == "GORSEL":
@@ -871,6 +886,16 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                                      #   yüzünden ~19 Hz, nominal 50 DEĞİL.
     if kayit: kayit.kapat()
     if ckayit: ckayit.kapat()
+    # ⭐ ÖLÇÜM-ONLY: terminal kaydını diske yaz (yalnız R<6 m kareler)
+    if Ayar.KAYIT_AKTIF and _term_kayit:
+        try:
+            import csv as _csv
+            with open(os.path.join(dizin, "terminal.csv"), "w", newline="") as _tf:
+                _w = _csv.writer(_tf)
+                _w.writerow(["t", "R_m", "dz_m", "yatay_m", "elev_deg"])
+                _w.writerows(_term_kayit)
+        except Exception:
+            pass
     if _zor is not None:
         _n, _at = _zor.kapat()
         print("  [ZOR ÖRNEK] %d kare yazıldı -> %s" % (_n, _zor.dizin), flush=True)

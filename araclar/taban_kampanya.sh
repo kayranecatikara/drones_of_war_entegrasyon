@@ -20,11 +20,14 @@ cd /home/kayra/projects/drones_of_war_entegrasyon || exit 1
 export DISPLAY=:1
 
 AD="${1:?kampanya adi}"; TEKRAR="${2:-16}"; SURE="${3:-150}"
+# 4. arguman: hangi senaryolar (virgullu). Varsayilan ikisi de.
+SENARYOLAR="${4:-duz,kademeli}"
+IFS="," read -ra SEN_LISTE <<< "$SENARYOLAR"
 echo -n hibrit > .gudum_kipi
 mkdir -p "logs/$AD"
 
 echo "=== TABAN KAMPANYASI $AD ==="
-echo "    kosu   : $((TEKRAR*2))  (duz + kademeli, donusumlu)"
+echo "    kosu   : $((TEKRAR*${#SEN_LISTE[@]}))  (${SEN_LISTE[*]}, donusumlu)"
 echo "    ayar   : KODUN VARSAYILANI (env override YOK)"
 python3 -c "
 import sys; sys.path.insert(0,'.')
@@ -63,10 +66,10 @@ PYEOF
 
 I=0
 for ((t=1; t<=TEKRAR; t++)); do
-  for SEN in duz kademeli; do
+  for SEN in "${SEN_LISTE[@]}"; do
     I=$((I+1))
     ETIKET="$(printf '%02d' $I)_T__${SEN}"
-    echo "=== [$(date +%H:%M:%S)] KOSU $I/$((TEKRAR*2)) — $ETIKET ==="
+    echo "=== [$(date +%H:%M:%S)] KOSU $I/$((TEKRAR*${#SEN_LISTE[@]})) — $ETIKET ==="
     pkill -f "araclar/manevra.py" 2>/dev/null
     _kopru_notr
     if [ "$SEN" = "kademeli" ]; then

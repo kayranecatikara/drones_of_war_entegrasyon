@@ -830,3 +830,93 @@ değil GÖRÜŞTE. Sıradaki adaylar (§0.1: teker teker):
 2. `PANEL_YAKALA_HZ` 15 → 30 (ölçüldü: kopyalama 2.4 ms, 191 Hz kaldırır)
 3. `vis_h` sütunu — ölçüm borcu
 4. Yatık hedef için dedektör eğitimi (en büyük kaldıraç, en pahalı)
+
+---
+
+# 2026-08-27/28 GECESİ — 5 KAMPANYA, ~100 UÇUŞ
+
+Kullanıcı: *"çok uzun koşular yap, farklı farklı bir sürü şey dene."*
+Gece boyunca **güdüm yasasına tek satır dokunulmadı** (`git diff dow/gudum/`
+boş); denenenlerin hepsi dedektör/görüş hattı ayarları ve ölçüm altyapısı.
+
+## A · SİSTEMİN BUGÜNKÜ HALİ — n=32, hiçbir override yok
+
+`GORUS_ISP=False · YAKALA=15 · DET_HZ=10 · talon_v3` (yani kodun varsayılanı)
+
+| senaryo | n | İSABET | en yakın medyan | imha süresi | tespit% |
+|---|---|---|---|---|---|
+| `duz` | 16 | **16/16 (%100)** | 0.93 m | 16.1 s | 83 |
+| `kademeli` | 16 | **12/16 (%75)** | 0.99 m | 16.0 s | 75 |
+| TOPLAM | 32 | **28/32 (%88)** | | | |
+
+**Düz uçan hedef hiç kaçırılmıyor.** Bütün ıskalar sert kaçamakta ve
+**hepsi öldürücü yarıçapın İÇİNDE** (0.93 · 1.08 · 1.11 · 1.32 m).
+
+## B · İKİ ÖZELLİK ELENDİ
+
+**K1 · Görüş hattı hızı** (YAKALA 15→30, DET 10→25): mekanizma kusursuz
+çalıştı (çıkarım/s 7.2→14.6, kutu yaşı p90 1.83→0.39 s) ama **isabet
+8/8 → 5/8 düştü.** Fisher tek yönlü p≈0.10 — yön net, kesinlik yok.
+Ö-K ile aynı şekil: mekanizmanın çalışması sonucun iyileşeceğini göstermez.
+
+**K2 · Ö-M görüş iş parçacığı**: birincil ölçütte berabere (7/8 vs 7/8) ama
+vuruş kalitesi **7/7 vs 5/7 KONTROLLÜ**, görüş verimi **2 kat** kapalı
+lehine (4.1 vs 2.0 TESPİT/s), çıkarım 19 vs 34 ms. **Eski olumlu sonucu
+(p=0.021) tekrarlanmadı** — o kampanyalar elenmiş `talon_v5` modeliyle ve
+şimdi silinmiş senaryolarda koşulmuştu.
+
+## C · ⭐ KÖK NEDEN BULUNDU: TEMAS ANINDA MENZİL ŞİŞMESİ
+
+68 koşu (59 vuruş / 9 ıska), terminal 1 saniye:
+
+| ölçüt | VURAN | ISKA |
+|---|---|---|
+| kutu **genişliği** | 260 px | **116 px** (−55%) |
+| kutu **yüksekliği** | 105 px | 103 px (−2%) |
+| görsel süreklilik | 0.88 | 0.62 |
+| dedektör güveni | 0.87 | 0.71 |
+
+Yükseklik sabit, genişlik yarıya iniyor. Güdüm menzili `max(w,h)`'den
+okuduğu için doğrudan ölçüldü:
+
+```
+güdümün gördüğü menzil / GERÇEK menzil (son 1 s)
+  VURAN     n=52  medyan 1.18
+  ISKALAYAN n= 9  medyan 1.97      <-- hedefi İKİ KAT uzak sanıyor
+```
+
+**Zincir:** hedef sert yatar → kanatlar kameraya kenardan gelir → kutu
+genişliği çöker → `max(w,h)` çöker → güdüm menzili 2 kat şişer → hız yasası
+ve terminal davranışı TAM TEMAS ANINDA yanlış çalışır.
+
+## D · ÇÖZÜM ADAYI VE SINIRI — 3387 kare
+
+| kutu ölçüsü | C medyan | yayılım p90/p10 | 0-30° | 30-60° | 60-90° |
+|---|---|---|---|---|---|
+| `max(w,h)` (bugün) | 899 | 1.94 | +1% | −29% | +17% |
+| **köşegen √(w²+h²)** | **973** | **1.68** | +0% | −22% | +25% |
+| yalnız h | 386 | 1.77 | −1% | +12% | **+69%** |
+
+⛔ **"Yükseklik dönmeye dayanıklıdır" HİPOTEZİM YANLIŞ ÇIKTI** — terminal
+karşılaştırmada öyle görünüyordu, tüm aspekt bandında en kötüsü.
+
+Köşegen en kararlısı ama kazanım **mütevazı** ve 30-60°'deki çukuru
+**hiçbiri kapatmıyor**: o çukur ölçüm artefaktı değil, hedefin siluetinin
+gerçekten daralması. Tek bir sabitle çözülmez.
+
+**KULLANICIYA SUNULAN, UYGULANMAYAN ADAYLAR:**
+1. `boyut = max(w,h)` → `√(w²+h²)`, `MENZIL_C` 997 → **973**
+2. `MENZIL_C` 997 → **901** (yalnız sabit düzeltmesi; iki bağımsız
+   kampanyada −9.7% / −9.6% ölçüldü)
+3. Aspekt-farkında menzil ya da terminalde kutu boyutuna hiç güvenmemek
+
+## E · ÖLÇÜM ALTYAPISINDA DÜZELTİLENLER
+
+- `vis_h` sütunu eklendi → iki kez kurulamayan çaprazlama artık yapılabiliyor
+- `vurus_kalitesi.py` eski boş klasörlere takılıp §4'ü sessizce atlıyordu
+- `gece_kampanya.sh`'a **uçuş öncesi kapı**: iki kol gerçekten farklı mı
+  (K2'de kol env'i sabitler tarafından eziliyordu — 16 uçuş kurtarıldı)
+- **Kendi genellememi çürüttüm:** RESTART4 "tek süreç içinde restart
+  gereksiz" demişti; gece betiği her koşuya ayrı süreç açıyor ve orada
+  `drone_yok` ile koşu düşüyor. Düşen koşuyu tespit edip tekrarlayan
+  telafi eklendi (gerçek ıskayı düşen koşu sanmıyor, sınandı).
