@@ -442,8 +442,10 @@ body{margin:0;background:var(--bg);color:var(--y);
     <button id=k_gps    onclick="kip('gps')">GPS</button>
     <button id=k_gorsel onclick="kip('gorsel')">Görsel</button>
   </div>
-  <!-- ⚠ §0.1: panelde AYNI ANDA EN FAZLA BİR yeni özellik durur ve
-       kararı verilince düğmesi SİLİNİR. Şu an sınanan özellik YOK. -->
+  <!-- ⚠ §0.1: panelde AYNI ANDA EN FAZLA BİR yeni özellik durur. -->
+  <div class=kip>
+    <button id=o_hizli onclick="ozellik('isp')">🧵 Ö-M GÖRÜŞ İŞ PARÇACIĞI</button>
+  </div>
   <div class=fps>
     <div><b id=f1>—</b><span>yakalama</span></div>
     <div><b id=f2>—</b><span>dedektör</span></div>
@@ -497,12 +499,16 @@ function kipGoster(k){
 //   eklenince bu iki işlev ona bağlanır (git tarihçesi: Ö-I / Ö-J).
 //   ⛔ ozellikGoster'in ESKİ hâli silinen düğmeyi arıyordu; düğme
 //      yokken getElementById null döner ve telemetri döngüsü ÇÖKERDİ.
-// ⚠ §0.1: panelde sınanan özellik YOK; düğme de yok. Yeni özellik
-//   eklenince bu işlev ona bağlanır (git: Ö-I / Ö-J / Ö-K / Ö-L).
+async function ozellik(a){
+  const r=await (await fetch('/ozellik',{method:'POST',
+                 body:JSON.stringify({ad:a})})).json();
+  ozellikGoster(r.acik);
+}
 function ozellikGoster(v){
   const b=document.getElementById('o_hizli');
   if(!b) return;                      // düğme yoksa sessizce geç
   b.className = v ? 'on v' : '';
+  b.textContent = v ? '🧵 Ö-M İŞ PARÇACIĞI: AÇIK' : '🧵 Ö-M İŞ PARÇACIĞI: kapalı';
 }
 function fps(el,v,tav){
   document.getElementById(el).innerHTML =
@@ -778,16 +784,26 @@ class _H(BaseHTTPRequestHandler):
                              "application/json", 400)
             return
         if self.path == "/ozellik":
-            # ⚠ §0.1: şu an panelde sınanan özellik YOK (Ö-I, Ö-J, Ö-K,
-            #   Ö-L elendi). Yeni özellik eklenince bu uç ona bağlanır.
+            # 🧵 Ö-M GÖRÜŞ İŞ PARÇACIĞI — çıkarımı kontrol döngüsünden ayır.
+            #   ÖLÇÜLDÜ: çıkarım kontrol döngüsünün ~%26'sını yiyor
+            #   (9.1 Hz × 29 ms); tik_hz 44.3'te tavanlı. Kodun kendi notu
+            #   çıkarımı 16 Hz'e çıkarmanın tik_hz'i 22.3'e düşürüp isabeti
+            #   1 -> 0 yaptığını kaydediyor — tavan bir SEMPTOM.
+            #   İki yol da her tikte aynı bayrağı okur, canlı geçiş güvenli.
+            n = int(self.headers.get("Content-Length", 0))
             try:
-                n = int(self.headers.get("Content-Length", 0))
                 self.rfile.read(n)
-            except Exception:
-                pass
-            self._gonder(json.dumps({"ok": False,
-                                     "hata": "sınanan özellik yok"}).encode(),
-                         "application/json", 400)
+                from dow.ayarlar import Ayar
+                acik = not Ayar.GORUS_ISP
+                Ayar.GORUS_ISP = acik
+                telem_yaz({"_hizli": int(acik)})
+                print("[panel] Ö-M GÖRÜŞ İŞ PARÇACIĞI -> %s"
+                      % ("AÇIK" if acik else "kapalı"), flush=True)
+                self._gonder(json.dumps({"ok": True, "acik": int(acik)}).encode(),
+                             "application/json")
+            except Exception as e:
+                self._gonder(json.dumps({"ok": False, "hata": str(e)}).encode(),
+                             "application/json", 400)
             return
         if self.path != "/telem":
             self.send_response(404); self.send_header("Content-Length", "0")
