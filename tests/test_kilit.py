@@ -118,3 +118,76 @@ def test_kesintisiz_kapiyi_acmaz():
     kur([(1, 5)], 10.0)                    # kes 4>=3 AMA küm 4<5
     izin, kum, kes = angajman_izin()
     assert (not izin) and yakin(kes, 4.0)  # kesintisiz dolu -> yine de izin YOK
+
+
+# =============================================================================
+#  KAYAN PENCERE ŞERİDİ (arayüz çizimi) — 2026-08-27
+#  Kümülatif sayı 5 sn'ye NASIL vardığını söylemiyor; şerit onu gösteriyor.
+#  Sözleşme: 60 dilim, SOL = en eski, SAĞ = ŞİMDİ.
+#  1 = dilimde kilit vardı · 0 = kare vardı kilit yoktu · -1 = kare YOK.
+# =============================================================================
+from dow.panel import _kilit_serit, KILIT_WIN_S
+
+
+def test_serit_bos_pencere_hepsi_veri_yok():
+    panel._kilit_pencere.clear()
+    assert _kilit_serit() == [-1] * 60
+
+
+def test_serit_uzunlugu_sabit():
+    kur([(0, 10)], 10.0)
+    assert len(_kilit_serit()) == 60 and len(_kilit_serit(20)) == 20
+
+
+def test_serit_surekli_kilit_hepsi_dolu():
+    kur([(0, 10)], 10.0)
+    assert set(_kilit_serit()) == {1}
+
+
+def test_serit_hic_kilit_yok_hepsi_sifir():
+    kur([], 10.0)                          # kare AKIYOR ama kilit yok
+    assert set(_kilit_serit()) == {0}      # -1 DEĞİL: veri var, kilit yok
+
+
+def test_serit_sag_kenar_simdi():
+    kur([(9, 10)], 10.0)                   # kilit pencerenin SONUNDA
+    sr = _kilit_serit()
+    assert sr[-1] == 1 and sr[0] == 0
+
+
+def test_serit_sol_kenar_en_eski():
+    kur([(0, 1)], 10.0)                    # kilit pencerenin BAŞINDA
+    sr = _kilit_serit()
+    assert sr[0] == 1 and sr[-1] == 0
+
+
+def test_serit_kesikli_birikme_gorunur():
+    kur([(1, 2), (3, 5), (6, 8)], 10.0)    # şartname örneği 1+2+2
+    sr = _kilit_serit()
+    # üç ayrı KİLİT ÖBEĞİ olmalı — kesikli birikme gözle ayırt edilebilsin
+    obek = sum(1 for i, v in enumerate(sr) if v == 1 and (i == 0 or sr[i-1] != 1))
+    assert obek == 3
+
+
+def test_serit_dolu_dilim_orani_kumulatifle_tutar():
+    """Şerit KÜMÜLATİFİ TEMSİL ETMELİ ama birebir eşit DEĞİL.
+
+    Dilim (0.167 s) içinde tek kilitli örnek dilimin tamamını doldurur -> her
+    kilit ÖBEĞİ en fazla 1 dilim ŞİŞİRİR. 3 öbek -> en çok +0.5 s. Bu bilinçli:
+    şerit GÖRSEL, kilidi göstermemektense fazladan göstermek yeğdir. Kapı
+    kararını şerit değil `_kilit_suresi()` verir."""
+    kur([(1, 2), (3, 5), (6, 8)], 10.0)    # kümülatif 5 s, 3 öbek
+    sr = _kilit_serit()
+    dilim = KILIT_WIN_S / 60.0
+    tahmin = sr.count(1) * dilim
+    kum = _kilit_suresi()
+    assert kum <= tahmin <= kum + 3 * dilim + 1e-9
+
+
+def test_serit_veri_boslugu_kilitsizden_ayrilir():
+    """Yayın DONMASI (kare yok) ile kilitsiz kare AYNI görünmemeli."""
+    panel._kilit_pencere.clear()
+    for i in range(21):                    # yalnız son 2 sn'de kare var
+        panel._kilit_pencere.append((T0 + 8.0 + i * 0.1, False))
+    sr = _kilit_serit()
+    assert sr[0] == -1 and sr[-1] == 0     # eski dilimler VERİ YOK, son kilitsiz
