@@ -462,3 +462,57 @@ Doğrusu: kötü koşular yavaş kapanıyor ÇÜNKÜ geometrileri bozuk — yava
 kapandıkları için kötü değiller. Ok yönünü ters kurmuşum. Bu, gözlemsel
 bir ayrımın nedensel sanılmasının bedeli; ancak taze uçuş A/B'si
 ayırt edebilirdi (§2: replay/istatistik hipotez üretir, KARAR VERMEZ).
+
+## ⭐ GÖZLE İNCELEME — ıskanın anatomisi (KJ1/kapali__t5, §2 adım 4)
+
+Aynı kol, aynı senaryo, aynı ayar; `kapali__t1` 0 kaçırma, `kapali__t5` 2.
+`t5` menzil profili: 1.04 m'ye ve 2.16 m'ye kadar giriyor, ikisinde de
+VURAMIYOR ve hedefin arkasına düşüp yeniden yaklaşıyor.
+
+Kareler (f0018 ≈ 4 m, f0019 ≈ 1 m): hedef NET görünüyor, sert yatık,
+**kadraj merkezinin belirgin ÜSTÜNDE** (~250 px). 4 m'de bu
+`4 × 250/540 ≈ 1.85 m` demek — hedefin altından geçiyoruz.
+
+## ÇÜRÜTÜLEN ÜÇ HİPOTEZ (bu turda, kod yazılmadan)
+
+**1. "Dikey kanal boğaz noktası"** — ÇÜRÜDÜ. 20 Hz'te komut ile
+gerçekleşen dikey hız neredeyse birebir:
+
+| menzil | e_cy med | KOMUT vz | GERÇEK vz | doyum% |
+|---|---|---|---|---|
+| 0-5 m | −174 px | 2.44 m/s | **2.45** | %30 |
+| 5-12 m | −156 px | 2.18 m/s | **2.11** | %26 |
+| 12-25 m | −114 px | 1.60 m/s | 1.10 | %9 |
+
+Araç dikey komutu uyguluyor. ⚠ Bu, "araç dikey komutu 4 s'de uyguluyor"
+notunu bu araç için GEÇERSİZ kılar. Ayrıca e_cy sabit PİKSEL kalıyor,
+yani fiziksel yükseklik farkı menzille ORANTILI küçülüyor: 1 m'de
+0.32 m'ye iniyor. Dikey ofset temas anında ölümcül yarıçapın içinde.
+
+**2. "Kuyruk konisine girmeliyiz"** — ÇÜRÜDÜ, hem de TERS yönde
+(159 geçiş):
+
+| aspekt | geçiş | vuruş | oran |
+|---|---|---|---|
+| 0-10° (tam kuyruk) | 42 | 6 | **%14** |
+| 10-20° | 12 | 6 | %50 |
+| 20-35° | 73 | 33 | %45 |
+| 35-90° | 22 | 5 | %23 |
+| 90-180° | 10 | 0 | %0 |
+
+Tam kuyruktan yaklaşmak EN KÖTÜSÜ. Muhtemel sebep: kuyrukta kapanma
+yalnız 4 m/s, araç sürünerek yaklaşıyor ve sapmaya bol vakit oluyor.
+⚠ HİPOTEZ, sonuç değil — gözlemsel, karıştırıcılar ayrılmadı.
+
+**3. "Hız döngüsüne integral"** — ÇÜRÜDÜ: burun ile gerçek hız vektörü
+arasındaki fark yalnız 2.0-3.9°, gecikme orada değil.
+
+## AÇIK KALAN — bir sonraki oturum için
+
+Iskaların ortak paydası: `Rmin` vuruşlarda 1.30 m, ıskalarda 2.80 m.
+Yani ölümcül yarıçap ~1.3-2 m ve soru "neden her seferinde 1.3 m'nin
+içine giremiyoruz". Aşağıdakiler ÖLÇÜLDÜ ve SEBEP DEĞİL:
+kutu bayatlığı (terminalde ~0 s), dönüş tavanı (%2 aşım), yerellik
+kapısı (<10 m'de 12 kare), dikey kanal, hız döngüsü, hedef manevrası
+(LOS dönüşü iyi/kötü koşuda AYNI), aracın hızı (artırmak 6.5 kat
+kötüleştirdi), nişan yanlılığı (düzeltmek regresyon üretti).
