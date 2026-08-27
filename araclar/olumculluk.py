@@ -99,7 +99,13 @@ def main():
     ap.add_argument("kok", nargs="?", default="logs/KL1")
     a = ap.parse_args()
     kollar = {}
-    for d in sorted(glob.glob(os.path.join(KOK, a.kok, "*__t*"))):
+    # ⚠ İKİ ADLANDIRMA: A/B kampanyalari "<kol>__t<N>", gece/karma
+    #   kampanyalari "<NN>_<kol>[__<senaryo>]". Yalniz birincisi aranirsa
+    #   yeni kampanyalarda SESSIZCE bos rapor cikar.
+    _dizinler = sorted(glob.glob(os.path.join(KOK, a.kok, "*__t*")))
+    if not _dizinler:
+        _dizinler = sorted(glob.glob(os.path.join(KOK, a.kok, "[0-9][0-9]_*")))
+    for d in _dizinler:
         kollar.setdefault(os.path.basename(d).split("__")[0], []).append(d)
     if not kollar:
         print("⛔ koşu yok: %s" % a.kok)

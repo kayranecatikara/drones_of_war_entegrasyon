@@ -149,17 +149,26 @@ def main():
     ap.add_argument("--pencere", type=float, default=2.0)
     a = ap.parse_args()
     # İKİ ADLANDIRMA DÜZENİ DESTEKLENİR:
-    #   A/B kampanyaları  : "<kol>__t<N>"        (kol = "__" öncesi)
-    #   karma kampanyalar : "<NN>_<kol>"          (kol = ilk "_" sonrası)
-    # Yalnız birincisi aranırsa karma kampanyada "koşu yok" denir ve VURUŞ
-    # SINIFLANDIRMASI SESSİZCE ATLANIR — §4 gereği zorunlu olan adım kaybolur.
+    #   A/B kampanyaları  : "<kol>__t<N>"          (kol = "__" öncesi)
+    #   gece/karma        : "<NN>_<kol>[__<senaryo>]"  (kol = ilk "_" sonrası)
+    #
+    # ⛔ İKİSİ DE ARANIR, "ilki bulduysa dur" YAPILMAZ — 2026-08-27'de tam bu
+    #   hata oldu: `logs/HZ2` dizini ÖNCEDEN VARDI ve içinde eski bir
+    #   kampanyanın BOŞ koşu klasörleri duruyordu (`0_0_0_10__t1` …).
+    #   Birinci desen onlara takıldı, yeni koşular hiç görülmedi ve §4'ün
+    #   zorunlu vuruş sınıflandırması SESSİZCE 0/0 rapor etti.
+    # ⛔ VERİSİ OLMAYAN DİZİN ALINMAZ: k01/cikarim.csv yoksa o klasör bir
+    #   koşu değildir (yarıda kesilmiş ya da başka bir şeyin kalıntısıdır).
     kollar = {}
-    for d in sorted(glob.glob(os.path.join(KOK, a.kok, "*__t*"))):
-        kollar.setdefault(os.path.basename(d).split("__")[0], []).append(d)
-    if not kollar:
-        for d in sorted(glob.glob(os.path.join(KOK, a.kok, "[0-9][0-9]_*"))):
-            ad = os.path.basename(d)
-            kollar.setdefault(ad.split("_", 1)[1], []).append(d)
+    _adaylar = (glob.glob(os.path.join(KOK, a.kok, "*__t*"))
+                + glob.glob(os.path.join(KOK, a.kok, "[0-9][0-9]_*")))
+    for d in sorted(set(_adaylar)):
+        if not os.path.exists(os.path.join(d, "k01", "cikarim.csv")):
+            continue
+        ad = os.path.basename(d)
+        kol = (ad.split("__")[0] if "__t" in ad
+               else (ad.split("_", 1)[1] if "_" in ad else ad))
+        kollar.setdefault(kol, []).append(d)
     if not kollar:
         print("⛔ koşu yok: %s" % a.kok)
         return

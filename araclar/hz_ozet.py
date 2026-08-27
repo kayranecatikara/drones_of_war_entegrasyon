@@ -105,7 +105,7 @@ def main():
 
     print("=" * 80)
     print("  HZ KAMPANYASI — %s" % a.dizin)
-    print("  taban = yakala 15 / det 10      hizli = yakala 30 / det 25")
+    print("  kol adlari kampanya betiginden gelir (A = 1. env, B = 2. env)")
     print("  birincil görüş ölçütü: TESPİT/s (oran DEĞİL — payda kola göre değişiyor)")
     print("=" * 80)
 
@@ -115,7 +115,11 @@ def main():
         print("  SENARYO: %s" % sen.upper())
         print("█" * 80)
         kollar = hucre[sen]
-        adlar = [k for k in ("taban", "hizli") if k in kollar]
+        # kol adlari kampanyaya gore degisir: eski HZ25'te taban/hizli,
+        # gece kampanyalarinda A/B. Bilinen sirayi koru, kalani alfabetik ekle.
+        _bilinen = ("taban", "hizli", "A", "B")
+        adlar = ([k for k in _bilinen if k in kollar]
+                 + sorted(k for k in kollar if k not in _bilinen))
         if not adlar:
             continue
 
