@@ -549,3 +549,31 @@ kutusuna göre kalibre edilmiş.)
    fazda değiştirir — ayrı karar, ayrı regresyon (§5.10).
    Şimdilik menzil kapıları GÖRSEL birimde ayarlanıyor ve bu her
    özelliğin başlığında açıkça yazılıyor.
+
+## ⭐⭐⭐ EN BÜYÜK KALDIRAÇ: dedektör YATIK hedefte 25 puan kaybediyor
+
+11.265 kare, sekiz kampanya, arka kareler çıkarılmış, hedef kadraj içinde:
+
+| hedef \|yatış\| | kare | **tespit** | görsel R / gerçek |
+|---|---|---|---|
+| 0-10° (düz) | 827 | **%86** | 1.08 |
+| 10-25° | 6539 | **%64** | 1.15 |
+| 25-40° | 3552 | **%63** | 1.29 |
+| 40°+ | 347 | **%57** | 1.28 |
+
+**Angajmanın %93'ü yatık bantlarda geçiyor** (10.438 / 11.265 kare).
+Yani sistem neredeyse HER ZAMAN bozulmuş rejimde çalışıyor.
+
+**Tek kök neden, iki ayrı hasar:**
+1. Tespit %86 → %57-64 (25 puan)
+2. Kutu daralıyor → `R = 997/kutu` şişiyor → menzile bağlı TÜM kapılar
+   yanlış yerde açılıyor (Ö-L freni hiç ateşlemedi, Ö-I %1'de kaldı)
+
+**Ve bu, 2 m'nin içinde vuranı ıskalayandan ayıran TEK ölçülebilir
+farkla birebir örtüşüyor:** son 0.7 s tespiti vuruşlarda %80,
+ıskalarda %67.
+
+⭐ **REÇETE (güdüm tarafında değil, MODEL tarafında):** eğitim setine
+YATIK hedef kareleri eklenmeli. Yatık tespiti %63'ten %86'ya çıkarsa
+son saniye sürekliliği %67 → ~%90 olur — bu, ölçülen tek ayırıcı
+değişkendir.
