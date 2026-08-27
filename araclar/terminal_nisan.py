@@ -82,8 +82,22 @@ def kosu_olc(d, pencere_s):
     t0 = S[i][0]
     pen = [x for x in S if t0 - pencere_s <= x[0] <= t0]
     kutulu = [x for x in pen if x[5] and x[2] is not None]
+    # ⛔ §5.2 GEÇERLİLİK EŞİ — SESSİZ DÜŞÜRME YASAK.
+    #   Son saniyede yeterli kutu yoksa nişan hatası ÖLÇÜLEMEZ. Bu koşuyu
+    #   sessizce atmak, ölçütü "iyi gördüğümüz koşular"a daraltır ve kol
+    #   olduğundan İYİ görünür — §5.2'nin ta kendisi ("hedefi kaybetmeyi
+    #   ödüllendiren ölçüt"). YAŞANDI: KJ1 ara bakışında acik kolunun 6
+    #   koşusundan 2'si böyle düşmüştü ve medyan yapay olarak iyileşiyordu.
+    #   Bu yüzden koşu DÜŞÜRÜLMEZ; "ÖLÇÜLEMEDİ" diye işaretlenir ve
+    #   raporun başında sayısı yazılır.
     if len(kutulu) < 3:
-        return None
+        return {"ad": os.path.basename(d), "Rmin": S[i][1],
+                "yanal": None, "dikey": None,
+                "tespit": 100.0 * len(kutulu) / max(1, len(pen)),
+                "i_akt": max((x[6] or 0) for x in pen),
+                "yaw_I": max((abs(x[7]) if x[7] is not None else 0.0)
+                             for x in pen),
+                "olculemedi": True}
     ya, di = [], []
     for x in kutulu:
         ph = math.radians(x[4] or 0.0)
@@ -93,6 +107,7 @@ def kosu_olc(d, pencere_s):
     return {
         "ad": os.path.basename(d),
         "Rmin": S[i][1],
+        "olculemedi": False,
         "yanal": st.median(ya),
         "dikey": st.median(di),
         "tespit": 100.0 * len(kutulu) / max(1, len(pen)),
@@ -126,9 +141,15 @@ def main():
     for kol in sorted(kollar):
         R = [x for x in (kosu_olc(d, a.pencere) for d in kollar[kol]) if x]
         for x in R:
-            print("  %-14s %6.2fm %9.2f %10.2f %8.0f%% %8d %9.1f°"
-                  % (x["ad"], x["Rmin"], x["yanal"], x["dikey"], x["tespit"],
-                     int(x["i_akt"]), x["yaw_I"]))
+            if x["olculemedi"]:
+                print("  %-14s %6.2fm %9s %10s %8.0f%% %8d %9.1f°   "
+                      "⛔ ÖLÇÜLEMEDİ (terminalde kör)"
+                      % (x["ad"], x["Rmin"], "—", "—", x["tespit"],
+                         int(x["i_akt"]), x["yaw_I"]))
+            else:
+                print("  %-14s %6.2fm %9.2f %10.2f %8.0f%% %8d %9.1f°"
+                      % (x["ad"], x["Rmin"], x["yanal"], x["dikey"],
+                         x["tespit"], int(x["i_akt"]), x["yaw_I"]))
         OZ[kol] = R
     print("\n  ÖZET (medyan)")
     print("  %-14s %4s %10s %10s %9s %10s"
@@ -138,12 +159,19 @@ def main():
         R = OZ[kol]
         if not R:
             continue
+        O = [x for x in R if not x["olculemedi"]]
         sifir = sum(1 for x in R if not x["i_akt"])
-        print("  %-14s %4d %9.2f %10.2f %8.0f%% %7s"
-              % (kol, len(R), st.median([x["yanal"] for x in R]),
-                 st.median([x["dikey"] for x in R]),
+        print("  %-14s %4d %9s %10s %8.0f%% %7s"
+              % (kol, len(R),
+                 "%.2f" % st.median([x["yanal"] for x in O]) if O else "—",
+                 "%.2f" % st.median([x["dikey"] for x in O]) if O else "—",
                  st.median([x["tespit"] for x in R]),
                  "%d/%d sıfır" % (sifir, len(R))))
+        if len(O) < len(R):
+            print("      ⛔ %d/%d koşu ÖLÇÜLEMEDİ (terminalde kör) — yanal/dikey"
+                  % (len(R) - len(O), len(R)))
+            print("         medyanı YALNIZ ölçülebilen koşulardan; bu sayı iki")
+            print("         kolda EŞİT değilse kıyas TARAFLIDIR (§5.2).")
     print("""
   KARAR (KJ1 için koşmadan ÖNCE ilan edildi):
     yanal_m >=%30 düşer VE kaçırma kötüleşmez VE KJ2'de (manevrasız)
