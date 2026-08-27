@@ -45,6 +45,7 @@ class Beyin:
         self._son_tespit_kare_t = 0.0        # ÖLÇÜM-ONLY (güdüme girmez)
         self._red_konum = 0; self._red_boyut = 0   # ÖLÇÜM-ONLY (kapı teşhisi)
         self._terminal_kabul = 0   # §5.1 Ö-A mekanizma sütunu: terminal
+        self._term_conf_kabul = 0  # §5.1 Ö-I mekanizma sütunu: güven istisnası
                                    # süreklilik istisnasıyla kaç kutu geçti
         self.iz = Iz()                       # tek hedefli iz (dow/gorus/iz.py)
         # ⭐ HYBRIDSORT TAKİPÇİSİ (2026-08-24) — TENBEL kurulur: boxmot ağır
@@ -96,6 +97,7 @@ class Beyin:
         self._kopru_say = 0            # §5.1 mekanizma sütunu
         self._bayat_birak_say = 0      # §5.1 mekanizma sütunu (B)
         self._terminal_kabul = 0       # §5.1 mekanizma sütunu (Ö-A)
+        self._term_conf_kabul = 0      # §5.1 mekanizma sütunu (Ö-I)
         self._kilit = 0; self._kayip = 0
         self.hiz_I = 0.0
         self.izleyici.sifirla()
@@ -153,6 +155,8 @@ class Beyin:
             return None
         if _sebep == "terminal":
             self._terminal_kabul += 1     # §5.1 MEKANİZMA SÜTUNU
+        elif _sebep == "term_conf":
+            self._term_conf_kabul += 1    # §5.1 MEKANİZMA SÜTUNU (Ö-I)
         self._son_tespit = d
         self._son_tespit_t = t
         self._son_tespit_kare_t = kare_t if kare_t else t   # ÖLÇÜM-ONLY
@@ -387,6 +391,7 @@ class Beyin:
                      "red_konum": self._red_konum,
                      "red_boyut": self._red_boyut,
                      "terminal_kabul": self._terminal_kabul,   # §5.1 Ö-A
+                     "term_conf_kabul": self._term_conf_kabul,  # §5.1 Ö-I
                      "yerel_kayip": self._yerel_kayip,
                      "durum": self.durum, "yukseklik": yukseklik,
                      "hedef_var": int(hp is not None),

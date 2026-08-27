@@ -347,6 +347,30 @@ class IbvsCfg:
     #   0 = ölü bant yok (Ö-G'deki davranış).
     YAVASLA_OLU   = _fi("DOW_YAVASLA_OLU", 0.0)    # ölü bant (°)
 
+    # ⭐ Ö-I · TERMİNAL GÜVEN İSTİSNASI — 2026-08-27
+    #
+    # ÖLÇÜLDÜ (KM2, menzil < 10 m, n=4/kol) — KABUL EDİLEN kutuların güveni:
+    #     kol                     medyan    p10   0.40-0.55 payı
+    #     yok (manevrasız)          0.88   0.83         %1
+    #     kademeli (manevralı)      0.70   0.54        %13
+    #   Manevrada hedef YATIK -> siluet incelir -> güven düşer. p10'un
+    #   0.54'e inmesi, eşiğin hemen ALTINDA bir yığın olduğunu gösterir;
+    #   onları atmak son 10 metrede körlük üretiyor (tespit %85 -> %48).
+    #
+    # YASA: kutu YAKINSA (menzil <= TERM_MENZIL) ve son KABUL EDİLEN kutu
+    #   TAZEYSE (yaş <= KOPRU_S), güven eşiği TERM_CONF'a iner. Ö-A'daki
+    #   süreklilik istisnasının GÜVEN eksenine uygulanmış hâli; orada aynı
+    #   fikir MENZİL tabanında işe yaramıştı (yo-yo 6 -> 0).
+    #
+    # ⛔ YANLIŞ-POZİTİF KORUMASI: (a) süreklilik şartı — yoktan beliren zayıf
+    #   kutu geçemez; (b) yerellik kapısı zaten önde ve konumu sınar;
+    #   (c) yalnız son ~12 m'de, yani kutunun büyük olduğu yerde geçerli.
+    #
+    # ⚠ TERM_CONF = CONF_MIN varsayılan -> kapı hiç açılmaz, BİT BİT aynı.
+    # Açma: DOW_TERM_CONF=0.25
+    TERM_CONF     = _fi("DOW_TERM_CONF", 0.40)     # terminal fazda güven eşiği
+    TERM_MENZIL   = _fi("DOW_TERM_MENZIL", 12.0)   # "terminal" sayılan menzil
+
     CONF_MIN      = 0.40    # ÖLÇÜLDÜ (dow/gorus/dedektor.py)
     BOYUT_MIN_PX  = 8.0     # px; bundan küçük kutu güvenilmez
     MENZIL_MAX_M  = 50.0    # m; ötesinde görsel devir YOK (tespit %10)
@@ -518,7 +542,19 @@ def gecerli(cx, cy, w, h, conf, cfg=IbvsCfg, son_w=None, son_yas=None):
             esik = _TC.CONF_MIN
     except Exception:
         pass
-    if conf < esik: return False, "conf"
+    # ⭐ Ö-I TERMİNAL GÜVEN İSTİSNASI (bkz. IbvsCfg.TERM_CONF).
+    #   TERM_CONF == esik iken ilk şart False -> "conf" aynen döner,
+    #   sıralama ve gerekçe metni DEĞİŞMEZ, davranış BİT BİT aynı (B61).
+    _term_conf = False
+    if conf < esik:
+        _b = max(w, h)
+        _R = KAM.menzil(_b) if _b >= cfg.BOYUT_MIN_PX else None
+        if not (cfg.TERM_CONF < esik and conf >= cfg.TERM_CONF
+                and _R is not None and _R <= cfg.TERM_MENZIL
+                and son_w and son_yas is not None
+                and son_yas <= cfg.KOPRU_S):
+            return False, "conf"
+        _term_conf = True
     boyut = max(w, h)
     if boyut < cfg.BOYUT_MIN_PX: return False, "boyut"
     R = KAM.menzil(boyut)
@@ -534,4 +570,6 @@ def gecerli(cx, cy, w, h, conf, cfg=IbvsCfg, son_w=None, son_yas=None):
             return False, "menzil_yakin"                # dev yanlış-pozitif
         return True, "terminal"     # §5.1 mekanizma: istisna DEVREYE GİRDİ
     if not (0 <= cx < KAM.IMG_W and 0 <= cy < KAM.IMG_H): return False, "kadraj"
+    if _term_conf:
+        return True, "term_conf"    # §5.1 mekanizma: güven istisnası GİRDİ
     return True, ""

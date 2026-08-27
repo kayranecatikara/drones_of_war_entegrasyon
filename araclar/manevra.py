@@ -60,8 +60,13 @@ import urllib.request
 KOK = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TABAN_THR = 0.405              # 18 m/s — spline hızıyla eşleşir
 
-HAFIF_ROLL = 0.35              # ~7°/s dönüş, yatış ~20°
-SERT_ROLL = 0.70               # ~14°/s dönüş, yatış ~35°
+# ⚠ ŞİDDETLER ENV'DEN AYARLANABİLİR — kırılma noktasını taramak için.
+#   KM1'de bu şiddetlerde güdüm BOZULMADI (imha 3/4 vs 3/4, tespit %71.7 vs
+#   %64.8). Güdümü zorlamayan bir senaryoda hiçbir iyileştirme ölçülemez;
+#   bu yüzden şiddet, kırılma noktası bulunana kadar artırılabilmeli.
+#   Kalibrasyon (simde ölçüldü): roll 1.0 -> 19.4°/s dönüş, görsel yatış 45°.
+HAFIF_ROLL = float(os.environ.get("DOW_M_HAFIF", "0.35"))   # ~20° yatış
+SERT_ROLL = float(os.environ.get("DOW_M_SERT", "0.70"))     # ~35° yatış
 
 # ⭐⭐ MANEVRA YÖNÜ AVCIDAN UZAĞA — 2026-08-27, KM1'de ölçülen kusurun çaresi.
 #   KM1'de yön SABİTTİ (hep sağa) ve senaryo TUTARSIZ çıktı: manevralı

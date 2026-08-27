@@ -443,7 +443,7 @@ body{margin:0;background:var(--bg);color:var(--y);
     <button id=k_gorsel onclick="kip('gorsel')">Görsel</button>
   </div>
   <div class=kip>
-    <button id=o_hizli onclick="ozellik('takip')">🎯 TAKİP (kapı yerine)</button>
+    <button id=o_hizli onclick="ozellik('term_conf')">🔎 Ö-I TERMİNAL GÜVEN</button>
   </div>
   <div class=fps>
     <div><b id=f1>—</b><span>yakalama</span></div>
@@ -502,7 +502,7 @@ async function ozellik(a){
 function ozellikGoster(v){
   const b=document.getElementById('o_hizli');
   b.className = v ? 'on v' : '';
-  b.textContent = v ? '🎯 TAKİP: AÇIK' : '🎯 TAKİP: kapalı';
+  b.textContent = v ? '🔎 Ö-I GÜVEN: AÇIK (0.25)' : '🔎 Ö-I GÜVEN: kapalı (0.40)';
 }
 function fps(el,v,tav){
   document.getElementById(el).innerHTML =
@@ -778,18 +778,18 @@ class _H(BaseHTTPRequestHandler):
                              "application/json", 400)
             return
         if self.path == "/ozellik":
-            # 🎯 TAKİP — yerellik kapısı YERİNE HybridSort + kilitli kimlik.
-            #   Uçuş sırasında canlı açılır/kapanır (§6): kullanıcı farkı
-            #   anında görsün. Kampanya A/B'si yine env + tam restart (§4).
+            # 🔎 Ö-I TERMİNAL GÜVEN İSTİSNASI — son ~12 m'de, taze kutu
+            #   varken güven eşiği 0.40 -> 0.25. Uçuş sırasında canlı
+            #   açılır/kapanır (§6). Kampanya A/B'si env + tam restart (§4).
             n = int(self.headers.get("Content-Length", 0))
             try:
                 self.rfile.read(n)
-                from dow.gorus.tracker import TakipCfg
-                acik = not TakipCfg.AKTIF
-                TakipCfg.AKTIF = acik
+                from dow.gudum.ibvs import IbvsCfg
+                acik = IbvsCfg.TERM_CONF >= IbvsCfg.CONF_MIN
+                IbvsCfg.TERM_CONF = 0.25 if acik else IbvsCfg.CONF_MIN
                 telem_yaz({"_hizli": int(acik)})
-                print("[panel] TAKİP -> %s" % ("AÇIK" if acik else "kapalı"),
-                      flush=True)
+                print("[panel] Ö-I TERMİNAL GÜVEN -> %s"
+                      % ("AÇIK 0.25" if acik else "kapalı 0.40"), flush=True)
                 self._gonder(json.dumps({"ok": True, "acik": int(acik)}).encode(),
                              "application/json")
             except Exception as e:

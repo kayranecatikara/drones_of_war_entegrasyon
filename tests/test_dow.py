@@ -1551,3 +1551,70 @@ def test_B60_yavasla_KAPALIYKEN_BIT_BIT_AYNI():
         assert v1 < v0, f"kesme sayaci degisti ama hiz dusmedi: {v0} -> {v1}"
     finally:
         C.YAVASLA_TABAN = eski
+
+
+# ---------------------------------------------------------------- B61
+def test_B61_terminal_guven_istisnasi():
+    """⭐ Ö-I · TERMİNAL GÜVEN İSTİSNASI — üç şart birden aranır.
+
+    ÖLÇÜM GEREKÇESİ (KM2, menzil<10 m): manevralı kolda kabul edilen
+    kutuların p10 güveni 0.54, %13'ü 0.40-0.55 bandında. Eşiğin hemen
+    altındaki yığın atılıyor -> son 10 metrede körlük (tespit %85->%48).
+
+    Bu bekçi ÜÇ ŞEYİ birden sınar:
+      1. VARSAYILAN KAPALI -> zayıf kutu ESKİSİ GİBİ "conf" ile elenir.
+      2. AÇIKKEN yalnız (yakın menzil + taze süreklilik) varsa geçer.
+      3. Süreklilik yoksa AÇIKKEN DE geçmez — yanlış-pozitif koruması.
+    """
+    from dow.gudum import ibvs
+    C = ibvs.IbvsCfg
+    eski_tc, eski_tm = C.TERM_CONF, C.TERM_MENZIL
+
+    # 8 m'ye denk gelen kutu boyutunu ölçüden bul (MENZIL_C / R)
+    boyut = ibvs.KAM.MENZIL_C / 8.0
+    cx, cy = 960.0, 540.0
+    zayif, guclu = 0.30, 0.90
+
+    try:
+        # --- 1) KAPALIYKEN: zayıf kutu elenir, gerekçe "conf" ---
+        C.TERM_CONF = C.CONF_MIN
+        ok, sb = ibvs.gecerli(cx, cy, boyut, boyut, zayif,
+                              son_w=boyut, son_yas=0.05)
+        assert (ok, sb) == (False, "conf"), \
+            "Ö-I varsayılan KAPALI olmalı — zayıf kutu 'conf' ile elenmeli"
+
+        # --- 2) AÇIKKEN + süreklilik VAR -> geçer, mekanizma etiketi döner ---
+        C.TERM_CONF = 0.25
+        ok, sb = ibvs.gecerli(cx, cy, boyut, boyut, zayif,
+                              son_w=boyut, son_yas=0.05)
+        assert (ok, sb) == (True, "term_conf"), \
+            "Ö-I açıkken taze süreklilikli zayıf kutu GEÇMELİ (%s,%s)" % (ok, sb)
+
+        # --- 3) AÇIKKEN ama süreklilik YOK -> yine elenir ---
+        ok, sb = ibvs.gecerli(cx, cy, boyut, boyut, zayif,
+                              son_w=None, son_yas=None)
+        assert (ok, sb) == (False, "conf"), \
+            "süreklilik yokken Ö-I ATEŞLEMEMELİ — yoktan beliren kutu geçemez"
+
+        # --- 4) AÇIKKEN ama menzil UZAK -> istisna yok ---
+        uzak = ibvs.KAM.MENZIL_C / (C.TERM_MENZIL + 10.0)
+        ok, sb = ibvs.gecerli(cx, cy, uzak, uzak, zayif,
+                              son_w=uzak, son_yas=0.05)
+        assert (ok, sb) == (False, "conf"), \
+            "istisna YALNIZ terminal menzilde geçerli olmalı"
+
+        # --- 5) TERM_CONF'un da ALTI geçmez ---
+        ok, sb = ibvs.gecerli(cx, cy, boyut, boyut, 0.10,
+                              son_w=boyut, son_yas=0.05)
+        assert (ok, sb) == (False, "conf"), \
+            "TERM_CONF altındaki kutu yine elenmeli"
+
+        # --- 6) GÜÇLÜ kutu her iki durumda da normal yoldan geçer ---
+        for tc in (C.CONF_MIN, 0.25):
+            C.TERM_CONF = tc
+            ok, sb = ibvs.gecerli(cx, cy, boyut, boyut, guclu,
+                                  son_w=boyut, son_yas=0.05)
+            assert ok and sb == "", \
+                "güçlü kutu istisnaya GİRMEMELİ, normal yoldan geçmeli"
+    finally:
+        C.TERM_CONF, C.TERM_MENZIL = eski_tc, eski_tm
