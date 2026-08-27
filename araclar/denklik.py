@@ -101,7 +101,6 @@ def imza_uret(n_tik=400, dt=0.02):
     b._kopru = None; b._yerel_aday = 0; b._yerel_kayip = 0; b._yerel_uygun = 0
     b._kopru_say = 0; b._bayat_birak_say = 0
     b._terminal_kabul = 0        # Ö-A mekanizma sayacı
-    b._term_conf_kabul = 0       # Ö-I mekanizma sayacı
     b._kilit = 0; b._kayip = 0
     b._son_komut = (0.0, 0.0, 0.0, 0.0)
     b.hiz_I = 0.0; b.tani = {}

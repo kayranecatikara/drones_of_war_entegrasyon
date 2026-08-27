@@ -1553,73 +1553,6 @@ def test_B60_yavasla_KAPALIYKEN_BIT_BIT_AYNI():
         C.YAVASLA_TABAN = eski
 
 
-# ---------------------------------------------------------------- B61
-def test_B61_terminal_guven_istisnasi():
-    """⭐ Ö-I · TERMİNAL GÜVEN İSTİSNASI — üç şart birden aranır.
-
-    ÖLÇÜM GEREKÇESİ (KM2, menzil<10 m): manevralı kolda kabul edilen
-    kutuların p10 güveni 0.54, %13'ü 0.40-0.55 bandında. Eşiğin hemen
-    altındaki yığın atılıyor -> son 10 metrede körlük (tespit %85->%48).
-
-    Bu bekçi ÜÇ ŞEYİ birden sınar:
-      1. VARSAYILAN KAPALI -> zayıf kutu ESKİSİ GİBİ "conf" ile elenir.
-      2. AÇIKKEN yalnız (yakın menzil + taze süreklilik) varsa geçer.
-      3. Süreklilik yoksa AÇIKKEN DE geçmez — yanlış-pozitif koruması.
-    """
-    from dow.gudum import ibvs
-    C = ibvs.IbvsCfg
-    eski_tc, eski_tm = C.TERM_CONF, C.TERM_MENZIL
-
-    # 8 m'ye denk gelen kutu boyutunu ölçüden bul (MENZIL_C / R)
-    boyut = ibvs.KAM.MENZIL_C / 8.0
-    cx, cy = 960.0, 540.0
-    zayif, guclu = 0.30, 0.90
-
-    try:
-        # --- 1) KAPALIYKEN: zayıf kutu elenir, gerekçe "conf" ---
-        C.TERM_CONF = C.CONF_MIN
-        ok, sb = ibvs.gecerli(cx, cy, boyut, boyut, zayif,
-                              son_w=boyut, son_yas=0.05)
-        assert (ok, sb) == (False, "conf"), \
-            "Ö-I varsayılan KAPALI olmalı — zayıf kutu 'conf' ile elenmeli"
-
-        # --- 2) AÇIKKEN + süreklilik VAR -> geçer, mekanizma etiketi döner ---
-        C.TERM_CONF = 0.25
-        ok, sb = ibvs.gecerli(cx, cy, boyut, boyut, zayif,
-                              son_w=boyut, son_yas=0.05)
-        assert (ok, sb) == (True, "term_conf"), \
-            "Ö-I açıkken taze süreklilikli zayıf kutu GEÇMELİ (%s,%s)" % (ok, sb)
-
-        # --- 3) AÇIKKEN ama süreklilik YOK -> yine elenir ---
-        ok, sb = ibvs.gecerli(cx, cy, boyut, boyut, zayif,
-                              son_w=None, son_yas=None)
-        assert (ok, sb) == (False, "conf"), \
-            "süreklilik yokken Ö-I ATEŞLEMEMELİ — yoktan beliren kutu geçemez"
-
-        # --- 4) AÇIKKEN ama menzil UZAK -> istisna yok ---
-        uzak = ibvs.KAM.MENZIL_C / (C.TERM_MENZIL + 10.0)
-        ok, sb = ibvs.gecerli(cx, cy, uzak, uzak, zayif,
-                              son_w=uzak, son_yas=0.05)
-        assert (ok, sb) == (False, "conf"), \
-            "istisna YALNIZ terminal menzilde geçerli olmalı"
-
-        # --- 5) TERM_CONF'un da ALTI geçmez ---
-        ok, sb = ibvs.gecerli(cx, cy, boyut, boyut, 0.10,
-                              son_w=boyut, son_yas=0.05)
-        assert (ok, sb) == (False, "conf"), \
-            "TERM_CONF altındaki kutu yine elenmeli"
-
-        # --- 6) GÜÇLÜ kutu her iki durumda da normal yoldan geçer ---
-        for tc in (C.CONF_MIN, 0.25):
-            C.TERM_CONF = tc
-            ok, sb = ibvs.gecerli(cx, cy, boyut, boyut, guclu,
-                                  son_w=boyut, son_yas=0.05)
-            assert ok and sb == "", \
-                "güçlü kutu istisnaya GİRMEMELİ, normal yoldan geçmeli"
-    finally:
-        C.TERM_CONF, C.TERM_MENZIL = eski_tc, eski_tm
-
-
 # ---------------------------------------------------------------- B62
 def test_B62_arka_yarikure_izdusum_kapisi():
     """⛔ ARKA YARIKÜRE — arkadaki hedef "kadraj içinde" görünmemeli.
@@ -1663,3 +1596,88 @@ def test_B62_arka_yarikure_izdusum_kapisi():
         "100° yükseliş kamera çerçevesinde 73.5° — hâlâ ÖNDE"
     assert KAM.beklenen_kadraj(50.0, 170.0, 0.0, 0.0, 0.0) is None, \
         "170° yükseliş (dik=143.5°) ARKADA — None dönmeli"
+
+
+# ---------------------------------------------------------------- B61
+def test_B61_terminal_kerteriz_integrali():
+    """⭐ Ö-J · TERMİNAL KERTERİZ İNTEGRALİ — beş şart birden.
+
+    ÖLÇÜM GEREKÇESİ (KM2, n=4/kol): son metrelerde nişan hatası KALICI
+    yanlılık — seviye çerçevesinde manevralı kolda 108 px, manevrasızda
+    20 px, son 1.5 s'de İŞARET DEĞİŞİMİ SIFIR. Metreye çevrilince yanal
+    hata 1.37 m; ölçülen ıskalar 0.9-1.5 m, yani hata ıskanın kendisi.
+    Sebep: K_YAW=1.0 (komut = tam kerteriz), hata hız döngüsünün
+    gecikmesinden (CevCfg.K_V=1.5 -> tau=0.67 s; e_ss = omega·tau).
+
+    Bu bekçi şunları sınar:
+      1. VARSAYILAN KAPALI -> yaw_hedef eskisiyle BİT BİT aynı.
+      2. Açıkken terminal menzilde integral BİRİKİR ve hatayı azaltır.
+      3. `taze=False` (köprü) iken DONAR — sarma yok.
+      4. Terminal bandın DIŞINDA sıfırlanır.
+      5. TERM_I_MAX doyumu aşılmaz.
+    """
+    from dow.gudum import ibvs
+    C = ibvs.IbvsCfg
+    eski = (C.TERM_I_KI, C.TERM_I_MAX, C.TERM_I_MENZIL)
+
+    # 8 m'ye denk kutu (terminal içi), 30 m'ye denk kutu (terminal dışı)
+    b_yakin = ibvs.KAM.MENZIL_C / 8.0
+    b_uzak = ibvs.KAM.MENZIL_C / 30.0
+    ARG = dict(own_yaw_deg=0.0, own_pitch_deg=0.0, own_roll_deg=0.0,
+               hiz_I=0.0, dt=0.05)
+    # merkezden SAĞA kaçmış hedef -> eps_yaw sabit ve pozitif kalsın
+    cx, cy = 960.0 + 200.0, 540.0
+
+    def _cagir(w, yaw_I, taze=True):
+        return ibvs.komut(cx, cy, w, w * 0.8, ARG["own_yaw_deg"],
+                          ARG["own_pitch_deg"], ARG["own_roll_deg"],
+                          ARG["hiz_I"], ARG["dt"], yaw_I=yaw_I, taze=taze)
+
+    try:
+        # --- 1) KAPALI: integral hiç birikmez, yaw_hedef saf oransal ---
+        C.TERM_I_KI = 0.0
+        _, _, yaw_kapali, _, ti = _cagir(b_yakin, 0.0)
+        assert ti["ibvs_yaw_I"] == 0.0, "kapalıyken integral birikmemeli"
+        assert ti["ibvs_i_akt"] == 0, "kapalıyken mekanizma sütunu 0 olmalı"
+        beklenen = ARG["own_yaw_deg"] + C.K_YAW * ti["ibvs_eps_yaw"]
+        assert abs(yaw_kapali - beklenen) < 1e-12, \
+            "kapalıyken yaw_hedef saf oransal olmalı (BİT BİT aynı)"
+
+        # --- 2) AÇIK + terminal: integral birikir, komut BÜYÜR ---
+        C.TERM_I_KI = 0.8
+        yaw_I = 0.0
+        for _ in range(20):                      # 20 × 0.05 s = 1.0 s
+            _, _, yaw_acik, _, ti = _cagir(b_yakin, yaw_I)
+            yaw_I = ti["ibvs_yaw_I"]
+        assert ti["ibvs_i_akt"] == 1, "terminalde mekanizma sütunu 1 olmalı"
+        assert yaw_I > 0.0, "pozitif hatada integral POZİTİF birikmeli"
+        assert yaw_acik > yaw_kapali, \
+            "integral komutu hatanın YÖNÜNDE büyütmeli (%.3f vs %.3f)" \
+            % (yaw_acik, yaw_kapali)
+        # 1 s'de KI·eps·t kadar birikmeli (doyuma girmediyse)
+        _eps = ti["ibvs_eps_yaw"]
+        assert abs(yaw_I - min(C.TERM_I_MAX, 0.8 * _eps * 1.0)) < 0.5, \
+            "birikim KI·eps·t ile uyuşmalı (yaw_I=%.2f, eps=%.2f)" % (yaw_I, _eps)
+
+        # --- 3) KÖPRÜ (taze=False): DONAR, sarmaz ---
+        donmus = yaw_I
+        for _ in range(20):
+            _, _, _, _, ti = _cagir(b_yakin, yaw_I, taze=False)
+            yaw_I = ti["ibvs_yaw_I"]
+        assert yaw_I == donmus, \
+            "köprüde integral DONMALI (%.4f -> %.4f)" % (donmus, yaw_I)
+
+        # --- 4) TERMİNAL BANDIN DIŞI: sıfırlanır ---
+        _, _, _, _, ti = _cagir(b_uzak, yaw_I)
+        assert ti["ibvs_yaw_I"] == 0.0, "terminal dışında integral SIFIRLANMALI"
+        assert ti["ibvs_i_akt"] == 0, "terminal dışında mekanizma sütunu 0"
+
+        # --- 5) DOYUM: TERM_I_MAX aşılamaz ---
+        yaw_I = 0.0
+        for _ in range(2000):                    # 100 s — kesinlikle doyar
+            _, _, _, _, ti = _cagir(b_yakin, yaw_I)
+            yaw_I = ti["ibvs_yaw_I"]
+        assert abs(yaw_I) <= C.TERM_I_MAX + 1e-9, \
+            "integral TERM_I_MAX'i aşmamalı (%.2f > %.2f)" % (yaw_I, C.TERM_I_MAX)
+    finally:
+        C.TERM_I_KI, C.TERM_I_MAX, C.TERM_I_MENZIL = eski

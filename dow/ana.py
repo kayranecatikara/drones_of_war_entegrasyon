@@ -45,7 +45,6 @@ class Beyin:
         self._son_tespit_kare_t = 0.0        # ÖLÇÜM-ONLY (güdüme girmez)
         self._red_konum = 0; self._red_boyut = 0   # ÖLÇÜM-ONLY (kapı teşhisi)
         self._terminal_kabul = 0   # §5.1 Ö-A mekanizma sütunu: terminal
-        self._term_conf_kabul = 0  # §5.1 Ö-I mekanizma sütunu: güven istisnası
                                    # süreklilik istisnasıyla kaç kutu geçti
         self.iz = Iz()                       # tek hedefli iz (dow/gorus/iz.py)
         # ⭐ HYBRIDSORT TAKİPÇİSİ (2026-08-24) — TENBEL kurulur: boxmot ağır
@@ -78,6 +77,7 @@ class Beyin:
         self._kayip = 0
         self._son_komut = (0.0, 0.0, 0.0, 0.0)
         self.hiz_I = 0.0
+        self.yaw_I = 0.0      # ⭐ Ö-J terminal kerteriz integrali (°)
         self.tani = {}
 
     # ---------------- yardımcı ----------------
@@ -97,9 +97,9 @@ class Beyin:
         self._kopru_say = 0            # §5.1 mekanizma sütunu
         self._bayat_birak_say = 0      # §5.1 mekanizma sütunu (B)
         self._terminal_kabul = 0       # §5.1 mekanizma sütunu (Ö-A)
-        self._term_conf_kabul = 0      # §5.1 mekanizma sütunu (Ö-I)
         self._kilit = 0; self._kayip = 0
         self.hiz_I = 0.0
+        self.yaw_I = 0.0      # ⭐ Ö-J terminal kerteriz integrali (°)
         self.izleyici.sifirla()
         self.cev.sifirla()
 
@@ -155,8 +155,6 @@ class Beyin:
             return None
         if _sebep == "terminal":
             self._terminal_kabul += 1     # §5.1 MEKANİZMA SÜTUNU
-        elif _sebep == "term_conf":
-            self._term_conf_kabul += 1    # §5.1 MEKANİZMA SÜTUNU (Ö-I)
         self._son_tespit = d
         self._son_tespit_t = t
         self._son_tespit_kare_t = kare_t if kare_t else t   # ÖLÇÜM-ONLY
@@ -391,7 +389,6 @@ class Beyin:
                      "red_konum": self._red_konum,
                      "red_boyut": self._red_boyut,
                      "terminal_kabul": self._terminal_kabul,   # §5.1 Ö-A
-                     "term_conf_kabul": self._term_conf_kabul,  # §5.1 Ö-I
                      "yerel_kayip": self._yerel_kayip,
                      "durum": self.durum, "yukseklik": yukseklik,
                      "hedef_var": int(hp is not None),
@@ -453,7 +450,7 @@ class Beyin:
             #   (~9 Hz -> 10 kare ≈ 1.1 s), kontrol tiki başına DEĞİL.
             if (kip != "gps" and self.durum != "GORSEL"
                     and self._kilit >= self.cfg.DEVIR_KARE):
-                self.durum = "GORSEL"; self.hiz_I = 0.0
+                self.durum = "GORSEL"; self.hiz_I = 0.0; self.yaw_I = 0.0
             # "gorsel" kipinde GERİ DÖNÜLMEZ; yalnız "hibrit"te geri dönüş var
             elif (kip == "hibrit" and self.durum == "GORSEL"
                     and self._kayip >= self.cfg.KAYIP_KARE):
@@ -508,9 +505,13 @@ class Beyin:
             #   azimutunun türevi). GV02'de bu terim BAĞLANMAMIŞTI (lead=0)
             #   ve saf takip çapraz giden hedefin gerisinde kalıyordu:
             #   cx 991 -> 1190 -> 1292 (merkez 960), sonra tespit koptu.
+            # ⭐ Ö-J: integral durumu hiz_I gibi BURADA taşınır; `taze`
+            #   köprüdeyken integralin donmasını sağlar (sarma yok).
             (vx, vy), vz_ned, yaw_hedef, self.hiz_I, ti = ibvs.komut(
                 cx, cy, w, h, own_yaw, own_pitch, own_roll, self.hiz_I, dt,
-                own_vz=v_olculen[2])      # Unreal Z yukarı; KENDİ hızımız
+                own_vz=v_olculen[2],      # Unreal Z yukarı; KENDİ hızımız
+                yaw_I=self.yaw_I, taze=self._bu_kare_tespit)
+            self.yaw_I = ti.get("ibvs_yaw_I", 0.0)
             self.tani.update(ti)
             e = (yaw_hedef - own_yaw + 180.0) % 360.0 - 180.0
             _tv = self.cfg.YAW_RATE_MAX

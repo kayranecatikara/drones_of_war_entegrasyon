@@ -443,7 +443,7 @@ body{margin:0;background:var(--bg);color:var(--y);
     <button id=k_gorsel onclick="kip('gorsel')">Görsel</button>
   </div>
   <div class=kip>
-    <button id=o_hizli onclick="ozellik('term_conf')">🔎 Ö-I TERMİNAL GÜVEN</button>
+    <button id=o_hizli onclick="ozellik('term_i')">🎯 Ö-J TERMİNAL İNTEGRAL</button>
   </div>
   <div class=fps>
     <div><b id=f1>—</b><span>yakalama</span></div>
@@ -502,7 +502,7 @@ async function ozellik(a){
 function ozellikGoster(v){
   const b=document.getElementById('o_hizli');
   b.className = v ? 'on v' : '';
-  b.textContent = v ? '🔎 Ö-I GÜVEN: AÇIK (0.25)' : '🔎 Ö-I GÜVEN: kapalı (0.40)';
+  b.textContent = v ? '🎯 Ö-J İNTEGRAL: AÇIK (0.8/s)' : '🎯 Ö-J İNTEGRAL: kapalı';
 }
 function fps(el,v,tav){
   document.getElementById(el).innerHTML =
@@ -778,18 +778,18 @@ class _H(BaseHTTPRequestHandler):
                              "application/json", 400)
             return
         if self.path == "/ozellik":
-            # 🔎 Ö-I TERMİNAL GÜVEN İSTİSNASI — son ~12 m'de, taze kutu
-            #   varken güven eşiği 0.40 -> 0.25. Uçuş sırasında canlı
-            #   açılır/kapanır (§6). Kampanya A/B'si env + tam restart (§4).
+            # 🎯 Ö-J TERMİNAL KERTERİZ İNTEGRALİ — son 12 m'de kalıcı
+            #   nişan yanlılığını kapatır. Uçuş sırasında canlı açılır/
+            #   kapanır (§6). Kampanya A/B'si env + tam restart (§4).
             n = int(self.headers.get("Content-Length", 0))
             try:
                 self.rfile.read(n)
                 from dow.gudum.ibvs import IbvsCfg
-                acik = IbvsCfg.TERM_CONF >= IbvsCfg.CONF_MIN
-                IbvsCfg.TERM_CONF = 0.25 if acik else IbvsCfg.CONF_MIN
+                acik = IbvsCfg.TERM_I_KI <= 0.0
+                IbvsCfg.TERM_I_KI = 0.8 if acik else 0.0
                 telem_yaz({"_hizli": int(acik)})
-                print("[panel] Ö-I TERMİNAL GÜVEN -> %s"
-                      % ("AÇIK 0.25" if acik else "kapalı 0.40"), flush=True)
+                print("[panel] Ö-J TERMİNAL İNTEGRAL -> %s"
+                      % ("AÇIK 0.8/s" if acik else "kapalı"), flush=True)
                 self._gonder(json.dumps({"ok": True, "acik": int(acik)}).encode(),
                              "application/json")
             except Exception as e:

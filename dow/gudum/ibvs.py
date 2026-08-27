@@ -93,6 +93,45 @@ class IbvsCfg:
 
     # --- yaw ---
     K_YAW         = 1.0     # tam düzeltme (Gazebo'dan AYNEN)
+
+    # ⭐ Ö-J · TERMİNAL KERTERİZ İNTEGRALİ — 2026-08-27
+    #
+    # SORUN (ÖLÇÜLDÜ, KM2 n=4/kol): son metrelerde nişan hatası KALICI bir
+    #   YANLILIK. Manevralı kolda seviye çerçevesinde 108 px, manevrasızda
+    #   20 px; son 1.5 s'de İŞARET DEĞİŞİMİ SIFIR ve işaret hedefin yatış
+    #   yönüyle birebir aynı. Metreye çevrilince yanal hata 1.37 m
+    #   (tabanda 0.26 m) — ölçülen ıskalar 0.9-1.5 m, yani bu hata
+    #   doğrudan ıskanın kendisi.
+    #
+    # NEDEN ORANSAL TERİM KAPATAMAZ: K_YAW = 1.0, yani komut edilen yön
+    #   ZATEN tam kerteriz (saf takip). Hata kazançtan değil, hız
+    #   döngüsünün gecikmesinden geliyor:
+    #       cevirici.CevCfg.K_V = 1.5  ->  tau = 1/K_V = 0.67 s
+    #   Birinci mertebe bir takipçinin DÖNEN bir komuta karşı kalıcı hatası
+    #   e_ss = omega·tau. Terminal LOS dönüşü ~15°/s ölçüldü ->
+    #   e_ss ≈ 15 × 0.67 ≈ 10°; ölçülen yanlılık 10-19°. UYUYOR.
+    #   Kalıcı hatayı tau'dan BAĞIMSIZ sıfırlayan tek yapı integraldir
+    #   (sistemi tip-1 yapar). K_V'yi büyütmek alternatifti; cevirici'nin
+    #   kendi notu "birbirini kovalar ve salınır" diyor — riskli.
+    #
+    # NEDEN LEAD DEĞİL: "hata = tau · kutu hızı" modeli ÖLÇÜMLE ÇÜRÜDÜ —
+    #   tau koşular arasında -2.22 .. +5.75 s ve bir koşuda hata ile kutu
+    #   hızı TERS işaretli. Piksel hızına dayalı lead en az bir koşuda
+    #   TERS yöne iterdi; Ö-F'nin batma sebebi buydu.
+    #
+    # YASA: R <= TERM_I_MENZIL iken  yaw_hedef += yaw_I,
+    #       yaw_I += TERM_I_KI · eps_yaw · dt   (±TERM_I_MAX'e doyar)
+    #   ⛔ YALNIZ TAZE KUTUYLA beslenir (köprüde DONAR, sarma yok).
+    #      Bu bir yan etki değil TASARIM: ölçüldü ki son 5 m'de faz %100
+    #      GORSEL ama kutu yalnız %30 karede var. İntegral, görebildiğimiz
+    #      5-12 m bandında kurulup körlükte HAFIZA olarak taşınır.
+    #   ⛔ Terminal bandın DIŞINDA sıfırlanır — uzun menzilde sarmaz.
+    #
+    # ⚠ TERM_I_KI = 0 varsayılan -> yaw_I hep 0.0, toplama etkisiz,
+    #   davranış BİT BİT aynı (bekçi B61).  Açma: DOW_TI_KI=0.8
+    TERM_I_KI     = _fi("DOW_TI_KI", 0.0)      # 1/s; 0 = KAPALI
+    TERM_I_MAX    = _fi("DOW_TI_MAX", 20.0)    # °; integral doyumu
+    TERM_I_MENZIL = _fi("DOW_TI_MENZIL", 12.0) # m; bu menzilin altında
     YAW_RATE_MAX  = 120.0   # °/s. Araç 214 yapabiliyor AMA hızlı yaw
                             # görüntüyü bulandırıp dedektörü kırar -> KORUNDU.
     YAW_OLU_BAND  = 1.0     # °; altında yaw komutu güncellenmez
@@ -347,40 +386,6 @@ class IbvsCfg:
     #   0 = ölü bant yok (Ö-G'deki davranış).
     YAVASLA_OLU   = _fi("DOW_YAVASLA_OLU", 0.0)    # ölü bant (°)
 
-    # ⭐ Ö-I · TERMİNAL GÜVEN İSTİSNASI — 2026-08-27
-    #
-    # ÖLÇÜLDÜ (KM2, menzil < 10 m, n=4/kol) — KABUL EDİLEN kutuların güveni:
-    #     kol                     medyan    p10   0.40-0.55 payı
-    #     yok (manevrasız)          0.88   0.83         %1
-    #     kademeli (manevralı)      0.70   0.54        %13
-    #   Manevrada hedef YATIK -> siluet incelir -> güven düşer. p10'un
-    #   0.54'e inmesi, eşiğin hemen ALTINDA bir yığın olduğunu gösterir;
-    #   onları atmak son 10 metrede körlük üretiyor (tespit %85 -> %48).
-    #
-    # YASA: kutu YAKINSA (menzil <= TERM_MENZIL) ve son KABUL EDİLEN kutu
-    #   TAZEYSE (yaş <= KOPRU_S), güven eşiği TERM_CONF'a iner. Ö-A'daki
-    #   süreklilik istisnasının GÜVEN eksenine uygulanmış hâli; orada aynı
-    #   fikir MENZİL tabanında işe yaramıştı (yo-yo 6 -> 0).
-    #
-    # ⛔ YANLIŞ-POZİTİF KORUMASI: (a) süreklilik şartı — yoktan beliren zayıf
-    #   kutu geçemez; (b) yerellik kapısı zaten önde ve konumu sınar;
-    #   (c) yalnız son ~12 m'de, yani kutunun büyük olduğu yerde geçerli.
-    #
-    # ⚠ TERM_CONF = CONF_MIN varsayılan -> kapı hiç açılmaz, BİT BİT aynı.
-    # Açma: DOW_TERM_CONF=0.25
-    TERM_CONF     = _fi("DOW_TERM_CONF", 0.40)     # terminal fazda güven eşiği
-    TERM_MENZIL   = _fi("DOW_TERM_MENZIL", 20.0)   # "terminal" sayılan menzil
-    #
-    # ⚠ Kİ1 (n=4/kol) SONUCU — ŞARTLAR FAZLA DARDI:
-    #   aktiflik %0.78 (639 karede 5), deney kolunun 2 koşusu SIFIR ->
-    #   §5.1 mekanizma kapısı düştü, hüküm kurulamadı.
-    #   ÖLÇÜLEN FIRSAT TAVANI (kutu var + kapıyı geçti + gecerli() eledi):
-    #     Kİ1 kapali      34/430 = %7.9
-    #     KM2 kademeli    23/287 = %8.0
-    #   Yakalanan: tavanın ~%37'si. Bu yüzden Kİ2'de eşik 0.25 -> 0.20 ve
-    #   menzil 12 -> 20 m. Tavanı yakalamayan ölçüm özelliği SINAMIYOR
-    #   (§5.13 madde 4).
-
     CONF_MIN      = 0.40    # ÖLÇÜLDÜ (dow/gorus/dedektor.py)
     BOYUT_MIN_PX  = 8.0     # px; bundan küçük kutu güvenilmez
     MENZIL_MAX_M  = 50.0    # m; ötesinde görsel devir YOK (tespit %10)
@@ -418,7 +423,7 @@ class IbvsCfg:
 
 
 def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
-          hiz_I, dt, cfg=IbvsCfg, own_vz=0.0):
+          hiz_I, dt, cfg=IbvsCfg, own_vz=0.0, yaw_I=0.0, taze=True):
     """IBVS kontrol yasası.
 
     GİRDİ (hedefin GPS'i YOK — yapısal garanti):
@@ -428,6 +433,10 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
       dt            : adım süresi (s)
       own_vz        : KENDİ dikey hızımız (m/s, yukarı+) — D3 türev
                       sönümlemesi için; kendi sensörümüz (§10 temiz)
+      yaw_I         : Ö-J terminal kerteriz integralinin o anki değeri (°);
+                      hiz_I gibi ÇAĞIRAN TAŞIR. Yenisi tani["ibvs_yaw_I"].
+      taze          : bu karede GERÇEK tespit var mı (köprü değil).
+                      İntegral YALNIZ tazeyken beslenir.
 
     ÇIKTI: (v_ned, vz, yaw_hedef_deg, hiz_I_yeni, tani)
       v_ned = (vx, vy) m/s DÜNYA yatay düzleminde (NED: x kuzey, y doğu)
@@ -450,8 +459,21 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     eps_yaw = azimut
     if abs(eps_yaw) < cfg.YAW_OLU_BAND:
         eps_yaw = 0.0
-    yaw_hedef = own_yaw_deg + cfg.K_YAW * eps_yaw
+    # ⭐ Ö-J TERMİNAL KERTERİZ İNTEGRALİ (bkz. IbvsCfg.TERM_I_KI).
+    #   TERM_I_KI = 0 iken yaw_I hep 0.0 -> toplama etkisiz, BİT BİT aynı.
+    _i_akt = 0
+    if cfg.TERM_I_KI > 0.0:
+        if R is not None and R <= cfg.TERM_I_MENZIL:
+            if taze:                       # köprüde DONAR — sarma yok
+                yaw_I = _kirp(yaw_I + cfg.TERM_I_KI * eps_yaw * dt,
+                              -cfg.TERM_I_MAX, cfg.TERM_I_MAX)
+            _i_akt = 1
+        else:
+            yaw_I = 0.0                    # terminal bandın DIŞI -> sıfırla
+    yaw_hedef = own_yaw_deg + cfg.K_YAW * eps_yaw + yaw_I
     tani["ibvs_eps_yaw"] = eps_yaw
+    tani["ibvs_yaw_I"] = yaw_I             # çağıran bir sonraki tike taşır
+    tani["ibvs_i_akt"] = _i_akt            # §5.1 MEKANİZMA SÜTUNU
 
     # --- 4b) İSTENEN KADRAJ YERİ (dikey nişan) — fren de bunu kullanır ---
     kg = _kirp((boyut - cfg.CY_GECIS_PX_UZAK) /
@@ -552,19 +574,7 @@ def gecerli(cx, cy, w, h, conf, cfg=IbvsCfg, son_w=None, son_yas=None):
             esik = _TC.CONF_MIN
     except Exception:
         pass
-    # ⭐ Ö-I TERMİNAL GÜVEN İSTİSNASI (bkz. IbvsCfg.TERM_CONF).
-    #   TERM_CONF == esik iken ilk şart False -> "conf" aynen döner,
-    #   sıralama ve gerekçe metni DEĞİŞMEZ, davranış BİT BİT aynı (B61).
-    _term_conf = False
-    if conf < esik:
-        _b = max(w, h)
-        _R = KAM.menzil(_b) if _b >= cfg.BOYUT_MIN_PX else None
-        if not (cfg.TERM_CONF < esik and conf >= cfg.TERM_CONF
-                and _R is not None and _R <= cfg.TERM_MENZIL
-                and son_w and son_yas is not None
-                and son_yas <= cfg.KOPRU_S):
-            return False, "conf"
-        _term_conf = True
+    if conf < esik: return False, "conf"
     boyut = max(w, h)
     if boyut < cfg.BOYUT_MIN_PX: return False, "boyut"
     R = KAM.menzil(boyut)
@@ -580,6 +590,4 @@ def gecerli(cx, cy, w, h, conf, cfg=IbvsCfg, son_w=None, son_yas=None):
             return False, "menzil_yakin"                # dev yanlış-pozitif
         return True, "terminal"     # §5.1 mekanizma: istisna DEVREYE GİRDİ
     if not (0 <= cx < KAM.IMG_W and 0 <= cy < KAM.IMG_H): return False, "kadraj"
-    if _term_conf:
-        return True, "term_conf"    # §5.1 mekanizma: güven istisnası GİRDİ
     return True, ""
