@@ -150,7 +150,7 @@ python3 araclar/gorsel_ozet.py logs/DENEME
 python3 araclar/video.py logs/DENEME/k01 logs/deneme.mp4 5
 ```
 
-Testler: `python3 -m pytest tests/test_dow.py -q` → **49 bekçi**.
+Testler: `python3 -m pytest tests/test_dow.py -q` → **60 bekçi**.
 
 ---
 
@@ -251,7 +251,7 @@ Sonuç: calistirma/umu/umu-run ve calistirma/umu/umu_run.py olmalı.
   kullanma, ileride asset adları değişebilir.
 
 ## 8. Doğrula
-python3 -m pytest tests/test_dow.py -q      # 49 bekçi GEÇMELİ
+python3 -m pytest tests/test_dow.py -q      # 60 bekçi GEÇMELİ
 python3 -c "import sys;sys.path.insert(0,'.');
 from dow.gorus.dedektor import MODEL_YOLU; print(MODEL_YOLU)"   # talon_v3.pt
 
