@@ -630,3 +630,59 @@ hedefe sıyrılma vakti veriyoruz.
 | Ö-L yavaşlat | 22.0 → 19.5 m/s | 1.25 → **8.75** (tabanda) |
 
 Mevcut hız YEREL OPTİMUM ve iki yanı da diktir. Bu kapı kapandı.
+
+---
+
+## ⭐ Ö-M · GÖRÜŞ İŞ PARÇACIĞI (`GORUS_ISP`) — **İLK POZİTİF SONUÇ**
+
+Kod zaten vardı, `VARSAYILAN KAPALI` ve *"açılması ölçümle kararlaşır"*
+diye bırakılmıştı. Hiç ölçülmemişti. **Kod değişikliği yapılmadı**;
+yalnız panel düğmesi bağlandı ve A/B koşuldu.
+
+**NEDEN ADAY:** çıkarım kontrol döngüsünün İÇİNDE koşuyor ve döngünün
+~%26'sını yiyor (9.1 Hz × 29 ms). Kodun kendi notu, çıkarımı 16 Hz'e
+çıkarmanın `tik_hz`'i 40.3 → 22.3'e düşürüp isabeti 1 → 0 yaptığını
+kaydediyor — yani `GORSEL_DET_HZ = 10` tavanı bir çözüm değil SEMPTOM.
+
+**HAVUZLANMIŞ (KN1 `kademeli` n=6 + KN2 `yok` n=4, mekanizma 10/10):**
+
+| ölçüt | kapalı | **AÇIK** |
+|---|---|---|
+| kaçırma ortalama | 1.90 | **0.70** |
+| kaçırma dağılımı | 1,0,2,4,1,4,1,3,1,2 | 3,0,0,0,0,1,1,1,1,0 |
+| **sıfır kaçırma (ilk denemede vuruş)** | **1/10** | **5/10** |
+| isabet | 8/10 | **10/10** |
+| `tik_hz` (kontrol döngüsü) | 44.0 | **49.2** |
+| `det_hz` (çıkarım) | 9.1 | **11.0** |
+
+**§4 ZORUNLU GEÇERLİLİK ÖLÇÜTLERİ — hepsi aynı yönde:**
+
+| | KN1 manevralı | KN2 taban |
+|---|---|---|
+| yatış salınımı /s | 0.42 → **0.15** | 0.55 → 0.59 |
+| \|yatış\| p90 | 17° → 15° | 21° → **9°** |
+| görsel tespit | %60 → **%64** | %75 → **%82** |
+| toplam körlük | 5.2 s → **1.2 s** | 3.7 s → **0.6 s** |
+| vuruş kalitesi | 3K/1Ş → 3K/3Ş | 4K/0Ş → **4K/0Ş** |
+
+Salınım düşerken tespit ARTMIŞ → §5.2 geçerlilik eşi tuttu.
+
+### Dürüst kalması gereken üç nokta
+
+1. **HİPOTEZİM YANLIŞTI, SONUÇ DOĞRU ÇIKTI.** Kazanımın terminal görsel
+   süreklilikten geleceğini öngörmüştüm; terminal tespit neredeyse
+   DEĞİŞMEDİ (%65 → %62). Kazanç kontrol döngüsünün hızlanmasından
+   (44 → 49 Hz) ve toplam körlüğün 4-6 kat kısalmasından geliyor.
+2. **İLAN EDİLEN KURAL TAM SAĞLANMADI.** Kural "kaçırma kötüleşmez VE
+   terminal tespit belirgin artarsa girer" idi; ikinci şart oluşmadı.
+   Kural sonuca göre YENİDEN YAZILMADI (§5.6) — karar kullanıcıya.
+3. **MANEVRALI KOLDA FAZLADAN VURUŞLAR ŞANS SINIFINDA.** Kontrollü
+   vuruş sayısı eşit (3-3). ⚠ O iki ŞANS koşusu YALNIZ süreklilik
+   ölçütünde takılıyor (%67 vs %70 eşiği); eşik sonucu çevirmek için
+   DEĞİŞTİRİLMEDİ. Taban senaryosunda kalite 4/4 kontrollü, bozulma yok.
+
+**DURUM:** anahtar KAPALI bırakıldı; varsayılan yapılması kullanıcı
+onayına bağlı (§8). Doğal ikinci adım: iş parçacığı ayrıldığına göre
+`GORSEL_DET_HZ` tavanı artık semptom değil — 10 → 25 denenebilir
+(donanım 34 Hz'e izin veriyor, çıkarım 29 ms). Ö-M kararı verilmeden
+başlanmaz (§0.1).
