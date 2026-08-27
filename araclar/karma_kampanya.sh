@@ -9,11 +9,14 @@
 #   yaklaşırken hedef araca manevra yaptırıp droneun bu manevraya karşı
 #   verdiği reaksiyona bakalım."
 #
-# KOLLAR — hangi aracın hedefi süreceğini AD belirler:
-#   taban     -> desen.py taban    hedef kendi rotasında (KIYAS ÇİZGİSİ, §3.3)
-#   kare      -> desen.py kare     40 m kenarlı kare, koşu boyunca
-#   daire     -> desen.py daire    35 m çaplı daire, koşu boyunca
+# KOLLAR:
+#   taban     -> hiç devralma YOK; hedef kendi rotasında (KIYAS ÇİZGİSİ, §3.3)
 #   kademeli  -> manevra.py kademeli  yakında HAFİF, GÖRSEL fazda SERT manevra
+#
+# ⛔ `kare` ve `daire` KOLLARI SİLİNDİ (2026-08-27, kullanıcı kararı): desen
+#    senaryoları gerçekçi değildi ve oyun tarafında hedefin parçalarını
+#    koparıyordu. `araclar/desen.py` ve UE4SS modundaki desen kodu da
+#    çıkarıldı. Ölçülen sonuçlar `docs/GORSEL_GUDUM_SICILI.md`de duruyor.
 #
 # ⛔ `taban` HER KAMPANYADA koşulur: hedef hiç kaçmazken ne olduğunu bilmeden
 #    kaçarken çıkan sonuç yorumlanamaz.
@@ -46,7 +49,6 @@ for D in "${LISTE[@]}"; do
   echo "=== [$(date +%H:%M:%S)] KOSU $I/${#LISTE[@]} — $ETIKET ==="
 
   # --- hedefi suren onceki surec kalmasin, kopru notr olsun ---
-  pkill -f "araclar/desen.py"   2>/dev/null
   pkill -f "araclar/manevra.py" 2>/dev/null
   python3 - <<'PYEOF' 2>/dev/null
 import os
@@ -68,21 +70,20 @@ PYEOF
   KOSU_PID=$!
 
   # --- kol adina gore DOGRU hedef surucusunu baslat ---
+  HEDEF_PID=""
   case "$D" in
     kademeli)
       python3 araclar/manevra.py kademeli --ad "$AD/$ETIKET" \
-        >> "logs/$AD.hedef.log" 2>&1 & ;;
-    taban|kare|daire)
-      python3 araclar/desen.py "$D" --ad "$AD/$ETIKET" \
-        >> "logs/$AD.hedef.log" 2>&1 & ;;
+        >> "logs/$AD.hedef.log" 2>&1 &
+      HEDEF_PID=$! ;;
+    taban)
+      : ;;                      # devralma YOK — hedef kendi rotasında
     *)
       echo "⛔ BILINMEYEN KOL: $D"; kill $KOSU_PID 2>/dev/null; exit 1 ;;
   esac
-  HEDEF_PID=$!
 
   wait $KOSU_PID
-  kill "$HEDEF_PID" 2>/dev/null; wait "$HEDEF_PID" 2>/dev/null
-  pkill -f "araclar/desen.py"   2>/dev/null
+  [ -n "$HEDEF_PID" ] && { kill "$HEDEF_PID" 2>/dev/null; wait "$HEDEF_PID" 2>/dev/null; }
   pkill -f "araclar/manevra.py" 2>/dev/null
 
   # ⛔ KOR KOSU KAPISI — hic tespit yoksa kampanyayi ORADA durdur

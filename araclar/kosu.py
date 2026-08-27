@@ -93,6 +93,7 @@ def _gorus_isi(det):
     kontrolü 40.3 -> 22.3 Hz'e düşürüyor ve araç istasyonu tutamıyor."""
     sct = mss.mss()
     son_det = 0.0
+    _tespit_t = 0.0
     son_gt = 0.0                       # görsel güdüm çıkarımı zamanlayıcısı
     dt_yak = 1.0 / max(1.0, Ayar.PANEL_YAKALA_HZ)
     while not _gorus_dur.is_set():
@@ -140,6 +141,7 @@ def _gorus_isi(det):
                 _gorus["tespit"] = tespit
                 _gorus["tespit_t"] = t
             son_tespit = _gorus["tespit"]
+            _tespit_t  = _gorus["tespit_t"]
         PANEL.fps_isaretle("yakala")
         # ⛔ KAYNAK KAPISI (2026-08-25): yakalama TÜM EKRANA bakıyor; oyunun
         #   üstüne pencere gelirse panel oyunu değil ONU yayınlar ve operatör
@@ -150,8 +152,25 @@ def _gorus_isi(det):
         #     üzerinden ayrıca okur, `kare_koy` yalnız paneli besler.
         _kare_oyun = pk > 0.05
         PANEL.kaynak_isaretle(_kare_oyun, pk)
+        # ⭐ BAYAT KUTUYU EKRANA BASMA (2026-08-27, kullanıcı isteği):
+        #   *"son algıladığı kare birkaç saniye daha ekranda kalıyor, onu
+        #   görmek istemiyorum, detection yanlış mı algılıyor diye
+        #   düşünüyorum."* Haklı: çıkarım ART ARDA ıskalayınca kutu
+        #   silinmiyordu ve operatöre SANKİ hedef hâlâ oradaymış gibi
+        #   görünüyordu — panel, dedektörün bilmediği bir şeyi iddia ediyordu.
+        #   ⛔ YALNIZ GÖSTERİM: `kare_koy` sadece paneli/MJPEG'i besler.
+        #     Güdüm kareyi `_gorus["img"]`den ayrıca okur; kayıt kareleri
+        #     (`kayit.py`) HAM yazılır, kutu videoya sonradan CSV'den çizilir.
+        #     Yani bu kapı ne güdümü ne de kanıtı değiştirir.
+        #   ⚠ "TESPİT YAŞAR" mantığı (yukarıda) BOZULMADI: kutu güdüm için
+        #     bir sonraki çıkarıma kadar geçerli kalmaya devam ediyor; burada
+        #     yalnız EKRANA basılıp basılmayacağına karar veriliyor.
         if _kare_oyun:
-            PANEL.kare_koy(img, son_tespit, olcek=Ayar.PANEL_OLCEK)
+            _kutu = son_tespit
+            if (Ayar.PANEL_KUTU_TAZE and _kutu is not None
+                    and (t - _tespit_t) > Ayar.PANEL_KUTU_YAS_S):
+                _kutu = None
+            PANEL.kare_koy(img, _kutu, olcek=Ayar.PANEL_OLCEK)
         kalan = dt_yak - (time.time() - t)
         if kalan > 0:
             time.sleep(kalan)

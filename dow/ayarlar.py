@@ -105,6 +105,13 @@ class Ayar:
     #   ⚠ VARSAYILAN KAPALI — açılması ölçümle kararlaşır (§6).
     GORUS_ISP       = _b("DOW_GORUS_ISP", False)
     PANEL_OLCEK     = _f("DOW_PANEL_OLCEK", 0.5)   # JPEG'e giden küçültme
+    # ⭐ BAYAT KUTUYU EKRANA BASMA (2026-08-27, kullanıcı isteği).
+    #   Çıkarım art arda ıskalayınca son kutu ekranda saniyelerce kalıyor ve
+    #   operatöre hedef hâlâ oradaymış gibi görünüyordu. Bu eşikten yaşlı
+    #   kutu PANELE ÇİZİLMEZ. ⛔ YALNIZ GÖSTERİM: güdüm ve kayıt karesi
+    #   etkilenmez (bkz. kosu.py'deki not). Geri dönüş: DOW_PANEL_KUTU_TAZE=0
+    PANEL_KUTU_TAZE  = _b("DOW_PANEL_KUTU_TAZE", True)
+    PANEL_KUTU_YAS_S = _f("DOW_PANEL_KUTU_YAS_S", 0.3)
 
     # ================= KALKIŞ =================
     KALKIS_ALT_M   = _f("DOW_KALKIS_ALT", 45.0)   # zemine göreli

@@ -549,17 +549,17 @@ setInterval(()=>{document.getElementById('z').src='/zoom?'+(son++)},150);
 #     Proton önekinin Z: sürücüsü tüm Linux dosya sistemini gördüğü için
 #     oyun tarafı aynı dosyayı `Z:\tmp\talon_kopru.txt` olarak okur.
 #
-#  BİÇİM (tek satır):  <aktif> <throttle> <yaw> <pitch> <roll> <sayaç> <kip>
+#  BİÇİM (tek satır):  <aktif> <throttle> <yaw> <pitch> <roll> <sayaç>
 #     aktif    0/1    : serbest uçuş açık mı
 #     throttle 0..1   : ileri hız (oyun tarafı 300..4000 cm/s'ye eşler)
 #     yaw      -1..1  : burun sola / sağa
 #     pitch    -1..1  : alçal / tırman
 #     roll     -1..1  : sola / sağa yatış (koordineli dönüş de üretir)
-#     kip     0/1/2   : 0 = elle (joystick/klavye)
-#                       1 = KARE deseni  (kenar 40 m)
-#                       2 = DAİRE deseni (çap 35 m)
-#                       Desen kiplerinde oyun tarafı eksenleri YOK SAYAR ve
-#                       deseni kendi sürer; yalnız throttle geçerli kalır.
+#  ⛔ 7. ALAN (kip) SİLİNDİ (2026-08-27, §5.12 — kullanıcı kararı): kare ve
+#     daire desenleri hem gerçekçi değildi hem de oyun tarafında hedefin
+#     parçalarını koparıyordu. Mod tarafındaki karşılığı da çıkarıldı
+#     (`dow/ue4ss_modlari/.../main.lua` 267 -> 175 satır). Elle kumanda
+#     (eski kip 0) DURUYOR — `araclar/manevra.py` onu kullanıyor.
 #     sayaç           : her yazmada artar; oyun tarafı bununla arayüzün
 #                       donup donmadığını anlar (bayatlarsa eksenler sıfırlanır)
 #
@@ -588,16 +588,10 @@ def talon_kopru_yaz(d):
     yaw = _eksen(d.get("yaw", 0.0), -1.0, 1.0)
     pit = _eksen(d.get("pitch", 0.0), -1.0, 1.0)
     rol = _eksen(d.get("roll", 0.0), -1.0, 1.0)
-    try:
-        kip = int(d.get("kip", 0) or 0)
-    except Exception:
-        kip = 0
-    kip = kip if kip in (0, 1, 2) else 0
-
     with _talon_kilit:
         _talon_sayac += 1
-        satir = "%d %.3f %.3f %.3f %.3f %d %d\n" % (
-            aktif, thr, yaw, pit, rol, _talon_sayac, kip)
+        satir = "%d %.3f %.3f %.3f %.3f %d\n" % (
+            aktif, thr, yaw, pit, rol, _talon_sayac)
         gecici = TALON_KOPRU_YOL + ".tmp"
         try:
             with open(gecici, "w") as f:

@@ -40,13 +40,15 @@ TEMAS_ESIK = 60.0        # §5.2 — altındaki kolda salınım GÜVENİLMEZ
 N_HUKUM    = 4           # §5.4 — altındaki kolda hüküm cümlesi kurulmaz
 
 # hedef davranışları, kampanya sırasındaki mantıklı sırayla
+# ⛔ "kare"/"daire" 2026-08-27'de sistemden silindi; eski kampanya
+#   dizinleri (KARMA10, HZ25) hâlâ okunabilsin diye adlar listede kalıyor.
 KOL_SIRA = ["taban", "kademeli", "kare", "daire"]
 
 KOL_ACIKLAMA = {
     "taban":    "hedef kendi rotasında (devralma YOK) — kıyas çizgisi",
     "kademeli": "yakında hafif, GÖRSEL fazda SERT anlık kaçamak",
-    "kare":     "40 m kenarlı kare, koşu boyunca — sürekli manevra",
-    "daire":    "35 m çaplı daire, koşu boyunca — düz kesim YOK",
+    "kare":     "[SİLİNDİ 2026-08-27] 40 m kenarlı kare, koşu boyunca",
+    "daire":    "[SİLİNDİ 2026-08-27] 35 m çaplı daire, koşu boyunca",
 }
 
 

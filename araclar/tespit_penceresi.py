@@ -20,8 +20,14 @@ KULLANICI (2026-08-27): *"koşuları yaptırırken yanda detection modelinin
 
 KUTU RENKLERİ (sunucunun çizdiği):
   YEŞİL DÜZ    = dedektör o karede hedefi GERÇEKTEN buldu
-  TURUNCU KESİK = ölçüm YOK; takipçinin öngörüsü (kutu yaşlanıyor)
-  kutu yoksa   = o karede hiçbir şey bulunamadı
+  TURUNCU KESİK = ölçüm YOK; takipçinin öngörüsü
+  kutu yoksa   = dedektör bulamadı YA DA son kutu bayatladı
+
+⭐ BAYAT KUTU ARTIK GÖSTERİLMİYOR (2026-08-27, kullanıcı isteği): çıkarım
+  art arda ıskalayınca son kutu ekranda saniyelerce kalıyordu ve dedektör
+  yanlış yere bakıyormuş gibi görünüyordu. `DOW_PANEL_KUTU_YAS_S` (0.3 s)
+  değerinden yaşlı kutu ÇİZİLMEZ — kutu kaybolduysa dedektör GERÇEKTEN
+  bulamıyor demektir. Eski davranış: DOW_PANEL_KUTU_TAZE=0
 
 ⚠ EKRANI KAPATMA: yakalama tüm ekrana bakıyor. Bu pencereyi OYUNUN ÜSTÜNE
   koyarsan panelin kaynak kapısı kapanır ve görüntü DONAR (üst şeritte
@@ -134,6 +140,8 @@ def _bilgi_seridi(img, bagli):
             (200, 210, 220), 0.42)
     else:
         yaz(360, 24, "KUTU YOK", (90, 100, 115), 0.46, 2)
+        yaz(475, 24, "(dedektor bulamiyor — bayat kutu gizli)",
+            (90, 100, 115), 0.38)
 
     # --- 2. satir: hizlar ve kaynak kapisi ---
     yaz(14, 50, "cikarim %4.1f Hz  /  %5.1f ms" %
