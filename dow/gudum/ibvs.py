@@ -369,7 +369,17 @@ class IbvsCfg:
     # ⚠ TERM_CONF = CONF_MIN varsayılan -> kapı hiç açılmaz, BİT BİT aynı.
     # Açma: DOW_TERM_CONF=0.25
     TERM_CONF     = _fi("DOW_TERM_CONF", 0.40)     # terminal fazda güven eşiği
-    TERM_MENZIL   = _fi("DOW_TERM_MENZIL", 12.0)   # "terminal" sayılan menzil
+    TERM_MENZIL   = _fi("DOW_TERM_MENZIL", 20.0)   # "terminal" sayılan menzil
+    #
+    # ⚠ Kİ1 (n=4/kol) SONUCU — ŞARTLAR FAZLA DARDI:
+    #   aktiflik %0.78 (639 karede 5), deney kolunun 2 koşusu SIFIR ->
+    #   §5.1 mekanizma kapısı düştü, hüküm kurulamadı.
+    #   ÖLÇÜLEN FIRSAT TAVANI (kutu var + kapıyı geçti + gecerli() eledi):
+    #     Kİ1 kapali      34/430 = %7.9
+    #     KM2 kademeli    23/287 = %8.0
+    #   Yakalanan: tavanın ~%37'si. Bu yüzden Kİ2'de eşik 0.25 -> 0.20 ve
+    #   menzil 12 -> 20 m. Tavanı yakalamayan ölçüm özelliği SINAMIYOR
+    #   (§5.13 madde 4).
 
     CONF_MIN      = 0.40    # ÖLÇÜLDÜ (dow/gorus/dedektor.py)
     BOYUT_MIN_PX  = 8.0     # px; bundan küçük kutu güvenilmez

@@ -338,6 +338,20 @@ def _gecmis_beklenen(halka, t_hedef):
     elev = math.degrees(math.atan2(hp[2] - dp[2], max(yat, 1e-6)))
     ker = math.degrees(math.atan2(hp[1] - dp[1], hp[0] - dp[0]))
     az = (ker - yon[2] + 180.0) % 360.0 - 180.0
+    # ⛔ ARKA YARIKÜRE KAPISI — 2026-08-27, YAŞANMIŞ ANALİZ HATASI.
+    #   İzdüşüm zinciri `ileri` bileşenine BÖLER; hedef arkadayken `ileri`
+    #   NEGATİF olur ve bölme işareti çevirerek KADRAJ İÇİ bir piksel
+    #   üretir. Yani "üstünden geçtiğimiz" hedef, kadrajın ortasında
+    #   duruyormuş gibi loglanır.
+    #   ÖLÇÜLDÜ: KM2 kademeli__t2 kare 21 (t=10.7 s, menzil 6.58 m) ->
+    #   bek=(1338,477) diyordu; KAREYE BAKINCA hedef YOKTU, arkada
+    #   kalmıştı. Bu, "kadraj içinde ama dedektör kör" (B) kovasını
+    #   şişiriyordu ve aday tasarımım o şişkin sayıya dayanıyordu.
+    #   ⚠ BU KAPI YALNIZ ÖLÇÜM YOLUNDA (CSV sütunları). Güdümdeki
+    #     `seviye_piksel` AYNI kusuru taşır ama ORAYA DOKUNULMADI —
+    #     güdüm davranışı değişikliği ayrı karar (§8).
+    if abs(az) >= 85.0:
+        return None
     # ⭐ TAM ZİNCİR (Gazebo'nun `los_seviye`inin tersi). ÖLÇÜLDÜ 2026-08-23,
     #   4146 eşleşmiş karede tespit edilen kutuya uyum:
     #     yaklaşık zincir: sapma medyan 33.1 px (p90 109.4)
