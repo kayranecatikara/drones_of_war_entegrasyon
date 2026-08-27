@@ -36,6 +36,37 @@ echo "    B kolu : ${B_ENV:-<varsayilan>}"
 echo "    tekrar : $TEKRAR  ->  $((TEKRAR*4)) kosu (n=$TEKRAR/hucre)"
 date
 
+# ⛔⛔ UCUS ONCESI KAPI — IKI KOL GERCEKTEN FARKLI MI?
+#   Env'i yanlis yere koymak, yanlis anahtar adi yazmak ya da anahtarin
+#   Ayar'da hic okunmamasi -> iki kol AYNI ayarla kosar ve kampanya sessizce
+#   bosa gider. Mekanizma kapisi (S5.1) bunu ancak KOSTUKTAN sonra yakalar.
+#   Bu kapi UCMADAN once yakalar. YASANDI: K2'de "DOW_GORUS_ISP=0" arkadan
+#   gelen sabit tarafindan eziliyordu; 16 ucus bosa gidecekti.
+python3 - "$A_ENV" "$B_ENV" <<'PYEOF' || exit 1
+import os, subprocess, sys
+def coz(envstr):
+    e = dict(os.environ)
+    for tok in envstr.split():
+        if "=" in tok:
+            k, v = tok.split("=", 1); e[k] = v
+    kod = ("import sys;sys.path.insert(0,'.');from dow.ayarlar import Ayar;"
+           "import json;print(json.dumps({k:str(getattr(Ayar,k)) "
+           "for k in dir(Ayar) if k.isupper()}))")
+    out = subprocess.run([sys.executable, "-c", kod], env=e,
+                         capture_output=True, text=True).stdout.strip()
+    import json; return json.loads(out.splitlines()[-1])
+A, B = coz(sys.argv[1]), coz(sys.argv[2])
+fark = {k: (A[k], B[k]) for k in A if A.get(k) != B.get(k)}
+if not fark:
+    print("  ⛔⛔ IKI KOL AYNI AYARLA KOSACAK — kampanya BASLATILMADI.")
+    print("     Sebep: kol env'i etkisiz (yanlis anahtar adi, yanlis sira,")
+    print("     ya da Ayar bu anahtari hic okumuyor).")
+    sys.exit(1)
+print("  ✔ kollar farkli:")
+for k, (a_, b_) in sorted(fark.items()):
+    print("      %-22s A=%-10s B=%s" % (k, a_, b_))
+PYEOF
+
 _kopru_notr() {
   python3 - <<'PYEOF' 2>/dev/null
 import os
@@ -65,7 +96,14 @@ for ((t=1; t<=TEKRAR; t++)); do
         echo "⛔ SIM HAZIRLANAMADI — kampanya durduruldu"; exit 1
       fi
 
-      env $ENVK DOW_GORSEL=1 DOW_DET_GOSTER=1 DOW_KIP=hibrit DOW_GORUS_ISP=1 \
+      # ⛔⛔ KOL ENV'I EN SONA KONUR — `env` atamalari SOLDAN SAGA isler ve
+      #   SONUNCU kazanir. Kol env'i basa konursa buradaki sabitler onu EZER.
+      #   YASANDI (2026-08-27, K2 baslar baslamaz yakalandi): kol env'i
+      #   "DOW_GORUS_ISP=0" idi ama arkasindan gelen sabit "DOW_GORUS_ISP=1"
+      #   onu eziyordu -> IKI KOL DA ISP ACIK kosacakti, mekanizma kapisi
+      #   (S5.1) hicbir fark gostermeyecek ve 16 ucus BOSA gidecekti.
+      #   Kural: sabitler ONCE, kolun degiskeni SONRA.
+      env DOW_GORSEL=1 DOW_DET_GOSTER=1 DOW_KIP=hibrit DOW_GORUS_ISP=1 $ENVK \
         timeout 900 python3 araclar/kosu.py "$AD/$ETIKET" 1 "$SURE" \
         >> "logs/$AD.log" 2>&1 &
       KOSU_PID=$!
