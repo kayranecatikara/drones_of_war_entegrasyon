@@ -33,6 +33,16 @@ piksel cinsinden; bu depoda 540.4 px).
 ⚠ ÖLÇÜM-ONLY: menzil `menzil3_m` truth kanalından okunur (GPS). Güdüme
    GİRMEZ (§10); yalnız pikseli metreye çevirmek için kullanılır.
 
+⛔⛔ BU ÖLÇÜT TEK BAŞINA HÜKÜM KURDURMAZ — ÖLÇÜLEREK ÇÜRÜDÜ (2026-08-27).
+   Ö-J kampanyasında yanal hata HER İKİ senaryoda da iyileşti
+   (kademeli 1.04 -> 0.76 m, yok 0.35 -> 0.24 m) ama SONUÇ KÖTÜLEŞTİ
+   (kaçırma kademeli 0.83 -> 1.33, yok 1.00 -> 3.25).
+   SEBEP: "en yakın andaki nişan hatası", hedefin ÖNÜNDEN daha yakın
+   geçen ama DEĞMEYEN bir yörüngeyi ÖDÜLLENDİRİR. Yani §5.2'nin tarif
+   ettiği geçersiz ölçüttür: sistem kötüleşirken de iyi görünebilir.
+   ZORUNLU EŞİ: `araclar/kacirma.py` (birincil ölçüt). Bu araç yalnız
+   MEKANİZMANIN çalışıp çalışmadığını gösterir, KAZANIMI değil.
+
 Kullanım: python3 araclar/terminal_nisan.py logs/KJ1 --pencere 1.0
 ================================================================================
 """
@@ -59,6 +69,9 @@ def _f(r, k):
         return None
 
 
+MEK = ["", ""]      # (aktiflik sütunu, büyüklük sütunu) — --mekanizma kurar
+
+
 def kosu_olc(d, pencere_s):
     """Bir koşunun EN YAKIN anına giden `pencere_s` saniyesini ölç."""
     y = os.path.join(d, "k01", "cikarim.csv")
@@ -75,7 +88,8 @@ def kosu_olc(d, pencere_s):
             continue
         S.append((t, m, _f(r, "vis_cx"), _f(r, "vis_cy"),
                   _f(r, "drone_roll"), r.get("basarili") == "1",
-                  _f(r, "i_akt"), _f(r, "yaw_I")))
+                  _f(r, MEK[0]) if MEK[0] else None,
+                  _f(r, MEK[1]) if MEK[1] else None))
     if len(S) < 8:
         return None
     i = min(range(len(S)), key=lambda k: S[k][1])
@@ -121,7 +135,13 @@ def main():
     ap.add_argument("kok", nargs="?", default="logs/KJ1")
     ap.add_argument("--pencere", type=float, default=1.0,
                     help="en yakın andan geriye kaç saniye")
+    ap.add_argument("--mekanizma", default="",
+                    help="§5.1 mekanizma sütununun adı (özelliğe göre değişir)")
     a = ap.parse_args()
+    if a.mekanizma:
+        p_ = a.mekanizma.split(",")
+        MEK[0] = p_[0].strip()
+        MEK[1] = p_[1].strip() if len(p_) > 1 else ""
 
     kollar = {}
     for d in sorted(glob.glob(os.path.join(KOK, a.kok, "*__t*"))):
@@ -173,9 +193,11 @@ def main():
             print("         medyanı YALNIZ ölçülebilen koşulardan; bu sayı iki")
             print("         kolda EŞİT değilse kıyas TARAFLIDIR (§5.2).")
     print("""
-  KARAR (KJ1 için koşmadan ÖNCE ilan edildi):
-    yanal_m >=%30 düşer VE kaçırma kötüleşmez VE KJ2'de (manevrasız)
-    hiçbir ölçüt bozulmazsa -> GİRER. Aksi halde ELENİR.
+  ⛔ BU SAYILAR TEK BAŞINA KARAR VERDİRMEZ (ölçülerek çürüdü, bkz. başlık):
+     Ö-J'de yanal hata İKİ senaryoda da iyileşti, kaçırma İKİSİNDE DE
+     kötüleşti. Ölçüt, hedefin önünden yakın geçip DEĞMEYEN yörüngeyi
+     ödüllendiriyor. Kararı `araclar/kacirma.py` verir; bu araç yalnız
+     mekanizmanın çalıştığını gösterir.
   ⚠ MEKANİZMA sütunu sıfır olan deney koşusu VERİ NOKTASI DEĞİLDİR (§5.1).
 """)
 

@@ -94,44 +94,6 @@ class IbvsCfg:
     # --- yaw ---
     K_YAW         = 1.0     # tam düzeltme (Gazebo'dan AYNEN)
 
-    # ⭐ Ö-J · TERMİNAL KERTERİZ İNTEGRALİ — 2026-08-27
-    #
-    # SORUN (ÖLÇÜLDÜ, KM2 n=4/kol): son metrelerde nişan hatası KALICI bir
-    #   YANLILIK. Manevralı kolda seviye çerçevesinde 108 px, manevrasızda
-    #   20 px; son 1.5 s'de İŞARET DEĞİŞİMİ SIFIR ve işaret hedefin yatış
-    #   yönüyle birebir aynı. Metreye çevrilince yanal hata 1.37 m
-    #   (tabanda 0.26 m) — ölçülen ıskalar 0.9-1.5 m, yani bu hata
-    #   doğrudan ıskanın kendisi.
-    #
-    # NEDEN ORANSAL TERİM KAPATAMAZ: K_YAW = 1.0, yani komut edilen yön
-    #   ZATEN tam kerteriz (saf takip). Hata kazançtan değil, hız
-    #   döngüsünün gecikmesinden geliyor:
-    #       cevirici.CevCfg.K_V = 1.5  ->  tau = 1/K_V = 0.67 s
-    #   Birinci mertebe bir takipçinin DÖNEN bir komuta karşı kalıcı hatası
-    #   e_ss = omega·tau. Terminal LOS dönüşü ~15°/s ölçüldü ->
-    #   e_ss ≈ 15 × 0.67 ≈ 10°; ölçülen yanlılık 10-19°. UYUYOR.
-    #   Kalıcı hatayı tau'dan BAĞIMSIZ sıfırlayan tek yapı integraldir
-    #   (sistemi tip-1 yapar). K_V'yi büyütmek alternatifti; cevirici'nin
-    #   kendi notu "birbirini kovalar ve salınır" diyor — riskli.
-    #
-    # NEDEN LEAD DEĞİL: "hata = tau · kutu hızı" modeli ÖLÇÜMLE ÇÜRÜDÜ —
-    #   tau koşular arasında -2.22 .. +5.75 s ve bir koşuda hata ile kutu
-    #   hızı TERS işaretli. Piksel hızına dayalı lead en az bir koşuda
-    #   TERS yöne iterdi; Ö-F'nin batma sebebi buydu.
-    #
-    # YASA: R <= TERM_I_MENZIL iken  yaw_hedef += yaw_I,
-    #       yaw_I += TERM_I_KI · eps_yaw · dt   (±TERM_I_MAX'e doyar)
-    #   ⛔ YALNIZ TAZE KUTUYLA beslenir (köprüde DONAR, sarma yok).
-    #      Bu bir yan etki değil TASARIM: ölçüldü ki son 5 m'de faz %100
-    #      GORSEL ama kutu yalnız %30 karede var. İntegral, görebildiğimiz
-    #      5-12 m bandında kurulup körlükte HAFIZA olarak taşınır.
-    #   ⛔ Terminal bandın DIŞINDA sıfırlanır — uzun menzilde sarmaz.
-    #
-    # ⚠ TERM_I_KI = 0 varsayılan -> yaw_I hep 0.0, toplama etkisiz,
-    #   davranış BİT BİT aynı (bekçi B61).  Açma: DOW_TI_KI=0.8
-    TERM_I_KI     = _fi("DOW_TI_KI", 0.0)      # 1/s; 0 = KAPALI
-    TERM_I_MAX    = _fi("DOW_TI_MAX", 20.0)    # °; integral doyumu
-    TERM_I_MENZIL = _fi("DOW_TI_MENZIL", 12.0) # m; bu menzilin altında
     YAW_RATE_MAX  = 120.0   # °/s. Araç 214 yapabiliyor AMA hızlı yaw
                             # görüntüyü bulandırıp dedektörü kırar -> KORUNDU.
     YAW_OLU_BAND  = 1.0     # °; altında yaw komutu güncellenmez
@@ -423,7 +385,7 @@ class IbvsCfg:
 
 
 def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
-          hiz_I, dt, cfg=IbvsCfg, own_vz=0.0, yaw_I=0.0, taze=True):
+          hiz_I, dt, cfg=IbvsCfg, own_vz=0.0):
     """IBVS kontrol yasası.
 
     GİRDİ (hedefin GPS'i YOK — yapısal garanti):
@@ -433,10 +395,6 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
       dt            : adım süresi (s)
       own_vz        : KENDİ dikey hızımız (m/s, yukarı+) — D3 türev
                       sönümlemesi için; kendi sensörümüz (§10 temiz)
-      yaw_I         : Ö-J terminal kerteriz integralinin o anki değeri (°);
-                      hiz_I gibi ÇAĞIRAN TAŞIR. Yenisi tani["ibvs_yaw_I"].
-      taze          : bu karede GERÇEK tespit var mı (köprü değil).
-                      İntegral YALNIZ tazeyken beslenir.
 
     ÇIKTI: (v_ned, vz, yaw_hedef_deg, hiz_I_yeni, tani)
       v_ned = (vx, vy) m/s DÜNYA yatay düzleminde (NED: x kuzey, y doğu)
@@ -459,21 +417,8 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     eps_yaw = azimut
     if abs(eps_yaw) < cfg.YAW_OLU_BAND:
         eps_yaw = 0.0
-    # ⭐ Ö-J TERMİNAL KERTERİZ İNTEGRALİ (bkz. IbvsCfg.TERM_I_KI).
-    #   TERM_I_KI = 0 iken yaw_I hep 0.0 -> toplama etkisiz, BİT BİT aynı.
-    _i_akt = 0
-    if cfg.TERM_I_KI > 0.0:
-        if R is not None and R <= cfg.TERM_I_MENZIL:
-            if taze:                       # köprüde DONAR — sarma yok
-                yaw_I = _kirp(yaw_I + cfg.TERM_I_KI * eps_yaw * dt,
-                              -cfg.TERM_I_MAX, cfg.TERM_I_MAX)
-            _i_akt = 1
-        else:
-            yaw_I = 0.0                    # terminal bandın DIŞI -> sıfırla
-    yaw_hedef = own_yaw_deg + cfg.K_YAW * eps_yaw + yaw_I
+    yaw_hedef = own_yaw_deg + cfg.K_YAW * eps_yaw
     tani["ibvs_eps_yaw"] = eps_yaw
-    tani["ibvs_yaw_I"] = yaw_I             # çağıran bir sonraki tike taşır
-    tani["ibvs_i_akt"] = _i_akt            # §5.1 MEKANİZMA SÜTUNU
 
     # --- 4b) İSTENEN KADRAJ YERİ (dikey nişan) — fren de bunu kullanır ---
     kg = _kirp((boyut - cfg.CY_GECIS_PX_UZAK) /

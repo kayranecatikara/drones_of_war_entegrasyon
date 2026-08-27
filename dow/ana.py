@@ -77,7 +77,6 @@ class Beyin:
         self._kayip = 0
         self._son_komut = (0.0, 0.0, 0.0, 0.0)
         self.hiz_I = 0.0
-        self.yaw_I = 0.0      # ⭐ Ö-J terminal kerteriz integrali (°)
         self.tani = {}
 
     # ---------------- yardımcı ----------------
@@ -99,7 +98,6 @@ class Beyin:
         self._terminal_kabul = 0       # §5.1 mekanizma sütunu (Ö-A)
         self._kilit = 0; self._kayip = 0
         self.hiz_I = 0.0
-        self.yaw_I = 0.0      # ⭐ Ö-J terminal kerteriz integrali (°)
         self.izleyici.sifirla()
         self.cev.sifirla()
 
@@ -450,7 +448,7 @@ class Beyin:
             #   (~9 Hz -> 10 kare ≈ 1.1 s), kontrol tiki başına DEĞİL.
             if (kip != "gps" and self.durum != "GORSEL"
                     and self._kilit >= self.cfg.DEVIR_KARE):
-                self.durum = "GORSEL"; self.hiz_I = 0.0; self.yaw_I = 0.0
+                self.durum = "GORSEL"; self.hiz_I = 0.0
             # "gorsel" kipinde GERİ DÖNÜLMEZ; yalnız "hibrit"te geri dönüş var
             elif (kip == "hibrit" and self.durum == "GORSEL"
                     and self._kayip >= self.cfg.KAYIP_KARE):
@@ -505,13 +503,9 @@ class Beyin:
             #   azimutunun türevi). GV02'de bu terim BAĞLANMAMIŞTI (lead=0)
             #   ve saf takip çapraz giden hedefin gerisinde kalıyordu:
             #   cx 991 -> 1190 -> 1292 (merkez 960), sonra tespit koptu.
-            # ⭐ Ö-J: integral durumu hiz_I gibi BURADA taşınır; `taze`
-            #   köprüdeyken integralin donmasını sağlar (sarma yok).
             (vx, vy), vz_ned, yaw_hedef, self.hiz_I, ti = ibvs.komut(
                 cx, cy, w, h, own_yaw, own_pitch, own_roll, self.hiz_I, dt,
-                own_vz=v_olculen[2],      # Unreal Z yukarı; KENDİ hızımız
-                yaw_I=self.yaw_I, taze=self._bu_kare_tespit)
-            self.yaw_I = ti.get("ibvs_yaw_I", 0.0)
+                own_vz=v_olculen[2])      # Unreal Z yukarı; KENDİ hızımız
             self.tani.update(ti)
             e = (yaw_hedef - own_yaw + 180.0) % 360.0 - 180.0
             _tv = self.cfg.YAW_RATE_MAX

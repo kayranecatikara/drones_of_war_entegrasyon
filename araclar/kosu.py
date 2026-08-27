@@ -297,7 +297,7 @@ class CikarimKaydi:
                "vis_cx", "vis_cy", "vis_w", "vis_conf",
                "bek_cx", "bek_cy", "bek_w",
                "yerel_aday", "yerel_uygun", "red_konum", "red_boyut",
-               "terminal_kabul", "kesme", "yaw_I", "i_akt",
+               "terminal_kabul", "kesme",
                "iz_yas", "iz_w", "det_ms", "det_pencere",
                "takip_id", "takip_kaynak", "takip_coast", "takip_n",
                "menzil_m", "menzil3_m", "dz_m",
@@ -478,8 +478,6 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                   "red_boyut": cti.get("red_boyut"),
                   "terminal_kabul": cti.get("terminal_kabul"),
                   "kesme": cti.get("ibvs_kesme"),
-                  "yaw_I": cti.get("ibvs_yaw_I"),      # ⭐ Ö-J
-                  "i_akt": cti.get("ibvs_i_akt"),      # §5.1 mekanizma
                   "takip_id": cti.get("takip_id"),
                   "takip_kaynak": cti.get("takip_kaynak"),
                   "takip_coast": cti.get("takip_coast"),
@@ -774,7 +772,7 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                       "iz_yas", "iz_w",
                       "takip_id", "takip_kaynak", "takip_coast", "takip_n",
                       "ibvs_nisan_elev", "ibvs_vz_kirpildi", "ibvs_e_cy",
-                      "ibvs_vz_yukari", "ibvs_yaw_I", "ibvs_i_akt"):
+                      "ibvs_vz_yukari"):
                 if k in ti: sat[k] = round(ti[k], 2) if isinstance(ti[k], float) else ti[k]
             if tespit:
                 sat.update({"vis_cx": round(tespit[0], 1), "vis_cy": round(tespit[1], 1),

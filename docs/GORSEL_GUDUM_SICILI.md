@@ -391,3 +391,40 @@ Fırsat tavanı ölçüldü (kutu var + kapıyı geçti + `gecerli()` eledi):
 %7.9-8.0. Kural "kaçırmada eşit/iyi VE tespitte ≥8 puan önde" idi;
 tespit farkı SIFIR. **Girmedi, §5.12 ile tamamen silindi**
 (grep sıfır + bit bit denklik).
+
+## Ö-J · TERMİNAL KERTERİZ İNTEGRALİ — **ELENDİ**
+
+`R < 12 m` iken `yaw_hedef += yaw_I`, `yaw_I += 0.8·eps·dt` (±20°).
+Yalnız taze kutuyla beslenir, köprüde donar, terminal dışında sıfırlanır.
+
+| ölçüt | KJ1 `kademeli` (tasarım zarfı, n=6) | KJ2 `yok` (regresyon, n=4) |
+|---|---|---|
+| kaçırma kapalı | 0.83 (0,0,0,2,2,1) | 1.00 (1,2,0,1) |
+| **kaçırma açık** | **1.33** (4,1,0,1,1,1) | **3.25** (1,**8**,0,4) |
+| terminal yanal kapalı | 1.04 m | 0.35 m |
+| terminal yanal açık | 0.76 m | 0.24 m |
+| ölçülemeyen koşu | 0/6 vs **2/6** | 0/4 vs 0/4 |
+| mekanizma | 5/6 geçerli | 4/4 geçerli |
+
+Manevrasız TABANDA kaçırma **1.0 → 3.25**; en kötü koşu (8 kaçırma)
+integralin en çok biriktiği koşuydu (9.3°). §5.10 regresyonu yakaladı.
+
+**MEKANİZMA ÇALIŞTI, TASARIM YANLIŞTI.** `yaw_hedef` yalnız burnu değil
+HIZ VEKTÖRÜNÜ de çeviriyor (`vx,vy = v·cos/sin(yaw_hedef)`), yani hedefin
+ÖNÜNE uçuyoruz. Hedef dönüşünü sürdürmeyince diğer taraftan ıskalıyoruz.
+
+## ⛔ METODOLOJİK DERS: "terminal nişan hatası" GEÇERSİZ ÖLÇÜT
+
+Yanal hata **her iki kampanyada da iyileşti**, sonuç **her ikisinde de
+kötüleşti**. Sebep: "en yakın andaki nişan hatası", hedefin önünden daha
+yakın geçen ama DEĞMEYEN yörüngeyi ödüllendirir — §5.2'nin tarif ettiği
+tuzağın ta kendisi. Kendi kurduğum ikincil ölçüt bu tuzağa düştü ve
+önceden ilan edilmiş birincil ölçüt (kaçırma) yakaladı.
+Uyarı `araclar/terminal_nisan.py` başlığına ve çıktısına gömüldü.
+
+## ⛔ İKİNCİ METODOLOJİK DERS: SESSİZ DÜŞÜRME
+
+`terminal_nisan` ilk hâlinde, son saniyede 3'ten az kutu olan koşuyu
+`None` döndürüp medyandan SESSİZCE düşürüyordu. KJ1'de deney kolunun
+6 koşusundan 2'si böyle düştü, kontrol kolunun 0'ı — ölçüt "terminalde
+kör kalmayı" ödüllendiriyordu. Artık "ÖLÇÜLEMEDİ" diye raporlanıyor.
