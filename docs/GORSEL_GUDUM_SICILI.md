@@ -681,6 +681,48 @@ Salınım düşerken tespit ARTMIŞ → §5.2 geçerlilik eşi tuttu.
    ölçütünde takılıyor (%67 vs %70 eşiği); eşik sonucu çevirmek için
    DEĞİŞTİRİLMEDİ. Taban senaryosunda kalite 4/4 kontrollü, bozulma yok.
 
+### ⭐ TEKRARLANDI — havuzlanmış n=20/kol (KN1+KN2+KN3+KN4)
+
+Aynı deney iki senaryoda ikişer kez koşuldu; kollar dönüşümlü.
+
+| ölçüt | kapalı | **AÇIK** |
+|---|---|---|
+| **kaçırma ortalama** | **1.60** | **0.75** |
+| kaçırma medyan | 1.0 | 0.5 |
+| **sıfır kaçırma (ilk denemede vuruş)** | **5/20** | **10/20** |
+| isabet | 16/20 | **19/20** |
+| `tik_hz` | 44.0 | **49.1** |
+| `det_hz` | 9.0 | **11.0** |
+
+kapalı: `1,0,2,4,1,4,1,3,1,2,0,0,3,2,2,0,1,0,4,1`
+açık:   `3,0,0,0,0,1,1,1,1,0,1,1,0,0,0,0,3,2,1,0`
+
+**PERMÜTASYON TESTİ** (20000 karıştırma, tek yönlü): gözlenen fark
+0.85 kaçırma/koşu → **p = 0.021**. Fark, rastgele kol atamasıyla
+açıklanamıyor.
+
+**§4 SALINIM (havuzlanmış):**
+
+| ölçüt | kapalı | açık |
+|---|---|---|
+| cx dönüş/s | 0.35 | 0.41 |
+| yatış dönüş/s | 0.43 | **0.30** |
+| \|yatış\| p90 | 17° | **14°** |
+| görsel tespit | %65 | **%68** |
+| **toplam körlük** | **3.3 s** | **1.1 s** |
+
+**VURUŞ KALİTESİ (havuzlanmış):**
+
+| kol | vuruş | KONTROLLÜ | ŞANS |
+|---|---|---|---|
+| kapalı | 16 | **14** | 2 |
+| açık | 19 | **14** | 5 |
+
+⚠ **KONTROLLÜ VURUŞ SAYISI EŞİT (14-14).** Fazladan üç vuruşun hepsi
+ŞANS sınıfında. §4 gereği bu, "daha çok vuruyor" iddiasını
+DESTEKLEMEZ. Kazanım, ilan edilen birincil ölçütte (kaçırma) ve
+körlük/salınımdadır — vuruş kalitesinde DEĞİL.
+
 **DURUM:** anahtar KAPALI bırakıldı; varsayılan yapılması kullanıcı
 onayına bağlı (§8). Doğal ikinci adım: iş parçacığı ayrıldığına göre
 `GORSEL_DET_HZ` tavanı artık semptom değil — 10 → 25 denenebilir
