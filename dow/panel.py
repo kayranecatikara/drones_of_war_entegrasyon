@@ -442,10 +442,10 @@ body{margin:0;background:var(--bg);color:var(--y);
     <button id=k_gps    onclick="kip('gps')">GPS</button>
     <button id=k_gorsel onclick="kip('gorsel')">Görsel</button>
   </div>
-  <!-- ⚠ §0.1: panelde AYNI ANDA EN FAZLA BİR yeni özellik durur ve
-       kararı verilince düğmesi SİLİNİR. Şu an sınanan özellik YOK
-       (Ö-I ve Ö-J elendi, §5.12 ile tamamen çıkarıldı). Yeni özellik
-       eklenince düğmesi buraya, /ozellik ucu da aşağıya konur. -->
+  <!-- ⚠ §0.1: panelde AYNI ANDA EN FAZLA BİR yeni özellik durur. -->
+  <div class=kip>
+    <button id=o_hizli onclick="ozellik('vh')">🚀 Ö-K HÜCUM HIZI</button>
+  </div>
   <div class=fps>
     <div><b id=f1>—</b><span>yakalama</span></div>
     <div><b id=f2>—</b><span>dedektör</span></div>
@@ -499,10 +499,16 @@ function kipGoster(k){
 //   eklenince bu iki işlev ona bağlanır (git tarihçesi: Ö-I / Ö-J).
 //   ⛔ ozellikGoster'in ESKİ hâli silinen düğmeyi arıyordu; düğme
 //      yokken getElementById null döner ve telemetri döngüsü ÇÖKERDİ.
+async function ozellik(a){
+  const r=await (await fetch('/ozellik',{method:'POST',
+                 body:JSON.stringify({ad:a})})).json();
+  ozellikGoster(r.acik);
+}
 function ozellikGoster(v){
   const b=document.getElementById('o_hizli');
   if(!b) return;                      // düğme yoksa sessizce geç
   b.className = v ? 'on v' : '';
+  b.textContent = v ? '🚀 Ö-K HIZ: 40 m/s' : '🚀 Ö-K HIZ: 28 m/s';
 }
 function fps(el,v,tav){
   document.getElementById(el).innerHTML =
@@ -778,16 +784,24 @@ class _H(BaseHTTPRequestHandler):
                              "application/json", 400)
             return
         if self.path == "/ozellik":
-            # ⚠ §0.1: şu an panelde sınanan özellik YOK. Yeni özellik
-            #   eklenince bu uç ona bağlanır (bkz. git tarihçesi: Ö-I/Ö-J).
+            # 🚀 Ö-K HÜCUM HIZI TAVANI — komut 28 iken araç 22'de oturuyor
+            #   (ölçüldü: açık 5.9 m/s, ileri çubuk 0.26). Tavanı yükseltmek
+            #   oransal döngüye daha büyük hata verip aracı KENDİ sürükleme
+            #   sınırına iter. Uçuş sırasında canlı açılır/kapanır (§6).
+            n = int(self.headers.get("Content-Length", 0))
             try:
-                n = int(self.headers.get("Content-Length", 0))
                 self.rfile.read(n)
-            except Exception:
-                pass
-            self._gonder(json.dumps({"ok": False,
-                                     "hata": "sınanan özellik yok"}).encode(),
-                         "application/json", 400)
+                from dow.gudum.ibvs import IbvsCfg
+                acik = IbvsCfg.V_HUCUM_UST <= IbvsCfg.V_HUCUM
+                IbvsCfg.V_HUCUM_UST = 40.0 if acik else IbvsCfg.V_HUCUM
+                telem_yaz({"_hizli": int(acik)})
+                print("[panel] Ö-K HÜCUM HIZI -> %.0f m/s"
+                      % IbvsCfg.V_HUCUM_UST, flush=True)
+                self._gonder(json.dumps({"ok": True, "acik": int(acik)}).encode(),
+                             "application/json")
+            except Exception as e:
+                self._gonder(json.dumps({"ok": False, "hata": str(e)}).encode(),
+                             "application/json", 400)
             return
         if self.path != "/telem":
             self.send_response(404); self.send_header("Content-Length", "0")

@@ -83,6 +83,40 @@ def _kirp(x, lo, hi):
 class IbvsCfg:
     # --- hız yasası ---
     V_HUCUM       = 28.0    # m/s; hücum hızı tavanı (hedef 17.98 -> kapanma ~10)
+
+    # ⭐ Ö-K · HÜCUM HIZI TAVANI — 2026-08-27
+    #
+    # ÖLÇÜLDÜ (KH1, 20 Hz, GÖRSEL fazı, 4 uçuş):
+    #     KOMUT (ibvs_v)      28.0 m/s   (hep doymuş)
+    #     GERÇEKLEŞEN         22.1 m/s
+    #     AÇIK                 5.9 m/s   (dört uçuşta da 5.6-6.0)
+    #   İleri çubuk yalnız 0.26 ve doyum oranı %1 — araç "elimden bu
+    #   kadar geliyor" DEMİYOR. Sayılar çeviricinin "dogru" modeliyle
+    #   birebir uyuşuyor:
+    #       a = K_V·Δv = 1.5 × 5.9 = 8.85 m/s²
+    #       çubuk = a / A_MAX = 8.85 / 34 = 0.26      ✓ ölçülen 0.26
+    #   Yani hız döngüsü YALNIZ ORANSAL: sürükleme kuvvetiyle dengeye
+    #   giriyor ve 5.9 m/s'lik KALICI HATA sonsuza kadar duruyor.
+    #   (IbvsCfg.hiz_I integrali KUTU BOYUTU hatasına ait ve zaten 28'e
+    #    doymuş durumda; tavanı belirleyen o değil, bu kırpma.)
+    #
+    # NEDEN ÖNEMLİ: kapanma bütçesi zaten dar. Araç 22.1, hedef ~18 ->
+    #   kapanma tavanı 4 m/s. Ve kapanma hızı, iyi/kötü koşuyu ayıran
+    #   EN GÜÇLÜ değişken (ölçüldü, 40 koşu havuzu):
+    #       az kaçırma  2.1 m/s   ·   çok kaçırma  0.5 m/s
+    #   Buna karşılık LOS dönüş hızı iki grupta AYNI (6.2 vs 5.2 °/s) —
+    #   yani "hedef manevrası ıskayı belirliyor" çerçevesi DESTEKLENMİYOR.
+    #
+    # YASA: kırpma tavanı V_HUCUM yerine V_HUCUM_UST kullanır. Tavanı
+    #   yükseltmek "40 m/s uçalım" demek DEĞİLDİR — araç sürükleme
+    #   sınırında kalır; oransal döngüye daha büyük hata verip çubuğu
+    #   yukarı iter, araç KENDİ gerçek sınırına çıkar.
+    #
+    # ⚠ RİSK: fren doyumdan daha GEÇ çıkar, terminal aşım artabilir.
+    #   Bu yüzden KK2 (manevrasız taban) regresyonu ZORUNLU.
+    # ⚠ V_HUCUM_UST = V_HUCUM varsayılan -> kırpma birebir aynı, BİT BİT
+    #   aynı davranış (bekçi B61).  Açma: DOW_VH=40
+    V_HUCUM_UST   = _fi("DOW_VH", 28.0)   # m/s; deney tavanı
     V_MIN         = 0.0     # m/s; asla geri gitme
     HUCUM_MENZIL_M= 1.0     # m; PI'nın sıfır noktası = TEMAS menzili.
                             # "Şu menzilde dur" noktası YOK -> hata hep pozitif
@@ -431,7 +465,8 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     hata_px = hedef_boyut - boyut
     hiz_I = _kirp(hiz_I + cfg.K_I * hata_px * dt, -cfg.I_MAX, cfg.I_MAX)
     v_istek = cfg.K_FWD * hata_px + hiz_I
-    v = _kirp(v_istek, cfg.V_MIN, cfg.V_HUCUM)
+    # ⭐ Ö-K: tavan V_HUCUM_UST (varsayılan == V_HUCUM -> BİT BİT aynı)
+    v = _kirp(v_istek, cfg.V_MIN, max(cfg.V_HUCUM_UST, cfg.V_MIN))
 
     # ⭐ Ö-G DÖNÜŞTE YAVAŞLA (bkz. IbvsCfg.YAVASLA_TABAN).
     #   YAVASLA_TABAN=1.0 iken kesme=1.0 ve yasa BİT BİT bugünküyle aynı.
