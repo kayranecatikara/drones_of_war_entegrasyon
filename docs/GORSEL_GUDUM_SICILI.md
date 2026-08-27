@@ -283,3 +283,111 @@ hipotezimi sınadım ve **ÇÜRÜDÜ**: 0-8° yatışta tespit %77.6, 30-50° ya
 menzil 40-70 m, istasyon hatası 33-65 m). "Açı mı menzil mi" bu veriyle
 AYRILAMAZ; yalnız 0-10 vs 10-20 kovası anlamlı ve orada da menzil
 14.3 vs 20.2 m ile farklı. Ayrıştırmak için ayrı deney gerekir.
+
+---
+
+# 2026-08-27 · ARKA YARIKÜRE HATASI ve TERMİNAL GECİKME
+
+## ⛔ ÖNCE BİR ÖLÇÜM HATASI: "kadraj içinde" yalanı
+
+`§2` adımı 4 (kareye GÖZLE bak) bir analiz hatası yakaladı.
+`KM2/kademeli__t2` kare 21: log "menzil 6.58 m, hedef kadrajda (1338,477)"
+diyordu; **kareye bakınca hedef YOKTU** (uçuş süresi 00:10, irtifa 43 m).
+Hedef ARKADA kalmıştı — üstünden geçmiştik.
+
+**Kök neden.** Kadraj izdüşümü ışının kamera ekseni bileşenine (`ileri`)
+BÖLER. Hedef arkadayken `ileri` negatif olur, bölme işareti çevirir ve
+KADRAJIN İÇİNDE bir piksel üretir. `tan()` de aynısını yapar:
+`tan(170°) = −0.176` → `cx = 960 − 0.176·F`, yani "kadrajın ortası".
+
+**Ne kadarını kirletmiş** (menzil < 12 m kayıpları):
+
+| kol | "kayıp" | aslında ARKADA |
+|---|---|---|
+| KM2 `yok` (manevrasız) | 42 | **0 (%0)** |
+| KM2 `kademeli` (manevralı) | 139 | **65 (%47)** |
+| KI1 `kapali` | 222 | 88 (%40) |
+
+Manevrasız kolda %0 — orada hedefi ıskalayıp geçmiyoruz.
+
+**ÇÜRÜYEN İKİ HÜKMÜM:**
+1. *"Araç son 10 metrede 1.7 kat uzun oyalanıyor (136 → 234 kare)"* —
+   arka kareler çıkınca **136 vs 134**. ARTEFAKTMIŞ.
+2. *"Sert manevra tespiti %85 → %48 bozuyor"* — evrelere ayırıp arka
+   kareleri çıkarınca:
+
+| evre | kare* | tespit% | ARKADA |
+|---|---|---|---|
+| `yok` (taban) | 190 | %77.9 | 0 |
+| `kademeli` boş | 79 | %63.3 | 0 |
+| `kademeli` HAFİF (= görsel temas YOK, yeniden yaklaşma) | 56 | %46.4 | 64 |
+| `kademeli` SERT (görsel güdüm fazı) | 83 | **%73.5** | 7 |
+
+Görsel güdüm fazındaki sert manevrada tespit %73.5, tabanda %77.9 —
+**4 puan**, 33 puan değil.
+
+**Düzeltme YALNIZ ölçüm yolunda** (`araclar/arka.py` → `ArkaBekci`;
+`kosu.py` ve `kamera.beklenen_kadraj` |açı| ≥ 85° → None; bekçi B62).
+⚠ Güdümdeki `seviye_piksel` AYNI kusuru taşıyor (T5 köprüsü onu
+kullanır) — DOKUNULMADI, ayrı karar.
+
+## TERMİNAL GECİKME — ıskanın gerçek sebebi
+
+**1. Iskalar 0.9-1.5 m'de**, bazı vuruşlar 1.8 m'de → ölümcül yarıçap
+metre altı. (`vurus_indeksi` belgesi de kayıtlıydı: 0.9 m'den geçilen
+kareler var ve hedef ölmüyor.)
+
+**2. Bayat kutu DEĞİL:** son 2 s'de kutu yaşı ~0 s, kapanma 4.2 m/s.
+
+**3. Nişan hatası, METRE cinsinden** (`yanal = R·(cx−CX)/F_PX`,
+seviye çerçevesinde):
+
+| kol | yanal | dikey | son 1 s tespit |
+|---|---|---|---|
+| `yok` | **0.26 m** | 0.60 m | %90-100 |
+| `kademeli` | **1.37 m** | 1.45 m | %50-70 |
+
+**4. Salınım DEĞİL:** son 1.5 s'de işaret değişimi **SIFIR**; işaret
+hedefin yatış yönüyle birebir aynı (+32° → sağda, −27° → solda).
+
+**5. Kendi yatışımızın artefaktı DEĞİL:** seviye çerçevesine döndürünce
+`yok` 20 px, `kademeli` 108 px. Kendi yatışımız hatanın ~%25'i
+(156 → 114 px).
+
+**6. Yalnız 12 m'nin İÇİNDE kuruluyor:** 12-25 m'de 10 px ve işaret
+karışık; 5-12 m'de 80 px; 0-5 m'de 120 px; işaret değişimi 0.10/s.
+Sebep fizik: gereken açısal hız 1/R ile büyüyor.
+
+**7. Gecikme NEREDE — ölçüldü:** burun yönü ile gerçek hız vektörü
+arasındaki fark yalnız **2.0-3.9°** ve işaret karışık. Yani hız vektörü
+burnu takip ediyor; gecikme `cevirici.K_V`'de DEĞİL. Gecikme burnun
+LOS'u takibinde: `ana.py` başlık döngüsü `yaw_rate = 3.0·eps` →
+kalıcı hata `eps_ss = ω_LOS/3`. Terminal LOS p90 24-31°/s → 8-10°;
+ölçülen yanlılık 10-19°.
+⚠ Bu, önce "K_V = 1.5, τ = 0.67 s" diye yaptığım atfın DÜZELTMESİDİR.
+
+## ELENEN ADAYLAR (kampanya harcanmadan, ölçümle)
+
+* **Yerellik kapısını gevşetmek** — <10 m'de kapı reddi yalnız 12 kare.
+* **Dönüş tavanı (YAW_RATE_MAX 120)** — ölçülen LOS medyan 6-9°/s,
+  tavanı aşan %2. Bağlayıcı değil.
+* **Piksel hızına dayalı lead** — "hata = τ·kutu hızı" modeli ÇÜRÜDÜ:
+  τ koşular arası −2.22 … +5.75 s, bir koşuda hata ile kutu hızı TERS
+  işaretli. Ö-F'nin batma sebebi budur.
+* **İntegrali hız döngüsüne koymak** — madde 7 çürüttü.
+
+## Ö-I · TERMİNAL GÜVEN İSTİSNASI — **ELENDİ**
+
+Terminal fazda güven eşiğini düşürmek (0.40 → 0.25/0.20).
+Gerekçe: manevralı kolda kabul edilen kutuların p10 güveni 0.54,
+%13'ü 0.40-0.55 bandında.
+
+| kampanya | n/kol | kaçırma (ort) | <20m tespit | aktiflik |
+|---|---|---|---|---|
+| Kİ1 (0.25, 12 m) | 4 | — | — | %0.78, 2 koşu SIFIR |
+| Kİ2 (0.20, 20 m) | 6 | **1.67 vs 1.67** | %76.4 vs %76.3 | %1.08, 6/6 geçerli |
+
+Fırsat tavanı ölçüldü (kutu var + kapıyı geçti + `gecerli()` eledi):
+%7.9-8.0. Kural "kaçırmada eşit/iyi VE tespitte ≥8 puan önde" idi;
+tespit farkı SIFIR. **Girmedi, §5.12 ile tamamen silindi**
+(grep sıfır + bit bit denklik).
