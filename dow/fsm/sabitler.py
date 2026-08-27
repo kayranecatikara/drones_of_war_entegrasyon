@@ -25,6 +25,13 @@ def _envf(ad, varsayilan):
         return float(varsayilan)
 
 
+def _envb(ad, varsayilan):
+    v = os.environ.get(ad)
+    if v is None:
+        return bool(varsayilan)
+    return v.strip().lower() in ("1", "true", "yes", "on", "evet")
+
+
 # ══════════════════════════════════════════════════════════════════════════
 #  BLOK A — ŞARTNAME (DEĞİŞTİRİLEMEZ; env override YOK)
 # ══════════════════════════════════════════════════════════════════════════
@@ -58,6 +65,11 @@ class AyarSabit:
     TESPIT_TUTARLILIK_ORAN: float = _envf("AVCI_TESPIT_TUTARLILIK", 0.6)
     # Kilit bu süreden uzun kaybedilirse TRACK_LOST (X).
     KILIT_KAYIP_SN: float = _envf("AVCI_KILIT_KAYIP_SN", 2.0)
+    # ⭐ ANGAJMAN KAPISI — KESİNTİSİZ 3 sn ŞART MI? (kullanıcı kararı 2026-08-27)
+    #   Kullanıcı: "kesintisiz 3 sn'yi İSTEMİYORUM; 5 sn KÜMÜLATİF dolunca direkt
+    #   çarpışmaya geç." Bu yüzden VARSAYILAN FALSE = strike YALNIZ kümülatif 5s.
+    #   Gerekirse (şartname §6.1.3) env ile açılır: AVCI_KESINTISIZ_SART=1.
+    KESINTISIZ_ANGAJMAN_SART: bool = _envb("AVCI_KESINTISIZ_SART", False)
     # ENGAGE'de kapanma hızı tavanı (STRIKE'ta V_KAPANMA serbest).
     V_MAX_ENGAGE: float = _envf("AVCI_V_MAX_ENGAGE", 5.0)
     # AH ekran-oran histerezisi (şartname 6.1.4 tavsiyesi: paket limiti %6+).

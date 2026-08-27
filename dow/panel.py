@@ -425,7 +425,7 @@ def kare_koy(img_rgb, tespit=None, telem=None, kalite=62, olcek=0.5):
             _izin, _kum, _kes = angajman_izin()
             _K["telem"]["kilit_pencere_s"] = round(_kum, 2)       # kümülatif
             _K["telem"]["kilit_kesintisiz_s"] = round(_kes, 2)    # en uzun aralıksız
-            _K["telem"]["angajman_izin"] = int(_izin)             # 5 küm. VE 3 kes.
+            _K["telem"]["angajman_izin"] = int(_izin)             # yalnız 5 sn KÜMÜLATİF
             _t = _K["telem"] or {}
             _et = f"{conf:.2f}"
             if _t.get("takip_id", -1) not in (-1, None):
@@ -442,7 +442,7 @@ def kare_koy(img_rgb, tespit=None, telem=None, kalite=62, olcek=0.5):
             _izin, _kum, _kes = angajman_izin()
             _K["telem"]["kilit_pencere_s"] = round(_kum, 2)       # kümülatif
             _K["telem"]["kilit_kesintisiz_s"] = round(_kes, 2)    # en uzun aralıksız
-            _K["telem"]["angajman_izin"] = int(_izin)             # 5 küm. VE 3 kes.
+            _K["telem"]["angajman_izin"] = int(_izin)             # yalnız 5 sn KÜMÜLATİF
 
         # kadraj merkezi
         cv2.line(im, (ww // 2 - 14, hh // 2), (ww // 2 + 14, hh // 2), (255, 170, 0), 1)

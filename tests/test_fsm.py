@@ -4,11 +4,20 @@
 Şartname akışı: SEARCH→APPROACH→DETECT→TRACK_LOCK→ENGAGE→STRIKE (+TRACK_LOST).
 FSM kilit SÜRELERİNİ Girdi'den alır (kendi saymaz) — testte doğrudan verilir.
 """
+from dataclasses import replace
+
 from dow.fsm.mission_fsm import GorevFSM, Girdi, State
+from dow.fsm.sabitler import AYAR
 
 
 def _fsm():
     return GorevFSM(log_fn=lambda s: None)
+
+
+def _fsm_kesintisiz_sart():
+    """Kesintisiz 3 sn ŞART açık (opsiyonel; şartname §6.1.3 gerekirse)."""
+    return GorevFSM(log_fn=lambda s: None,
+                    cfg=replace(AYAR, KESINTISIZ_ANGAJMAN_SART=True))
 
 
 def _adim(fsm, t, tespit, anlik, kum=0.0, kes=0.0):
@@ -55,7 +64,7 @@ def test_tam_yol_STRIKE():
     _sur(fsm, 0.15, 0.5, True, True, kum=0.5, kes=0.5)    # TRACK_LOCK
     # kümülatif 5 -> ENGAGE
     st, t = _sur(fsm, 1.0, 0.2, True, True, kum=5.0, kes=5.0)
-    assert st is State.STRIKE           # kümül.5 + kesint.3 -> STRIKE
+    assert st is State.STRIKE           # kümülatif 5 -> STRIKE
 
 
 # ---------------- KAPILAR (guard'lar) ----------------
@@ -73,13 +82,23 @@ def test_kumulatif_yetmez_ENGAGE_OLMAZ():
     st, _ = _sur(fsm, 1.0, 0.3, True, True, kum=4.0, kes=4.0)  # kümül<5
     assert st is State.TRACK_LOCK         # ENGAGE'e geçmez
 
-def test_kesintisiz_yetmez_STRIKE_OLMAZ():
-    """Kümülatif 5 (ENGAGE) ama kesintisiz <3 -> STRIKE YOK."""
+def test_kesintisiz_yetmezse_bile_STRIKE():
+    """VARSAYILAN (kullanıcı kuralı 2026-08-27): kümülatif 5 dolunca kesintisiz
+    <3 OLSA BİLE STRIKE. Kesintisiz 3 sn İSTENMİYOR."""
     fsm = _fsm()
     _adim(fsm, 0.1, True, False); _adim(fsm, 0.15, True, True)
     _sur(fsm, 0.15, 0.5, True, True, kum=0.5, kes=0.5)   # TRACK_LOCK
     st, _ = _sur(fsm, 1.0, 0.3, True, True, kum=5.0, kes=2.0)  # kümül5, kesint2
-    assert st is State.ENGAGE             # ENGAGE evet, STRIKE hayir
+    assert st is State.STRIKE             # kesintisiz aranmaz -> STRIKE
+
+
+def test_kesintisiz_SART_acikken_yetmezse_STRIKE_OLMAZ():
+    """OPSİYONEL (AVCI_KESINTISIZ_SART=1): kesintisiz <3 iken STRIKE YOK."""
+    fsm = _fsm_kesintisiz_sart()
+    _adim(fsm, 0.1, True, False); _adim(fsm, 0.15, True, True)
+    _sur(fsm, 0.15, 0.5, True, True, kum=0.5, kes=0.5)   # TRACK_LOCK
+    st, _ = _sur(fsm, 1.0, 0.3, True, True, kum=5.0, kes=2.0)  # kümül5, kesint2
+    assert st is State.ENGAGE             # kesintisiz şart -> ENGAGE, STRIKE yok
 
 
 # ---------------- KAYIP / KURTARMA ----------------

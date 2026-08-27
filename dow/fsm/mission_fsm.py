@@ -9,9 +9,9 @@ Akış (özet):
   SEARCH → APPROACH → DETECT → TRACK_LOCK → ENGAGE → STRIKE
                          ↑            │          │        │
                          └── TRACK_LOST ←────────┴────────┘   (kilit > X sn kayıp)
-  STRIKE, yalnız ENGAGE içinde KESİNTİSİZ_SN kilit korunduğunda tetiklenir; bu
-  süre içinde kilit koparsa STRIKE iptal → ENGAGE (tamamen kaybolursa TRACK_LOST).
-  TRACK_LOST'tan asla doğrudan STRIKE'a gidilmez.
+  STRIKE, ENGAGE'de KÜMÜLATİF 5 sn dolunca tetiklenir (kullanıcı kuralı: kesintisiz
+  3 sn İSTENMİYOR; opsiyonel AVCI_KESINTISIZ_SART=1 ile geri açılır). STRIKE bir kez
+  tetiklenince COMMIT; yalnız TAM kilit kaybı bozar. TRACK_LOST'tan STRIKE'a gidilmez.
 
 Zaman: t = kare damgası (sim monotonik saat), KARE SAYMA YOK. Kümülatif + kesintisiz
 süre control.kilit_sure.KilitSure ile (6.1.4 %5 boşluk köprüsü, yalnız segment içi).
@@ -35,7 +35,7 @@ class State(Enum):
     DETECT = "DETECT"           # tespit + kilit dörtgeni; N-kareli doğrulama
     TRACK_LOCK = "TRACK_LOCK"   # 10 sn pencerede kümülatif >= 5 sn
     ENGAGE = "ENGAGE"           # yönelim + mesafe azalt; çarpışma manevrası YOK
-    STRIKE = "STRIKE"           # yalnız kesintisiz 3 sn kilitte
+    STRIKE = "STRIKE"           # kümülatif 5 sn dolunca (kesintisiz İSTENMİYOR)
     TRACK_LOST = "TRACK_LOST"   # kilit > X sn kayıp; STRIKE'a asla gitmez
 
 
@@ -142,12 +142,11 @@ class GorevFSM:
                            ("tespit_dogrulandi", State.TRACK_LOCK)],
         State.TRACK_LOCK: [("kilit_tamamen_kayip", State.TRACK_LOST),
                            ("kumulatif_5s", State.ENGAGE)],
-        # STRIKE KAPISI: kümülatif>=5 VE kesintisiz>=3 AYNI ANDA dolu olmalı
-        # (şartname 6.1.4 kümülatif + 6.1.3 son 3 sn kesintisiz). 3 sn, 5 sn'nin
-        # İÇİNDE olabilir (örtüşme serbest) ama ikisinden biri o an dolu değilse
-        # vuruş YOK. Kümülatif yalnız ENGAGE girişinde değil, STRIKE anında da
-        # yeniden doğrulanır: kayan 10 sn penceresi ENGAGE'de kümülatifi 5'in
-        # altına düşürebilir → o durumda kesintisiz 3'e ulaşsa bile vurmaz.
+        # STRIKE KAPISI (kullanıcı kararı 2026-08-27): KESİNTİSİZ 3 sn İSTENMİYOR.
+        # Varsayılan: kümülatif>=5 sn dolunca DİREKT STRIKE (kesintisiz aranmaz).
+        # Kümülatif STRIKE anında da yeniden doğrulanır (kayan 10 sn penceresi
+        # ENGAGE'de 5'in altına düşürürse vurmaz). Kesintisiz 3 sn şartı yalnız
+        # AVCI_KESINTISIZ_SART=1 ile (şartname §6.1.3 gerekirse) tekrar açılır.
         State.ENGAGE:     [("kilit_tamamen_kayip", State.TRACK_LOST),
                            ("kumulatif5_ve_kesintisiz3", State.STRIKE)],
         # STRIKE bir kez tetiklendi mi COMMIT — dalış temasa dek sürdürülür.
@@ -234,8 +233,11 @@ class GorevFSM:
         if adi == "kumulatif_5s":
             return ctx["pencere_ok"]
         if adi == "kumulatif5_ve_kesintisiz3":
-            # İKİSİ BİRDEN: kümülatif>=5 VE kesintisiz>=3 (o an, aynı karede).
-            return ctx["pencere_ok"] and ctx["kesintisiz_ok"]
+            # KÜMÜLATİF>=5 ŞART. Kesintisiz>=3 YALNIZ KESINTISIZ_ANGAJMAN_SART
+            # açıkken gerekir. Kullanıcı kararı (2026-08-27): kesintisiz İSTENMİYOR
+            # -> varsayılan sadece kümülatif 5 sn dolunca STRIKE (direkt çarpışma).
+            return ctx["pencere_ok"] and (
+                ctx["kesintisiz_ok"] or not self.cfg.KESINTISIZ_ANGAJMAN_SART)
         if adi == "kesintisiz_3s":
             return ctx["kesintisiz_ok"]
         if adi == "kesintisiz_koptu":
