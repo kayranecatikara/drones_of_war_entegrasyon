@@ -179,6 +179,111 @@ class Ayar:
     DEVIR_KARE      = int(_f("DOW_DEVIR_KARE", 10))   # ardışık TESPİT -> görsel
     KAYIP_KARE      = int(_f("DOW_KAYIP_KARE", 20))   # ardışık TESPİTSİZ -> GPS
 
+    # ================= ⭐ KİLİT FAZI (Teknofest şartnamesi 6.1.4) =========
+    # Kullanıcı isteği (2026-08-28): "vuruş fazına geçebilmek için hedef
+    # aracı, ekranın alttan/üstten %10, sağdan/soldan %25 kırpılmış bir kutu
+    # içinde, 10 saniyelik periyodun kümülatif olarak en az 5 saniyesinde
+    # tespit etmiş olmamız gerekiyor; bu kilit sayılıyor ve ancak ondan
+    # sonra terminal vuruş fazına geçilebiliyor."
+    #
+    # ⛔ NİYE BU BİR DAVRANIŞ DEĞİŞİKLİĞİ: bugün görsel faza geçince araç
+    #   DOĞRUDAN temasa sürüyor (hedef kutu boyutu 997 px = 1 m menzil).
+    #   ÖLÇÜLDÜ (76 uçuş, çevrimdışı, araclar/kilit_olcu.py):
+    #     kilit isterini sağlayan koşu   0/76
+    #     10 s penceredeki en iyi toplam 1.64 s   (isteri 5.0 s)
+    #     kilit ancak R <= ~9 m'de mümkün, orada kapanma ~10 m/s
+    #     -> %5 bandından 1 saniyede geçip çarpıyoruz.
+    #   Yani kilit, MEVCUT yasayla fiziksel olarak sağlanamaz. Kilit fazı
+    #   açıkken araç önce bir MESAFE TUTAR (aşağıdaki KILIT_MENZIL_M),
+    #   kilit birikince tavanı kaldırıp terminale geçer.
+    #
+    # ⛔ VARSAYILAN KAPALI (kill-switch). Kapalıyken güdüm BİT BİT bugünkü
+    #   davranıştır — bekçi B63 ve araclar/denklik.py bunu sınar.
+    KILIT_FAZI        = _b("DOW_KILIT_FAZI", False)
+    # AV (Hedef Vuruş Alanı) kırpma oranları — şartname Şekil 2
+    KILIT_KIRP_X      = _f("DOW_KILIT_KIRP_X", 0.25)   # soldan/sağdan
+    KILIT_KIRP_Y      = _f("DOW_KILIT_KIRP_Y", 0.10)   # üstten/alttan
+    # Hedefin ekranda kaplaması gereken en az oran (yatay VEYA dikey eksende).
+    # Şartname sınırı %5; kendi tavsiyesi "%6 veya daha üstü" (hatalı paket
+    # riskine karşı). Varsayılan tavsiyeye uyuyor.
+    # ⭐ 6.0 -> 5.0 (kullanıcı kararı 2026-08-28): "eşiği yüzde 5'e indirelim".
+    #   ÖLÇÜLDÜ (KILIT16, 16 uçuş, aynı loglardan iki eşik):
+    #     %6 -> A kolu duz 1/4 kilit    %5 -> A kolu duz 4/4 kilit
+    #   Yanlış kilit riski de ölçüldü (gerçek menzil >12 m iken "kilitli"
+    #   sayılan kare): %6'da %1.2, %5'te %1.7 — artış küçük.
+    KILIT_BOYUT_YUZDE = _f("DOW_KILIT_BOYUT", 5.0)
+    KILIT_PENCERE_S   = _f("DOW_KILIT_PENCERE", 10.0)  # değerlendirme penceresi
+    KILIT_GEREKLI_S   = _f("DOW_KILIT_GEREKLI", 5.0)   # pencerede gereken toplam
+    # Bir çıkarımın alabileceği EN BÜYÜK kredi. Şartnamenin kendi toleransı
+    # ("5 saniyelik kilitlenme için 200 ms'ye kadar tolerans") = 0.20 s.
+    KILIT_DT_MAX_S    = _f("DOW_KILIT_DT_MAX", 0.20)
+    # ⭐ KİLİT FAZINDA TUTULACAK MESAFE (m) — PI'nın denge noktası.
+    #   TÜRETME (§0.2): güdüm hızı v = K_FWD*(hedef_boyut - boyut) + I,
+    #   I tavanı 8 m/s, K_FWD 0.35. Hedef 18 m/s uçuyor; onunla aynı hızda
+    #   gitmek için v=18 gerekir -> kalıcı hata = (18-8)/0.35 = 28.6 px.
+    #   hedef_boyut = 997/6.0 = 166 px  ->  denge kutusu ≈ 137 px.
+    #   ÖLÇÜLEN kutu-menzil sabiti (76 uçuş): w·R ≈ 869 px·m
+    #   ->  denge GERÇEK menzili ≈ 869/137 ≈ 6.3 m, kutu ekranın %7.1'i.
+    #   Gereken %6 (115 px) -> ~1.2 m'lik pay var.
+    #   ⚠ RİSK: 6.3 m, temas yarıçapının (2.0 m) 3 katı. Hedef kaçamak
+    #     yaparsa gecikmeyle (~236 ms) erken temas olabilir — ölçülecek.
+    KILIT_MENZIL_M    = _f("DOW_KILIT_MENZIL", 7.0)
+
+    # ============ ⭐ KİLİT FAZI HIZ REGÜLATÖRÜ (2026-08-28) ============
+    # KULLANICI GÖZLEMİ (uçuşu kendi gözüyle izledi): "kilit isterini
+    # sağlamak için beklerken bir fren yapıyor ama öyle bir fren ki aracı
+    # çok geriye düşürüyor... sert frenlerde aracın eğimi bir anda
+    # değişiyor, hem tespit için sıkıntı hem hedef uzaklaşıyor hem de
+    # kilit bozuluyor."
+    #
+    # ⛔ ÖLÇÜLDÜ VE DOĞRULANDI (KILIT16 + KILIT_KAPI, A kolu, 6366 kare):
+    #     komut TEK TİKTE (20 ms) 28.00 -> 0.00 m/s   = -280 m/s²
+    #     karelerin %67.4'ü tavanda (28), %6.6'sı TAM DURUŞTA (0)
+    #     -> kontrolcü ORANSAL DEĞİL, AÇ-KAPA ANAHTARI
+    #     139 sert fren olayının ardından 3 saniyede:
+    #        menzil  4.4 m -> 23.5 m   (medyan +18.8 m geri düşüş)
+    #        tespit  %62   -> %18
+    #   Yani kullanıcının gördüğü döngü GERÇEK ve ölçülebilir:
+    #        sert fren -> duruş sıçraması -> körlük -> hedef kaçar -> kilit sıfırlanır
+    #
+    # ⚠ AYNI HATA BU DEPODA BİR KEZ DAHA YAŞANDI: dikey kanalda K_CY=0.06 +
+    #   tavan 1.5 ile karelerin %98.3'ü doyumdaydı ve kanal "aç-kapa"ydı.
+    #   Çözüm oradaki ile aynı sınıftan: KAZANCI DÜŞÜR, TAVANI AÇ, İKİSİNİ
+    #   BİRLİKTE değiştir (bkz. ibvs.py K_CY notu, 2026-08-23).
+    #
+    # TASARIM (§0.2 — her sayının nereden geldiği):
+    #  * K_FWD 0.35 -> 0.10 (m/s)/px. Kilit fazında işe yarayan hata bandı
+    #    ±50 px; 0.35 ile bu 17.5 m/s'lik komut savruluşu demek. 0.10 ile
+    #    5 m/s — düzeltici ama sarsmayan.
+    #  * I_MAX 8 -> 22 m/s. Nazik P, kalıcı yükü TAŞIYAMAZ; hedefin 18 m/s
+    #    hızını integral taşımalı (integralin işi tam budur). 8'de kalırsa
+    #    denge noktası kutuya ulaşamaz ve araç hep geride kalır.
+    #  * V_MIN 0 -> 12 m/s. TAM DURUŞ komutu, hedef 18 m/s giderken saniyede
+    #    18 m geri düşmek demektir. 12 m/s tabanı bunu 6 m/s'ye indirir.
+    #  * V_MAX 28 -> 33 m/s. ÖLÇÜLDÜ: çeviricinin iç döngüsü saf-P olduğu
+    #    için gerçekleşen hız komutun 7.4 m/s ALTINDA kalıyor — ve bu açık
+    #    İKİ FAZDA DA AYNI (istasyon 33->25.6, görsel 28->20.6). Yani
+    #    "görsel fazda araç yavaş" diye bir şey YOK; sadece 5 m/s daha az
+    #    komut veriyoruz. 33'e çıkarmak kapanma payını 2.6 -> 7.6 m/s yapar.
+    #    ⛔ YALNIZ KİLİT FAZINDA: TERMİNAL faz (bugün 7/8 vuran hâl)
+    #       DOKUNULMADAN kalır, IbvsCfg.V_HUCUM=28 aynen sürer.
+    #  * SLEW 20 m/s². Sert fren eşiği ölçümde 40 m/s²'ydi; 20 onun yarısı.
+    #    ⚠ ÇOK YUMUŞAK OLAMAZ: çevrimdışı tarama (araclar/kilit_sim.py)
+    #      fren tavanı 3-4 m/s² olduğunda 12/12 ÇARPMA gösterdi — araç
+    #      yavaşlayamayıp hedefe giriyor. Alt sınır ~6 m/s².
+    #  * ANTI-WINDUP (koşullu integrasyon): çıkış doyumdayken ve hata
+    #    doyumu derinleştiriyorken integral DONDURULUR. Karelerin %67'si
+    #    doyumda olduğu için bu şart; yoksa integral şişer, boşalması
+    #    saniyeler sürer ve aşım yapar.
+    #
+    # ⛔ HEPSİ KILIT FAZINA ÖZELDİR. TERMİNAL faz ve GPS fazı BİT BİT
+    #    değişmez (bekçi B68, araclar/denklik.py).
+    KILIT_K_FWD   = _f("DOW_KILIT_KFWD", 0.10)    # (m/s)/px
+    KILIT_I_MAX   = _f("DOW_KILIT_IMAX", 22.0)    # m/s
+    KILIT_V_MIN   = _f("DOW_KILIT_VMIN", 12.0)    # m/s — asla tam durma
+    KILIT_V_MAX   = _f("DOW_KILIT_VMAX", 33.0)    # m/s
+    KILIT_SLEW    = _f("DOW_KILIT_SLEW", 20.0)    # m/s²; 0 = sınırsız (eski)
+
     # ================= ⛔ GELİŞTİRME DEVİR KAPISI — YARIŞMADA KULLANILAMAZ ==
     # Kullanıcı kararı (2026-08-22), gerekçesiyle:
     #   Dedektör MENZİLE şiddetle bağlı (GK2, n=2097 istasyon karesi):

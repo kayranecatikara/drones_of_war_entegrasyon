@@ -35,6 +35,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import cv2
 import numpy as np
 
+from dow.ayarlar import Ayar     # kilit eşikleri buradan (TEK KAYNAK)
+
 _K = {"jpg": None, "zoom": None, "telem": {}, "sayac": 0}
 _kosul = threading.Condition()          # yeni kare bildirimi (boş bekleme YOK)
 _serit = deque(maxlen=400)              # (t, durum) 0=tespit yok, 1=tespit
@@ -43,16 +45,25 @@ _serit = deque(maxlen=400)              # (t, durum) 0=tespit yok, 1=tespit
 #   Panelde "kutu var mı" gösteriyorduk ama yarışmanın PUAN verdiği şey o değil:
 #   hedefin kadrajın ORTA bölgesinde (AV dörtgeni) VE yeterince BÜYÜK görünmesi,
 #   ve bunun 10 saniyelik pencerede toplam 5 saniye sürmesi.
-#   ⚠ EŞİKLER yer-kontrol deposunun şartname okumasından alındı; BİZİM
-#     şartnameden DOĞRULANMALI.
 #   ⚠ ÇİZİMİ ARAYÜZ YAPAR (dow/web/index.html); burada YALNIZ HESAPLANIR —
 #     sunucu ikinci kez çizerse kutular üst üste biner.
-KILIT_PCT   = 0.06      # kutunun uzun ekseni / kadrajın o ekseni
-KILIT_AV_X  = 0.25      # yatay %25-%75 bandı
-KILIT_AV_Y  = 0.10      # dikey %10-%90 bandı
-KILIT_WIN_S = 10.0      # değerlendirme penceresi
-KILIT_GEREK = 5.0       # pencerede gereken kümülatif kilit
+#
+# ⛔⛔ TEK KAYNAK (2026-08-28): eşikler ARTIK BURADA TANIMLANMIYOR.
+#   Buradaki sayılar 2026-08-24'te "yer-kontrol deposunun şartname
+#   okumasından" alınmıştı ve DOĞRULANMAMIŞTI. Şartname (Teknofest 6.1.4)
+#   okununca ölçüt `dow/gudum/kilit.py`'ye yazıldı ve GÜDÜME bağlandı.
+#   İki ayrı tanım bırakmak §5.12'nin uyardığı sürüklenmedir: panel bir
+#   şey der, güdüm başka şey yapar. Bu yüzden panel artık AYNI modülü ve
+#   AYNI `Ayar.KILIT_*` sabitlerini kullanır.
+KILIT_PCT   = Ayar.KILIT_BOYUT_YUZDE / 100.0
+KILIT_AV_X  = Ayar.KILIT_KIRP_X       # yatay %25-%75 bandı
+KILIT_AV_Y  = Ayar.KILIT_KIRP_Y       # dikey %10-%90 bandı
+KILIT_WIN_S = Ayar.KILIT_PENCERE_S    # değerlendirme penceresi
+KILIT_GEREK = Ayar.KILIT_GEREKLI_S    # pencerede gereken kümülatif kilit
 _kilit_pencere = deque(maxlen=1200)     # (t, kilitli_mi)
+# Ölçütün TEK kaynağı; durum tutmadan yalnız `kare_kilitli` için kullanılır.
+from dow.gudum.kilit import KilitDurumu as _KilitDurumu
+_KILIT_OLCUT = _KilitDurumu(Ayar)
 
 # ⭐ PANELDEN GÖREV BAŞLATMA (2026-08-25, kullanıcı isteği: "arayüzden göreve
 #   başlata basınca en iyi hali çıksın").
@@ -151,11 +162,21 @@ def _api_telemetry():
         "prop_maske": [],
         "poz": None, "poz_hazir": False,           # PnP bizde YOK
         "kopru": {"aktif": durum == "GORSEL_KOPRU", "kare": g("kopru_kare", 0)},
+        # ⭐ İKİ AYRI KİLİT SAYISI VAR, KARIŞTIRILMAMALI:
+        #   `sure`      : PANELİN kendi penceresi (yakalama hızında, gösterim)
+        #   `gudum_s`   : GÜDÜMÜN muhasebesi (çıkarım hızında, KARAR bunu verir)
+        #   Faz geçişini `gudum_s`/`saglandi` belirler; panelin sayısı
+        #   operatöre gösterim içindir. Eşikleri aynı modülden okurlar.
         "kilit": {"anlik": bool(g("kilit_simdi", 0)),
                   "sure": kl_s, "gerek": KILIT_GEREK, "pencere": KILIT_WIN_S,
                   "ok": kl_s >= KILIT_GEREK, "esik_pct": KILIT_PCT,
                   "kaplama_pct": g("kilit_kaplama", 0.0),
-                  "av": bool(g("kilit_av", 0))},
+                  "av": bool(g("kilit_av", 0)),
+                  "faz_acik": bool(Ayar.KILIT_FAZI),
+                  "faz": g("faz", "-"),
+                  "gudum_s": g("kilit_s", 0.0),
+                  "saglandi": bool(g("kilit_saglandi", 0)),
+                  "sebep": g("kilit_sebep", "-")},
         "serit": serit, "ham_tespit_oran": oran,
     }
 
@@ -220,7 +241,10 @@ def _kilit_suresi():
             onceki = t
             continue
         if onceki is not None and k:
-            top += min(t - onceki, 0.5)      # kare atlaması şişirmesin
+            # ⛔ KREDİ TAVANI ŞARTNAMEDEN gelir, keyfi 0.5 s DEĞİL:
+            #   "5 saniyelik bir kilitlenme için %5'lik yani 200 ms'ye kadar
+            #   tolerans mevcuttur." Uzun tespit boşluğu kilit süresi SAYILMAZ.
+            top += min(t - onceki, Ayar.KILIT_DT_MAX_S)
         onceki = t
     return top
 
@@ -232,10 +256,10 @@ def kilit_degerlendir(tespit, W=1920.0, H=1080.0):
         _kilit_pencere.append((time.time(), False))
         return False, False, 0.0
     cx, cy, w, h = tespit[0], tespit[1], tespit[2], tespit[3]
-    av = (KILIT_AV_X * W <= cx <= (1 - KILIT_AV_X) * W and
-          KILIT_AV_Y * H <= cy <= (1 - KILIT_AV_Y) * H)
+    # ⭐ ÖLÇÜTÜN TEK KAYNAĞI: dow/gudum/kilit.py (güdüm de onu kullanır).
+    kl, _sebep = _KILIT_OLCUT.kare_kilitli(tespit)
+    av = (_sebep != "AV_disi")
     kap = max(w / max(W, 1.0), h / max(H, 1.0))
-    kl = bool(av and kap >= KILIT_PCT)
     _kilit_pencere.append((time.time(), kl))
     return kl, av, 100.0 * kap
 
@@ -350,6 +374,21 @@ def kare_koy(img_rgb, tespit=None, telem=None, kalite=62, olcek=0.5):
             _K["telem"]["kilit_simdi"] = 0
             _K["telem"]["kilit_pencere_s"] = round(_kilit_suresi(), 2)
 
+        # ⭐ AV — HEDEF VURUŞ ALANI (Teknofest Şekil 2). Soldan/sağdan %25,
+        #   üstten/alttan %10 kırpılmış dikdörtgen. Kilit ancak hedefin
+        #   MERKEZİ bunun içindeyken sayılır; operatör bunu GÖRMELİ.
+        #   ⚠ YALNIZ ÇİZİM — hiçbir güdüm kararı bu satırlardan geçmez.
+        _ax0, _ax1 = int(KILIT_AV_X * ww), int((1.0 - KILIT_AV_X) * ww)
+        _ay0, _ay1 = int(KILIT_AV_Y * hh), int((1.0 - KILIT_AV_Y) * hh)
+        _avr = (90, 190, 90) if _K["telem"].get("kilit_av") else (110, 110, 110)
+        for _xx in range(_ax0, _ax1, 26):          # kesikli çerçeve
+            cv2.line(im, (_xx, _ay0), (min(_xx + 13, _ax1), _ay0), _avr, 1)
+            cv2.line(im, (_xx, _ay1), (min(_xx + 13, _ax1), _ay1), _avr, 1)
+        for _yy in range(_ay0, _ay1, 26):
+            cv2.line(im, (_ax0, _yy), (_ax0, min(_yy + 13, _ay1)), _avr, 1)
+            cv2.line(im, (_ax1, _yy), (_ax1, min(_yy + 13, _ay1)), _avr, 1)
+        cv2.putText(im, "AV", (_ax0 + 4, _ay0 + 15),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, _avr, 1)
         # kadraj merkezi
         cv2.line(im, (ww // 2 - 14, hh // 2), (ww // 2 + 14, hh // 2), (255, 170, 0), 1)
         cv2.line(im, (ww // 2, hh // 2 - 14), (ww // 2, hh // 2 + 14), (255, 170, 0), 1)
@@ -778,20 +817,25 @@ class _H(BaseHTTPRequestHandler):
                              "application/json", 400)
             return
         if self.path == "/ozellik":
-            # 🧵 Ö-M GÖRÜŞ İŞ PARÇACIĞI — çıkarımı kontrol döngüsünden ayır.
-            #   ÖLÇÜLDÜ: çıkarım kontrol döngüsünün ~%26'sını yiyor
-            #   (9.1 Hz × 29 ms); tik_hz 44.3'te tavanlı. Kodun kendi notu
-            #   çıkarımı 16 Hz'e çıkarmanın tik_hz'i 22.3'e düşürüp isabeti
-            #   1 -> 0 yaptığını kaydediyor — tavan bir SEMPTOM.
-            #   İki yol da her tikte aynı bayrağı okur, canlı geçiş güvenli.
+            # ⭐ PANELDEKİ TEK ÖZELLİK (CLAUDE.md §0.1) — KİLİT FAZI.
+            #   Ö-M (görüş iş parçacığı) 2026-08-27'de ELENDİ; §0.1 gereği
+            #   panelde aynı anda tek özellik durur, o yüzden düğme bu
+            #   adımın özelliğine devredildi.
+            #
+            #   KİLİT FAZI (Teknofest 6.1.4): görsel temas kurulunca araç
+            #   DOĞRUDAN vuruşa gitmez; önce ~6 m mesafe tutup hedefi
+            #   AV dörtgeninde %6 büyüklüğünde tutar ve 10 saniyelik
+            #   pencerede kümülatif 5 saniye kilit biriktirir. İsteri
+            #   sağlanınca TERMİNAL faza geçip vuruşa gider.
+            #   Kapalıyken güdüm BİT BİT eski davranıştır (bekçi B63).
             n = int(self.headers.get("Content-Length", 0))
             try:
                 self.rfile.read(n)
                 from dow.ayarlar import Ayar
-                acik = not Ayar.GORUS_ISP
-                Ayar.GORUS_ISP = acik
-                telem_yaz({"_hizli": int(acik)})
-                print("[panel] Ö-M GÖRÜŞ İŞ PARÇACIĞI -> %s"
+                acik = not Ayar.KILIT_FAZI
+                Ayar.KILIT_FAZI = acik
+                telem_yaz({"_kilit_fazi": int(acik)})
+                print("[panel] KİLİT FAZI -> %s"
                       % ("AÇIK" if acik else "kapalı"), flush=True)
                 self._gonder(json.dumps({"ok": True, "acik": int(acik)}).encode(),
                              "application/json")

@@ -326,6 +326,14 @@ class CikarimKaydi:
                "iz_yas", "iz_w", "det_ms", "det_pencere",
                "takip_id", "takip_kaynak", "takip_coast", "takip_n",
                "menzil_m", "menzil3_m", "dz_m",
+               # KILIT FAZI (2026-08-28) - Teknofest 6.1.4 mekanizma sutunlari.
+               #   faz         : KILIT | TERMINAL (GORSEL'in alt durumu)
+               #   kilit_bu    : bu cikarim sartname olcutunu gecti mi (0/1)
+               #   kilit_s     : son 10 s'te kumulatif kilit suresi
+               #   kilit_sebep : gecmediyse NEDEN (tespit_yok/AV_disi/kucuk)
+               #   denge_px    : PI'nin denge kutu boyutu (KILIT ~166, aksi 997)
+               # DENEY kolunda kilit_s daima 0 ise kosu GECERSIZDIR (S5.1).
+               "faz", "kilit_bu", "kilit_s", "kilit_sebep", "denge_px", "kilit_I",
                "aspekt_deg", "hedef_roll", "drone_roll"]
 
     def __init__(self, dizin):
@@ -466,6 +474,21 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
     _temas_ivme = 0.0; _temas_menzil = -1.0; _temas_t = -1.0
     _temas_geri = 0.0
     devir_t = None; devir_menzil = None
+    # KILIT FAZI olcumleri (S5.1 mekanizma + birincil olcut)
+    _kilit_t = None        # kilit isteri hangi saniyede saglandi
+    _kilit_R = None        # o andaki GERCEK menzil (truth, OLCUM-ONLY)
+    _terminal_t = None     # TERMINAL faza hangi saniyede gecildi
+    _kilit_tik = 0         # KILIT fazinda gecen tik sayisi
+    # ⭐ SERT FREN SAYACI — KONTROL TIKINDE (50 Hz) sayilir.
+    #   §5.3: olctugu sey 20 ms'de olan bir basamak; cikarim hizinda
+    #   (9 Hz) sayarsak gorunmez. Esik -40 m/s^2 (olculen dagilimda
+    #   p05 = -40.2; bunun altindakiler gercek basamaklar).
+    # ⛔ AD ÇAKIŞMASI TUZAĞI (2026-08-28'de yaşandı ve koşuyu çökertti):
+    #   `_v_onceki` ADI BU FONKSİYONDA ZATEN VAR (satır ~473) ve TEMAS
+    #   tespiti için bir HIZ VEKTÖRÜ (tuple) tutuyor. Aynı adı kullanmak
+    #   onu eziyor; çökmeseydi İSABET ÖLÇÜTÜNÜ sessizce bozacaktı.
+    #   Bu sayaçların adları bu yüzden `_komut_*` önekli.
+    _sert_fren = 0; _komut_v_onceki = None; _dv_min = 0.0
     # ⛔ CLAUDE.md §4: "SALINIM ÖLÇÜLMEDEN 'İYİLEŞTİ' DENMEZ."
     #   Yalnız isabet+menzile bakan ölçüt, dengesizce savrulup ŞANS eseri
     #   çarpan aracı ödüllendirir. Her karşılaştırmada bunlar da raporlanır:
@@ -524,7 +547,13 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                   "iz_yas": cti.get("iz_yas"),
                   "iz_w": cti.get("iz_w"),
                   "det_ms": cti.get("det_ms"),
-                  "det_pencere": cti.get("det_pencere")}
+                  "det_pencere": cti.get("det_pencere"),
+                  "faz": cti.get("faz"),
+                  "kilit_bu": cti.get("kilit_bu"),
+                  "kilit_s": cti.get("kilit_s"),
+                  "kilit_sebep": cti.get("kilit_sebep"),
+                  "denge_px": cti.get("ibvs_denge_px"),
+                  "kilit_I": cti.get("ibvs_kilit_I")}
             if ctespit:
                 _c.update({"vis_cx": round(ctespit[0], 1),
                            "vis_cy": round(ctespit[1], 1),
@@ -685,6 +714,19 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                                    math.degrees(_yon[2])), _hp))
         if beyin.durum == "GORSEL":
             gorsel_tik_say += 1
+            # YALNIZ KILIT FAZI. TERMINAL alt fazinda TEMAS ANINDA kutu
+            #   1300 px'e patlar ve PI komutu tek tikte sifirlar; bu
+            #   -1400 m/s^2'lik "fren" VURUSUN KENDISIDIR, kusur degil.
+            #   Ayirmadan sayinca iki kol da sahte olarak kotu gorunuyordu
+            #   (2026-08-28: dv_min her iki kolda -1395 cikti).
+            _vk = (beyin.tani.get("ibvs_v")
+                   if getattr(beyin, "faz", "TERMINAL") == "KILIT" else None)
+            if (_vk is not None and _komut_v_onceki is not None
+                    and dt > 1e-4):
+                _dvk = (_vk - _komut_v_onceki) / dt
+                if _dvk < -40.0: _sert_fren += 1
+                if _dvk < _dv_min: _dv_min = _dvk
+            _komut_v_onceki = _vk
             # ⭐ BİRİNCİL ÖLÇÜT — güdümün kullandığı kutunun GERÇEK yaşı.
             #   Karenin YAKALANDIĞI andan sayılır (çıkarımın koştuğu andan
             #   değil); aradaki fark yakalama tavanı kadardır ve yanlılıktır.
@@ -719,6 +761,16 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
             if devir_t is None:
                 devir_t = t - t0
                 devir_menzil = _R if _tr else -1
+            # KILIT FAZI zaman damgalari. `_R` truth menzilidir ve
+            #   YALNIZ KAYDA girer; gudum onu gormez (S10).
+            if Ayar.KILIT_FAZI:
+                if beyin.faz == "KILIT":
+                    _kilit_tik += 1
+                elif _terminal_t is None and beyin.durum == "GORSEL":
+                    _terminal_t = t - t0
+                if _kilit_t is None and beyin.kilitci.saglandi:
+                    _kilit_t = t - t0
+                    _kilit_R = _R if _tr else -1
         elif _g_kesik_bas is not None:
             # ⛔ GORSEL fazdan çıkıldı: açık kesintiyi KAPAT. Yoksa bir
             #   sonraki görsel faza kadar geçen TÜM İSTASYON süresi
@@ -920,6 +972,24 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
         "ivme_medyan": round(float(np.median(_ivme_tum)), 1)
                        if len(_ivme_tum) > 50 else float("nan"),
         "drone_yasadi": int(ihlal not in ("drone_yok",)),
+        # KILIT FAZI (Teknofest 6.1.4) - BIRINCIL OLCUT bu kampanyada:
+        #   kilit_saglandi : 10 s pencerede kumulatif 5 s biriktirebildik mi
+        #   kilit_t        : kac saniyede
+        #   kilit_en_iyi_s : gorulen EN YUKSEK kumulatif (isteri 5.0)
+        #   kilit_R        : kilit anindaki gercek menzil (OLCUM-ONLY)
+        #   kilit_faz_s    : KILIT fazinda gecen sure (mesafe tutma)
+        # §5.1 MEKANIZMA: sert fren sayisi ve en sert basamak (50 Hz)
+        "sert_fren": _sert_fren,
+        "dv_min": round(_dv_min, 1),
+        "kilit_reg_I": round(getattr(beyin.kilit_reg, "I", 0.0), 2),
+        "kilit_reg_doyum": int(getattr(beyin.kilit_reg, "doyum", 0)),
+        "kilit_reg_slew": int(getattr(beyin.kilit_reg, "slew_kesti", 0)),
+        "kilit_saglandi": int(getattr(beyin.kilitci, "saglandi", False)),
+        "kilit_t": round(_kilit_t, 1) if _kilit_t else -1,
+        "kilit_en_iyi_s": round(getattr(beyin.kilitci, "en_iyi_s", 0.0), 2),
+        "kilit_R": round(_kilit_R, 1) if _kilit_R else -1,
+        "kilit_faz_s": round(_kilit_tik / max(1e-6, _tik_hz), 1),
+        "terminal_t": round(_terminal_t, 1) if _terminal_t else -1,
         "devir_s": round(devir_t, 1) if devir_t else -1,
         "devir_menzil": round(devir_menzil, 1) if devir_menzil else -1,
         "gorsel_tik": gorsel_tik_say,

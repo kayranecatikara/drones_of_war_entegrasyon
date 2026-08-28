@@ -1597,3 +1597,289 @@ def test_B62_arka_yarikure_izdusum_kapisi():
 
 
 
+
+
+# ================================================================= B63-B67
+#  KİLİT FAZI — Teknofest şartnamesi 6.1.4 (2026-08-28)
+# =============================================================================
+
+def test_B63_kilit_fazi_KAPALIYKEN_BIT_BIT_AYNI():
+    """⛔ KILL-SWITCH SÖZLEŞMESİ: Ayar.KILIT_FAZI kapaliyken guduem yolu
+    DEGISMEZ.
+
+    Kilit fazi, gorsel temas kurulunca aracin DOGRUDAN temasa surmesini
+    engelleyip once mesafe tutturur. Bu bir DAVRANIS degisikligidir; §6
+    geregi kill-switch'i vardir ve varsayilani KAPALIdir. Kapaliyken:
+      1. ibvs.komut()'a denge_boyut_px GECILMEZ -> hedef_boyut = 997 px
+      2. Beyin.faz DAIMA "TERMINAL"
+      3. kilit muhasebesi HIC calismaz (ornek sayaci 0 kalir)
+    """
+    from dow.ayarlar import Ayar
+    from dow.gudum import ibvs
+    from dow.gudum.kilit import KilitDurumu
+
+    # 1) denge_boyut_px=None -> eski davranis (denge kutusu = 997 px)
+    for w in (20.0, 60.0, 140.0, 300.0):
+        _, _, _, _, t_eski = ibvs.komut(960, 540, w, w * 0.4, 0.0, -2.0, 3.0,
+                                        0.0, 0.02)
+        _, _, _, _, t_ayni = ibvs.komut(960, 540, w, w * 0.4, 0.0, -2.0, 3.0,
+                                        0.0, 0.02, denge_boyut_px=None)
+        assert t_eski["ibvs_hata_px"] == t_ayni["ibvs_hata_px"]
+        assert t_eski["ibvs_v"] == t_ayni["ibvs_v"]
+        assert abs(t_eski["ibvs_denge_px"]
+                   - ibvs.KAM.MENZIL_C / ibvs.IbvsCfg.HUCUM_MENZIL_M) < 1e-9
+
+    # 2) denge_boyut_px verilince GERCEKTEN degisiyor (mekanizma kapisi §5.1)
+    _, _, _, _, t_kilit = ibvs.komut(960, 540, 140.0, 56.0, 0.0, -2.0, 3.0,
+                                     0.0, 0.02,
+                                     denge_boyut_px=ibvs.KAM.MENZIL_C / 6.0)
+    _, _, _, _, t_term = ibvs.komut(960, 540, 140.0, 56.0, 0.0, -2.0, 3.0,
+                                    0.0, 0.02)
+    assert t_kilit["ibvs_v"] < t_term["ibvs_v"], \
+        "kilit fazinda hiz kisilmiyor -> ozellik CALISMIYOR"
+    assert t_term["ibvs_v"] == ibvs.IbvsCfg.V_HUCUM, "taban kol tavanda olmali"
+
+    # 3) muhasebe kapaliyken hic islemez
+    eski = Ayar.KILIT_FAZI
+    try:
+        Ayar.KILIT_FAZI = False
+        k = KilitDurumu(Ayar)
+        assert k.n_ornek == 0 and k.saglandi is False and k.kumulatif_s == 0.0
+    finally:
+        Ayar.KILIT_FAZI = eski
+
+
+def test_B64_kilit_modulu_GPS_ALMAZ():
+    """⛔ YARISMA KURALI (CLAUDE.md §10) — YAPISAL GARANTI.
+
+    Kilit muhasebesi gorsel temas VARKEN calisir; o anda hedefin GPS'ine
+    dokunmak diskalifiye sebebidir. Garanti IMZA duzeyinde saglanir:
+    `kare_kilitli` yalnizca kutu pikselleri alir, `guncelle` yalnizca
+    zaman + kutu. Modulun tamaminda GPS/menzil/hedef konumu gecmez.
+    """
+    import inspect
+    from dow.gudum import kilit as K
+
+    p = list(inspect.signature(K.KilitDurumu.kare_kilitli).parameters)
+    assert p == ["self", "kutu"], f"kare_kilitli imzasi genisledi: {p}"
+    p = list(inspect.signature(K.KilitDurumu.guncelle).parameters)
+    assert p == ["self", "t", "kutu"], f"guncelle imzasi genisledi: {p}"
+
+    kaynak = inspect.getsource(K)
+    # yorum satirlarini at, KOD'a bak
+    kod = "\n".join(s for s in kaynak.splitlines()
+                    if not s.strip().startswith("#"))
+    for yasak in ("truth(", "hedef_konum", "hedef_m", "gps", "GPS_KAYNAK",
+                  "izleyici", "hedef_konumu"):
+        assert yasak not in kod, f"kilit modulunde YASAK erisim: {yasak}"
+
+
+def test_B65_sartname_olcutu_KOSE_DEGERLERI():
+    """Sartname 6.1.4 + Sekil 2: AV siniri ve %P boyut esigi.
+
+    AV  : soldan/sagdan %25, ustten/alttan %10 kirpma -> x[480,1440] y[108,972]
+    boyut: hedef, ekranin yatay VEYA dikey ekseninin en az %P'sini kaplamali
+           ("...eksenlerinden en az birinde, en az %5'ini kapsamalidir").
+    Varsayilan P=6 cunku sartname "paket gonderme limitinin %6 veya daha
+    ustu olmasi tavsiye edilir" diyor (hatali kilitlenme = eksi puan).
+    """
+    from dow.ayarlar import Ayar
+    from dow.gudum.kilit import KilitDurumu
+    from dow.gorus import kamera as KAM
+
+    esk = Ayar.KILIT_BOYUT_YUZDE
+    try:
+        Ayar.KILIT_BOYUT_YUZDE = 6.0
+        k = KilitDurumu(Ayar)
+        W, H = KAM.IMG_W, KAM.IMG_H
+        buyuk = (0.06 * W + 1, 0.06 * H + 1)      # ikisi de esikte
+
+        # --- AV sinirlari (dahil / haric) ---
+        assert k.kare_kilitli((480, 540, buyuk[0], buyuk[1]))[0] is True
+        assert k.kare_kilitli((479, 540, buyuk[0], buyuk[1])) == (False, "AV_disi")
+        assert k.kare_kilitli((1440, 540, buyuk[0], buyuk[1]))[0] is True
+        assert k.kare_kilitli((1441, 540, buyuk[0], buyuk[1])) == (False, "AV_disi")
+        assert k.kare_kilitli((960, 108, buyuk[0], buyuk[1]))[0] is True
+        assert k.kare_kilitli((960, 107, buyuk[0], buyuk[1])) == (False, "AV_disi")
+        assert k.kare_kilitli((960, 972, buyuk[0], buyuk[1]))[0] is True
+        assert k.kare_kilitli((960, 973, buyuk[0], buyuk[1])) == (False, "AV_disi")
+
+        # --- boyut: EN AZ BIRI yeterli (VEYA), ikisi birden SART DEGIL ---
+        assert k.kare_kilitli((960, 540, 0.06 * W, 1.0))[0] is True,  "yatay eksen tek basina yetmeli"
+        assert k.kare_kilitli((960, 540, 1.0, 0.06 * H))[0] is True,  "dikey eksen tek basina yetmeli"
+        assert k.kare_kilitli((960, 540, 0.06 * W - 1, 0.06 * H - 1)) \
+            == (False, "kucuk")
+
+        # --- tespit yoksa kilit YOK ---
+        assert k.kare_kilitli(None) == (False, "tespit_yok")
+    finally:
+        Ayar.KILIT_BOYUT_YUZDE = esk
+
+
+def test_B66_kayan_pencere_KESIK_KESIK_TOPLAR():
+    """Sartname: "kilitlenme suresi, pencere icerisinde kesik kesik
+    gerceklesebilir ve birden fazla kisa kilitlenme araliginin toplami
+    olarak hesaplanabilir." Ornek olarak 1 s + 2 s + 2 s = 5 s veriliyor.
+
+    Ayrica: bir cikarimin alabilecegi EN BUYUK kredi sartnamenin kendi
+    toleransi kadardir (200 ms); saniyelerce suren tespit boslugu kilit
+    suresi SAYILAMAZ.
+    """
+    from dow.ayarlar import Ayar
+    from dow.gudum.kilit import KilitDurumu
+
+    k = KilitDurumu(Ayar)
+    KUTU = (960, 540, 200.0, 90.0)     # rahat kilitli
+    # sartnamenin kendi ornegi: 0-1 s, 3-5 s, 6-8 s kilitli => 5 s
+    araliklar = [(0.0, 1.0), (3.0, 5.0), (6.0, 8.0)]
+
+    def kilitli_mi(t):
+        return any(a <= t < b for a, b in araliklar)
+
+    t = 0.0
+    while t < 10.0:
+        o = k.guncelle(t, KUTU if kilitli_mi(t) else None)
+        t += 0.1
+    assert 4.5 <= o["kilit_s"] <= 5.2, \
+        f"kesik kesik toplam yanlis: {o['kilit_s']} (beklenen ~5.0)"
+    assert o["kilit_saglandi"] == 1, "5 s biriktigi halde isteri saglanmadi"
+
+    # --- PENCERE KAYIYOR: 10 s'i gecen kilit DUSMELI ---
+    k2 = KilitDurumu(Ayar)
+    t = 0.0
+    while t < 6.0:                        # 6 s kesintisiz kilit
+        son = k2.guncelle(t, KUTU); t += 0.1
+    assert son["kilit_saglandi"] == 1
+    dolu = son["kilit_s"]
+    while t < 20.0:                       # sonra 14 s kilitsiz
+        son = k2.guncelle(t, None); t += 0.1
+    assert son["kilit_s"] < 0.5, \
+        f"pencere kaymadi, eski kilit hala sayiliyor: {son['kilit_s']} (once {dolu})"
+    # ...ama MANDAL acik kalir: bir kez saglandiysa terminale gecilmistir
+    assert son["kilit_saglandi"] == 1, "mandal geri dondu -> faz salinir"
+
+    # --- UZUN BOSLUK KREDI ALMAZ (kredi tavani = 200 ms) ---
+    k3 = KilitDurumu(Ayar)
+    k3.guncelle(0.0, KUTU)
+    o3 = k3.guncelle(9.0, KUTU)           # 9 saniyelik bosluktan sonra
+    assert o3["kilit_s"] <= Ayar.KILIT_DT_MAX_S + 1e-9, \
+        f"9 s bosluk kilit suresi sayildi: {o3['kilit_s']}"
+
+
+def test_B67_kilit_YALNIZ_GERCEK_TESPITLE_beslenir():
+    """⛔ HATALI KILITLENME PAKETI RISKI.
+
+    Sartname: "Kilitlenme olmamasi durumunda kilitlenme var bilgisi
+    gonderilmesi ... takimlarin eksi puan almasina neden olacaktir."
+    Bizim sistemde kutu iki kaynaktan gelebilir:
+      (a) dedektorun O KAREDE urettigi GERCEK tespit
+      (b) T5 KOPRUSU / takipci ongorusu — kendi olu-hesabimiz
+    (b) kameranin olcumu DEGILDIR; onunla kilit saymak yukaridaki eksi
+    puana girer. Bu yuzden `Beyin` kilit muhasebesini YALNIZ `gecerli()`
+    suzgecinden gecmis GERCEK tespitle besler.
+
+    Bu bekci, `_gorsel_tik_kilitli` icinde muhasebeye giden degiskenin
+    kopru/ongoru kutusu OLMADIGINI kaynak duzeyinde sinar.
+    """
+    import inspect
+    from dow import ana
+
+    src = inspect.getsource(ana.Beyin._gorsel_tik_kilitli)
+    assert "self.kilitci.guncelle(t, kabul)" in src, \
+        "kilit muhasebesi 'kabul' disinda bir kutuyla besleniyor"
+    # kopru kutusu bu fonksiyonda URETILMEZ (o `adim` icinde, gudum icin)
+    assert "_kopru_kutu(" not in src, \
+        "kopru kutusu tespit yoluna sizmis — kilit sahte kutuyla beslenebilir"
+
+    # `adim` icinde kopru kutusu guduem icin kullanilir ama kilit
+    # muhasebesine DOKUNMAZ:
+    src2 = inspect.getsource(ana.Beyin.adim)
+    assert "kilitci.guncelle" not in src2, \
+        "kilit muhasebesi kontrol dongusunden de besleniyor -> CIFT SAYIM"
+
+
+# ================================================================= B68-B70
+#  KİLİT FAZI HIZ REGÜLATÖRÜ (2026-08-28) — "sert fren" düzeltmesi
+# =============================================================================
+
+def test_B68_regulator_YOKKEN_BIT_BIT_AYNI():
+    """⛔ KILL-SWITCH: `reg=None` iken ibvs.komut() eski PI'yi koşar.
+
+    Regulator KILIT fazina OZELDIR; TERMINAL faz (bugun 7/8 vuran hal) ve
+    GPS fazi DEGISMEMELI. Bu bekci, reg gecilmediginde hiz yasasinin
+    BIREBIR eski sonucu urettigini sinar.
+    """
+    from dow.gudum import ibvs
+    for w in (20.0, 60.0, 140.0, 300.0, 900.0):
+        a = ibvs.komut(960, 540, w, w * 0.4, 0.0, -2.0, 3.0, 0.0, 0.02)
+        b = ibvs.komut(960, 540, w, w * 0.4, 0.0, -2.0, 3.0, 0.0, 0.02, reg=None)
+        assert a[0] == b[0] and a[1] == b[1] and a[2] == b[2] and a[3] == b[3]
+        assert a[4]["ibvs_v"] == b[4]["ibvs_v"]
+        # regulator sutunlari YOK (ozellik hic devreye girmedi)
+        assert "ibvs_kilit_I" not in a[4]
+
+
+def test_B69_regulator_SERT_FREN_YAPAMAZ():
+    """⛔ KULLANICI GOZLEMI -> SOZLESME.
+
+    Olculdu (KILIT16, A kolu): komut tek tikte 28.00 -> 0.00 m/s dusuyordu
+    (-280 m/s^2). Sonucu: 139 olayda menzil +18.8 m geri dusus, tespit
+    %62 -> %18. Regulatorun BIRINCIL sozlesmesi budur:
+
+      1. |dv/dt| <= KILIT_SLEW  (asla basamak fren)
+      2. v >= KILIT_V_MIN       (asla tam durus)
+      3. v <= KILIT_V_MAX
+    """
+    from dow.ayarlar import Ayar
+    from dow.gudum.kilit import HizRegulatoru
+
+    r = HizRegulatoru(Ayar); r.sifirla(Ayar.KILIT_V_MAX)
+    onc = Ayar.KILIT_V_MAX
+    dt = 0.02
+    # hedef ANIDEN cok yakin gorunsun (kutu 300 px) -> eski yasa 0'a inerdi
+    for _ in range(300):
+        v = r.hiz(100.0 - 300.0, dt)
+        assert abs(v - onc) <= Ayar.KILIT_SLEW * dt + 1e-9, \
+            f"slew asildi: {(v-onc)/dt:.1f} m/s^2 > {Ayar.KILIT_SLEW}"
+        assert v >= Ayar.KILIT_V_MIN - 1e-9, f"tam durusa indi: {v}"
+        assert v <= Ayar.KILIT_V_MAX + 1e-9
+        onc = v
+    assert abs(v - Ayar.KILIT_V_MIN) < 1e-6, "tabana oturmali"
+
+    # TERS YON: cok uzak gorunsun -> gaz da basamak olmamali
+    r2 = HizRegulatoru(Ayar); r2.sifirla(Ayar.KILIT_V_MIN)
+    onc = Ayar.KILIT_V_MIN
+    for _ in range(300):
+        v = r2.hiz(+500.0, dt)
+        assert abs(v - onc) <= Ayar.KILIT_SLEW * dt + 1e-9
+        onc = v
+    assert abs(v - Ayar.KILIT_V_MAX) < 1e-6
+
+
+def test_B70_regulator_ANTIWINDUP_ve_GPS_ALMAZ():
+    """(a) §10: regulator imzasinda hedefe dair HICBIR sey yok.
+       (b) ANTI-WINDUP: cikis doyumdayken ve hata doyumu DERINLESTIRIYORKEN
+           integral DONMALI. Yoksa doyumda siser, hata isaret degistirince
+           bosalmasi saniyeler surer -> asim ve salinim.
+    """
+    import inspect
+    from dow.ayarlar import Ayar
+    from dow.gudum import kilit as K
+
+    p = list(inspect.signature(K.HizRegulatoru.hiz).parameters)
+    assert p == ["self", "hata_px", "dt"], f"imza genisledi: {p}"
+    kod = "\n".join(l for l in inspect.getsource(K.HizRegulatoru).splitlines()
+                    if not l.strip().startswith("#"))
+    for yasak in ("truth", "hedef_konum", "gps", "menzil_m", "izleyici"):
+        assert yasak not in kod, f"regulatorde YASAK erisim: {yasak}"
+
+    # anti-windup: uzun sure DOYUMDA pozitif hata -> I sinirsiz sismemeli
+    r = HizRegulatoru = K.HizRegulatoru(Ayar); r.sifirla(Ayar.KILIT_V_MAX)
+    for _ in range(2000):                 # 40 s boyunca "cok uzak"
+        r.hiz(+800.0, 0.02)
+    I_doymus = r.I
+    assert I_doymus <= Ayar.KILIT_I_MAX + 1e-9
+    # doyumda I BUYUMEMELI (dondurulmus olmali) — tavana yapismis olamaz
+    assert I_doymus < Ayar.KILIT_I_MAX - 1e-9, \
+        f"anti-windup calismadi, I tavana yapisti: {I_doymus}"
+    assert r.doyum > 100, "doyum sayaci islememis (mekanizma sutunu §5.1)"

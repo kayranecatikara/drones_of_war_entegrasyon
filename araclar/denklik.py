@@ -102,6 +102,13 @@ def imza_uret(n_tik=400, dt=0.02):
     b._kopru_say = 0; b._bayat_birak_say = 0
     b._terminal_kabul = 0        # Ö-A mekanizma sayacı
     b._kilit = 0; b._kayip = 0
+    # KILIT FAZI alanlari (2026-08-28). Beyin `__new__` ile kuruldugu icin
+    #   __init__ kosmaz; yeni alan eklendiginde BURAYA DA eklenmeli.
+    #   Imza SATIRLARI degismedi (cikti/durum/kilit/kayip/hiz_I) -> eski
+    #   imza dosyalariyla kiyas gecerli kalir.
+    from dow.gudum.kilit import KilitDurumu as _KD, HizRegulatoru as _HR
+    b.kilitci = _KD(Ayar); b.kilit_reg = _HR(Ayar)
+    b.faz = "TERMINAL"; b._kilit_bilgi = {}
     b._son_komut = (0.0, 0.0, 0.0, 0.0)
     b.hiz_I = 0.0; b.tani = {}
 

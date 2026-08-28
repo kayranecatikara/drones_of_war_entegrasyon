@@ -227,6 +227,13 @@
       <button id="k_gps"    onclick="kip('gps')">GPS</button>
       <button id="k_gorsel" onclick="kip('gorsel')">GÖRSEL</button>
     </div>
+    <!-- ⭐ PANELDEKİ TEK ÖZELLİK (CLAUDE.md §0.1). Karar verilince
+         (girsin ya da elensin) bu düğme SİLİNİR. -->
+    <div class="baslik">Denenen Özellik</div>
+    <div class="kip">
+      <button id="k_kilitfaz" onclick="kilitFaziAcKapa()"
+        title="Görsel temas kurulunca doğrudan vuruşa gitme: önce ~6 m mesafe tut, hedefi AV dörtgeninde %6 büyüklüğünde tut, 10 s pencerede 5 s kilit biriktir; sonra terminal vuruşa geç (Teknofest 6.1.4).">🔒 KİLİT FAZI</button>
+    </div>
     <!-- HEDEF İHA elle kontrol: resmî SDK Talon'a komut veremediği için
          komutlar /api/talon -> dosya köprüsü -> oyundaki UE4SS modu gider. -->
     <div class="baslik">Hedef Kontrolü</div>
@@ -316,6 +323,19 @@ async function kip(k){
       body: JSON.stringify({cmd:"vismode", mode:{hibrit:"OTO",gps:"GPS",gorsel:"GORSEL"}[k]})});
     kipGoster(k);
   }catch(e){}
+}
+// ---- KİLİT FAZI aç/kapa (panelin tek özelliği) ----
+async function kilitFaziAcKapa(){
+  try{
+    const r = await fetch("/ozellik", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body:"{}"});
+    const j = await r.json();
+    kilitFaziGoster(!!j.acik);
+  }catch(e){}
+}
+function kilitFaziGoster(acik){
+  const b = $("k_kilitfaz");
+  if(b) b.className = acik ? "on v" : "";
 }
 function kipGoster(k){
   for(const [ad,snf] of [["hibrit",""],["gps","g"],["gorsel","v"]]){
@@ -571,17 +591,27 @@ async function tik(){
     $("telem").innerHTML = h;
 
     const kl = (t.gorsel && t.gorsel.kilit) || {};
-    const sure = kl.sure || 0, gerek = kl.gerek || 5;
+    kilitFaziGoster(!!kl.faz_acik);
+    // ⚠ İKİ SAYI VAR: `gudum_s` GÜDÜMÜN muhasebesi (çıkarım hızında, faz
+    //   geçişini O belirler), `sure` panelin kendi penceresi (gösterim).
+    //   Kilit fazı AÇIKSA karar veren sayıyı gösteririz.
+    const sure = (kl.faz_acik && kl.gudum_s!=null) ? kl.gudum_s : (kl.sure || 0);
+    const gerek = kl.gerek || 5;
     $("kilitSure").textContent = sure.toFixed(1);
     $("kilitFill").style.width = Math.min(100, 100*sure/gerek) + "%";
-    const tam = sure >= gerek;
+    const tam = kl.saglandi || sure >= gerek;
     $("kilitBar").className = tam ? "on" : "";
     $("kilitIkon").textContent = tam ? "✅" : (kl.anlik ? "🔓" : "⛔");
-    $("kilitMetin").textContent = tam ? "ATIŞA HAZIR"
-                                      : (kl.anlik ? "KİLİTLENİYOR" : "KİLİT YOK");
+    const faz = kl.faz || "-";
+    $("kilitMetin").textContent = !kl.faz_acik
+        ? (tam ? "ATIŞA HAZIR" : (kl.anlik ? "KİLİTLENİYOR" : "KİLİT YOK"))
+        : (faz === "TERMINAL" && tam ? "TERMİNAL — VURUŞ"
+           : (kl.anlik ? "KİLİT FAZI — KİLİTLENİYOR" : "KİLİT FAZI — KİLİT YOK"));
     $("kilitDetay").textContent =
       "boyut " + (kl.kaplama_pct!=null ? kl.kaplama_pct.toFixed(1)+"%" : "—")
-      + " / 6% · merkez " + (kl.av ? "içinde ✓" : "dışında ✗");
+      + " / " + (100*(kl.esik_pct||0.06)).toFixed(0) + "% · merkez "
+      + (kl.av ? "içinde ✓" : "dışında ✗")
+      + (kl.faz_acik ? " · faz " + faz : "");
 
     const p = (t.gorsel && t.gorsel.perf) || {};
     // Kaynak kapısı: sunucu kareyi HUD imzasıyla sınıyor. ok=false ise

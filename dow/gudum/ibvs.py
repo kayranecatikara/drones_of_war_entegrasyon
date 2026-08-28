@@ -385,7 +385,8 @@ class IbvsCfg:
 
 
 def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
-          hiz_I, dt, cfg=IbvsCfg, own_vz=0.0):
+          hiz_I, dt, cfg=IbvsCfg, own_vz=0.0, denge_boyut_px=None,
+          reg=None):
     """IBVS kontrol yasası.
 
     GİRDİ (hedefin GPS'i YOK — yapısal garanti):
@@ -395,6 +396,22 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
       dt            : adım süresi (s)
       own_vz        : KENDİ dikey hızımız (m/s, yukarı+) — D3 türev
                       sönümlemesi için; kendi sensörümüz (§10 temiz)
+      denge_boyut_px: PI'nın DENGE NOKTASI — kutunun oturması istenen
+                      boyut (PİKSEL). None ise eskisi gibi
+                      MENZIL_C/HUCUM_MENZIL_M (=997 px, temas) kullanılır
+                      ve yasa BİT BİT eskisiyle aynıdır.
+                      ⭐ KİLİT FAZI bunu ~166 px yapar: araç temasa sürmek
+                      yerine kutuyu o boyutta TUTAR, böylece hedef ekranda
+                      %6'nın üstünde kalır ve 5 saniyelik kilit birikebilir
+                      (Teknofest 6.1.4).
+                      ⛔ NEDEN PİKSEL, METRE DEĞİL (§10): bu yasanın
+                      girdileri arasında METRİK bir dünya büyüklüğü
+                      OLMAMALI. Bir kez "menzil" adında bir sayı imzaya
+                      girerse, yarın oraya GPS'ten gelen bir menzil
+                      bağlanabilir ve kimse fark etmez. Bekçi B1/B19
+                      imzayı ad düzeyinde denetler; ayar metre cinsinden
+                      okunur ama piksele çağrı YERİNDE, tek seferde
+                      çevrilir (Ayar.KILIT_MENZIL_M -> MENZIL_C/M).
 
     ÇIKTI: (v_ned, vz, yaw_hedef_deg, hiz_I_yeni, tani)
       v_ned = (vx, vy) m/s DÜNYA yatay düzleminde (NED: x kuzey, y doğu)
@@ -427,11 +444,24 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
 
     # --- 5) HIZ: kutu boyutu hatası üzerinden PI ---
     # Denge kutusu = TEMAS kutusu -> hata hep pozitif, hız tavanda oturur.
-    hedef_boyut = KAM.MENZIL_C / cfg.HUCUM_MENZIL_M
+    hedef_boyut = (KAM.MENZIL_C / cfg.HUCUM_MENZIL_M if denge_boyut_px is None
+                   else max(1.0, float(denge_boyut_px)))
     hata_px = hedef_boyut - boyut
-    hiz_I = _kirp(hiz_I + cfg.K_I * hata_px * dt, -cfg.I_MAX, cfg.I_MAX)
-    v_istek = cfg.K_FWD * hata_px + hiz_I
-    v = _kirp(v_istek, cfg.V_MIN, cfg.V_HUCUM)
+    if reg is None:
+        hiz_I = _kirp(hiz_I + cfg.K_I * hata_px * dt, -cfg.I_MAX, cfg.I_MAX)
+        v_istek = cfg.K_FWD * hata_px + hiz_I
+        v = _kirp(v_istek, cfg.V_MIN, cfg.V_HUCUM)
+    else:
+        # ⭐ KİLİT FAZI REGÜLATÖRÜ (dow/gudum/kilit.py · HizRegulatoru).
+        #   Nazik P + yükü taşıyan integral + anti-windup + değişim hızı
+        #   tavanı. Buradaki PI'ya HİÇ DOKUNULMAZ; `hiz_I` olduğu gibi geri
+        #   döner, çünkü TERMİNAL faza geçildiğinde bu PI temiz başlamalı.
+        #   ⛔ reg=None iken tek bir satır bile farklı koşmaz (bekçi B68).
+        v = reg.hiz(hata_px, dt)
+        v_istek = v
+        tani["ibvs_kilit_I"] = round(reg.I, 2)          # §5.1 mekanizma
+        tani["ibvs_kilit_doyum"] = reg.doyum
+        tani["ibvs_kilit_slew"] = reg.slew_kesti
 
     # ⭐ Ö-G DÖNÜŞTE YAVAŞLA (bkz. IbvsCfg.YAVASLA_TABAN).
     #   YAVASLA_TABAN=1.0 iken kesme=1.0 ve yasa BİT BİT bugünküyle aynı.
@@ -446,6 +476,7 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     tani["ibvs_kesme"] = round(_kesme, 3)      # §5.1 mekanizma sütunu
 
     tani["ibvs_hata_px"] = hata_px
+    tani["ibvs_denge_px"] = hedef_boyut   # §5.1 mekanizma sütunu
     tani["ibvs_v"] = v
 
     # --- 6) YATAY: hız LOS (nişan) yönünde ---

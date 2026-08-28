@@ -29,6 +29,7 @@ from dow.gudum import gps as GPS
 from dow.gorus.iz import Iz, IzCfg
 from dow.gorus.tracker import TalonTracker, TargetLock, TakipCfg
 from dow.gudum import ibvs
+from dow.gudum.kilit import KilitDurumu, HizRegulatoru
 from dow.fusion.gnss_filtre import GNSSDuzeltici
 
 
@@ -75,6 +76,15 @@ class Beyin:
         self._bayat_birak_say = 0      # §5.1 mekanizma sütunu (B)
         self._kilit = 0
         self._kayip = 0
+        # KILIT FAZI (Teknofest 6.1.4) - bkz. dow/gudum/kilit.py
+        #   `faz` GORSEL durumunun ALT DURUMUDUR: "KILIT" (mesafe tut,
+        #   kilit biriktir) -> "TERMINAL" (isteri saglandi, vurusa git).
+        #   Ayar.KILIT_FAZI kapaliyken faz DAIMA "TERMINAL"dir ve hicbir
+        #   kod yolu degismez (bit bit denklik, bekci B63).
+        self.kilitci = KilitDurumu(cfg)
+        self.kilit_reg = HizRegulatoru(cfg)
+        self.faz = "TERMINAL"
+        self._kilit_bilgi = {}
         self._son_komut = (0.0, 0.0, 0.0, 0.0)
         self.hiz_I = 0.0
         self.tani = {}
@@ -97,6 +107,8 @@ class Beyin:
         self._bayat_birak_say = 0      # §5.1 mekanizma sütunu (B)
         self._terminal_kabul = 0       # §5.1 mekanizma sütunu (Ö-A)
         self._kilit = 0; self._kayip = 0
+        self.kilitci.sifirla(); self.kilit_reg.sifirla()
+        self.faz = "TERMINAL"; self._kilit_bilgi = {}
         self.hiz_I = 0.0
         self.izleyici.sifirla()
         self.cev.sifirla()
@@ -141,25 +153,37 @@ class Beyin:
         # §5.1 MEKANİZMA SÜTUNLARI — özellik gerçekten çalıştı mı
         self._det_ms = self.det.son_ms
         self._det_pencere = self.det.son_pencere
-        if d is None:
-            return None
-        cx, cy, w, h, conf = d
-        # ⭐ Ö-A: terminal süreklilik istisnası için SON KABUL EDİLEN kutunun
-        #   genişliği ve yaşı geçilir. İkisi de PİKSEL/ZAMAN — GPS yok (§10).
-        _sw = self._son_tespit[2] if self._son_tespit else None
-        _sy = (t - self._son_tespit_t) if self._son_tespit else None
-        ok, _sebep = ibvs.gecerli(cx, cy, w, h, conf, son_w=_sw, son_yas=_sy)
-        if not ok:
-            return None
-        if _sebep == "terminal":
-            self._terminal_kabul += 1     # §5.1 MEKANİZMA SÜTUNU
-        self._son_tespit = d
-        self._son_tespit_t = t
-        self._son_tespit_kare_t = kare_t if kare_t else t   # ÖLÇÜM-ONLY
-        self._bu_kare_tespit = True
-        self._kopru_kaydet(d, t)
-        self.iz.guncelle(d, t)          # iz YALNIZ kabul edilen kutuyla tazelenir
-        return d
+        # KABUL SUZGECI - eskiden burada erken `return None` vardi.
+        #   Yapi degisti cunku KILIT MUHASEBESI her CIKARIMDA islemeli:
+        #   tespitsiz bir cikarim da kilit suresini AKITMAZ ama zamani
+        #   ilerletir. Kabul mantigi SATIR SATIR aynidir; yalniz erken
+        #   donus yerine `kabul = None` ile asagiya dusulur.
+        kabul = None
+        if d is not None:
+            cx, cy, w, h, conf = d
+            # O-A: terminal sureklilik istisnasi icin SON KABUL EDILEN
+            #   kutunun genisligi ve yasi gecilir. Ikisi de PIKSEL/ZAMAN (S10).
+            _sw = self._son_tespit[2] if self._son_tespit else None
+            _sy = (t - self._son_tespit_t) if self._son_tespit else None
+            ok, _sebep = ibvs.gecerli(cx, cy, w, h, conf, son_w=_sw, son_yas=_sy)
+            if ok:
+                if _sebep == "terminal":
+                    self._terminal_kabul += 1     # S5.1 MEKANIZMA SUTUNU
+                self._son_tespit = d
+                self._son_tespit_t = t
+                self._son_tespit_kare_t = kare_t if kare_t else t  # OLCUM-ONLY
+                self._bu_kare_tespit = True
+                self._kopru_kaydet(d, t)
+                self.iz.guncelle(d, t)   # iz YALNIZ kabul edilen kutuyla tazelenir
+                kabul = d
+        # KILIT MUHASEBESI - YALNIZ GERCEK TESPITLE beslenir.
+        #   Kopru/ongoru kutusu buraya GIRMEZ: o bizim olu-hesabimizdir,
+        #   kameranin olcumu degil; onunla "kilitlendim" demek sartnamenin
+        #   HATALI KILITLENME PAKETI tanimina girer (eksi puan).
+        #   Kapaliyken bu satir hic kosmaz -> bit bit eski davranis.
+        if self.cfg.KILIT_FAZI:
+            self._kilit_bilgi = self.kilitci.guncelle(t, kabul)
+        return kabul
 
     # ---------------- TAKİP: HYBRIDSORT + KİLİTLİ KİMLİK ----------------
     def _takip_kur(self):
@@ -388,6 +412,14 @@ class Beyin:
                      "red_boyut": self._red_boyut,
                      "terminal_kabul": self._terminal_kabul,   # §5.1 Ö-A
                      "yerel_kayip": self._yerel_kayip,
+                     # KILIT FAZI olcum/mekanizma sutunlari (S5.1):
+                     #   faz          : KILIT | TERMINAL
+                     #   kilit_bu     : bu cikarim sartname olcutunu gecti mi
+                     #   kilit_s      : son 10 s'te kumulatif kilit suresi
+                     #   kilit_sebep  : gecmediyse NEDEN (AV_disi/kucuk/...)
+                     # DENEY kolunda kilit_s daima 0 ise o kosu VERI DEGIL,
+                     # GECERSIZ kosudur.
+                     "faz": self.faz,
                      "durum": self.durum, "yukseklik": yukseklik,
                      "hedef_var": int(hp is not None),
                      # §5.1 mekanizma sütunları — tani her tik SIFIRDAN
@@ -397,6 +429,8 @@ class Beyin:
                      "yerel_uygun": self._yerel_uygun,
                      "kopru_kare": self._kopru_say,
                      "bayat_birak": self._bayat_birak_say}
+        if self.cfg.KILIT_FAZI:
+            self.tani.update(self._kilit_bilgi)
 
         # ---- KALKIS ----
         if self.durum == "KALKIS":
@@ -449,6 +483,16 @@ class Beyin:
             if (kip != "gps" and self.durum != "GORSEL"
                     and self._kilit >= self.cfg.DEVIR_KARE):
                 self.durum = "GORSEL"; self.hiz_I = 0.0
+                # KILIT FAZI: gorsel temas kuruldu ama HENUZ VURUS YOK.
+                #   Once sartnamenin kilit isteri (10 s icinde kumulatif
+                #   5 s) saglanacak; o zamana kadar arac MESAFE TUTAR.
+                #   Kapaliyken faz "TERMINAL" kalir -> eski davranis.
+                if self.cfg.KILIT_FAZI and not self.kilitci.saglandi:
+                    self.faz = "KILIT"
+                    # Regülatörü O ANKİ hızla başlat: ilk tikte slew
+                    # sıfırdan tırmanmasın (araç zaten uçuyor).
+                    self.kilit_reg.sifirla(
+                        math.hypot(v_olculen[0], v_olculen[1]))
             # "gorsel" kipinde GERİ DÖNÜLMEZ; yalnız "hibrit"te geri dönüş var
             elif (kip == "hibrit" and self.durum == "GORSEL"
                     and self._kayip >= self.cfg.KAYIP_KARE):
@@ -503,9 +547,24 @@ class Beyin:
             #   azimutunun türevi). GV02'de bu terim BAĞLANMAMIŞTI (lead=0)
             #   ve saf takip çapraz giden hedefin gerisinde kalıyordu:
             #   cx 991 -> 1190 -> 1292 (merkez 960), sonra tespit koptu.
+            # KILIT -> TERMINAL GECISI. Tek tetik: sartnamenin zaman
+            #   isteri (kayan 10 s penceresinde kumulatif >= 5 s).
+            #   Mandalli: bir kez gecince geri donulmez, cunku vurus
+            #   manevrasi baslamistir ve yarida birakmak carpisma riskidir.
+            _dpx = None; _reg = None
+            if self.cfg.KILIT_FAZI:
+                if self.faz == "KILIT" and self.kilitci.saglandi:
+                    self.faz = "TERMINAL"
+                    self.hiz_I = 0.0     # yeni denge noktasi: integrali sifirla
+                if self.faz == "KILIT":
+                    # AYARDAN PIKSELE cevrim BURADA, tek seferde. Iki sabitin
+                    # bolumu; canli hicbir olcum girmiyor (S10 temiz).
+                    _dpx = ibvs.KAM.MENZIL_C / max(0.1, self.cfg.KILIT_MENZIL_M)
+                    _reg = self.kilit_reg
             (vx, vy), vz_ned, yaw_hedef, self.hiz_I, ti = ibvs.komut(
                 cx, cy, w, h, own_yaw, own_pitch, own_roll, self.hiz_I, dt,
-                own_vz=v_olculen[2])      # Unreal Z yukarı; KENDİ hızımız
+                own_vz=v_olculen[2],      # Unreal Z yukarı; KENDİ hızımız
+                denge_boyut_px=_dpx, reg=_reg)
             self.tani.update(ti)
             # ⚠ ÖLÇÜM-ONLY (2026-08-27): görsel fazda araç düz uçuşta
             #   22.1 m/s, istasyon fazında 25.6 m/s ölçüldü — aynı araç,
