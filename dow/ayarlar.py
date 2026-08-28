@@ -284,6 +284,7 @@ class Ayar:
     KILIT_V_MAX   = _f("DOW_KILIT_VMAX", 33.0)    # m/s
     KILIT_SLEW    = _f("DOW_KILIT_SLEW", 20.0)    # m/s²; 0 = sınırsız (eski)
 
+
     # ================= ⛔ GELİŞTİRME DEVİR KAPISI — YARIŞMADA KULLANILAMAZ ==
     # Kullanıcı kararı (2026-08-22), gerekçesiyle:
     #   Dedektör MENZİLE şiddetle bağlı (GK2, n=2097 istasyon karesi):

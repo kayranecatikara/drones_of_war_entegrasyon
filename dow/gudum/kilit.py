@@ -176,6 +176,19 @@ class HizRegulatoru:
 
     def hiz(self, hata_px, dt):
         c = self.cfg
+        # ⛔ KAZANÇ ÇİZELGELEMESİ DENENDİ VE ELENDİ — 2026-08-28 (§5.12 ile
+        #   koddan tamamen çıkarıldı). Kampanya CZ24, 24 uçuş, n=6/kol/senaryo:
+        #     kademeli  KİLİT 6/6 -> 0/6 · isabet 4/6 -> 0/6 · en yakın 0.90 -> 6.52 m
+        #     duz       6/6 = 6/6 (fark yok; orada hata zaten <50 px)
+        #   KÖK NEDEN (ölçüldü): "sarsıntısız geçiş" düzeltmesi
+        #   `I += (K_eski-K_yeni)*hata`, kazanç UZAKTA yükselirken hata
+        #   büyük olduğu için integrali ADIM ADIM AŞAĞI itiyordu:
+        #     kilit_I  8-12 m: +8.3 · 12-18 m: -1.7 · >18 m: -11.0
+        #   Yani çizelgenin eklemesi gereken yetkiyi düzeltmenin kendisi
+        #   iptal edip TERSİNE çeviriyordu; araç 11.9 m'de asılı kaldı,
+        #   kapanma her bantta +0.00 m/s.
+        #   Zaten GEREKSİZDİ: köşegen ölçüsü (995d8df) `kademeli`de kilit
+        #   bandı oranını %33'ten %46'ya çıkarıp KİLİT'i 6/6 yapmıştı.
         ham = c.KILIT_K_FWD * hata_px + self.I
         v = ham
         if v < c.KILIT_V_MIN:

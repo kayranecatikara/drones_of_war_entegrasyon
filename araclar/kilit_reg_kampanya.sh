@@ -121,8 +121,8 @@ for ((t=1; t<=TEKRAR; t++)); do
         [ "$DENEME" = "2" ] && { echo "⛔⛔ $ETIKET IKI KEZ DUSTU"; exit 1; }
       done
       [ -f "logs/$AD/$ETIKET/ozet.csv" ] && awk -F, 'NR==1{for(i=1;i<=NF;i++)h[$i]=i} NR==2{
-        printf("    SONUC kilit=%s en_iyi=%s SERT_FREN=%s dv_min=%s isabet=%s enyakin=%s tespit%%=%s\n",
-          $h["kilit_saglandi"],$h["kilit_en_iyi_s"],$h["sert_fren"],$h["dv_min"],
+        printf("    SONUC kilit=%s en_iyi=%s SERT_FREN=%s isabet=%s enyakin=%s tespit%%=%s\n",
+          $h["kilit_saglandi"],$h["kilit_en_iyi_s"],$h["sert_fren"],
           $h["isabet"],$h["en_yakin_m"],$h["gorsel_tespit_yuzde"])}' "logs/$AD/$ETIKET/ozet.csv"
     done
   done
