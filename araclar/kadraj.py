@@ -173,7 +173,12 @@ def yeniden_dogur(bekle=6.0):
     w = oyunu_one_al()
     if not w: return False
     time.sleep(1.0)
-    subprocess.run(["xdotool","key","--window",w,"e"], timeout=5)
+    # ⛔ `--window` ile gönderilen tuş UE oyununa ULAŞMIYOR (2026-08-28;
+    #    gorev_yeniden_oyna ve goreve_gir.sh'te de aynı hata) -> odakla,
+    #    sonra GERÇEK tuş gönder.
+    subprocess.run(["xdotool", "windowactivate", "--sync", w], timeout=5)
+    time.sleep(0.5)
+    subprocess.run(["xdotool", "key", "e"], timeout=5)
     time.sleep(bekle)
     return True
 
@@ -239,17 +244,31 @@ def gorev_yeniden_oyna(sct=None, bekle=8.0):
 
     ÖLÇÜLDÜ 2026-08-24: bu yol ~15 s sürüyor; alternatifi olan tam oyun
     yeniden başlatma (`calistirma_betikleri/goreve_gir.sh`) ~2 dakika.
-    PLAY AGAIN düğmesi 1920x1080'de (1530, 940) — ekran görüntüsüyle
+    PLAY AGAIN düğmesi oyun kadrajında (1530, 940) — ekran görüntüsüyle
     doğrulandı, tıklama sonrası 'Press E' ekranı geldi ve E ile SDK portu
     açıldı."""
     import time
     w = oyunu_one_al()
     if not w: return False
+    # ⛔ İKİ HATA BİRDEN YAŞANDI (2026-08-28) — bir koşu bu yüzden düştü
+    #    ("görev-sonu ekranı" üç kez denendi, üçü de ıskaladı,
+    #     "hazırlık: BAŞARISIZ"):
+    #  1) Tıklama sabit (1530, 940) idi, yani oyunun 0,0'da olduğunu
+    #     varsayıyordu. Oyun AOC monitörüne (+1920+0) taşınınca boşa gitti.
+    #     Çare: BOLGE ofseti eklenir; BOLGE pencereyi X'e sorarak bulunur.
+    #  2) `xdotool key --window w e` UE oyununa ULAŞMIYOR (goreve_gir.sh'te
+    #     de aynı hata vardı). Çare: odakla, sonra GERÇEK tuş gönder.
+    bolge_tazele(sessiz=True)              # pencere taşınmış olabilir
     time.sleep(1.0)
-    subprocess.run(["xdotool", "mousemove", "1530", "940", "click", "1"], timeout=5)
+    _x = BOLGE.get("left", 0) + 1530
+    _y = BOLGE.get("top", 0) + 940
+    subprocess.run(["xdotool", "mousemove", str(_x), str(_y), "click", "1"],
+                   timeout=5)
     time.sleep(bekle)
     oyunu_one_al(); time.sleep(1.0)
-    subprocess.run(["xdotool", "key", "--window", w, "e"], timeout=5)
+    subprocess.run(["xdotool", "windowactivate", "--sync", w], timeout=5)
+    time.sleep(0.5)
+    subprocess.run(["xdotool", "key", "e"], timeout=5)
     time.sleep(6.0)
     return True
 

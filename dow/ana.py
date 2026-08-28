@@ -19,6 +19,7 @@ FAZLAR
   GORSEL_AKTIF varsayılanı False — önce GPS düzelsin.
 ================================================================================
 """
+import collections
 import math
 import threading
 
@@ -43,6 +44,12 @@ class Beyin:
         self._det_ms = 0.0                   # §5.1 mekanizma sütunları
         self._det_pencere = 0
         self._son_tespit_kare_t = 0.0        # ÖLÇÜM-ONLY (güdüme girmez)
+        # ⭐ Ö-N DURUŞ GEÇMİŞİ — (t, roll, pitch, yaw) derece, ~4 s derinlik.
+        #   Kare 145 ms bayat geldiği için köprünün kaydettiği yön, KARENİN
+        #   ÇEKİLDİĞİ ANIN duruşuyla hesaplanmalı. Bu tampon o anı bulur.
+        #   ⚠ Kendi IMU'muz — §10 temiz, hedefe dair hiçbir veri yok.
+        self._durus_gecmis = collections.deque(maxlen=250)
+        self._telafi_px = 0.0                # §5.1 mekanizma sütunu
         self._red_konum = 0; self._red_boyut = 0   # ÖLÇÜM-ONLY (kapı teşhisi)
         self._terminal_kabul = 0   # §5.1 Ö-A mekanizma sütunu: terminal
                                    # süreklilik istisnasıyla kaç kutu geçti
@@ -157,7 +164,7 @@ class Beyin:
         self._son_tespit_t = t
         self._son_tespit_kare_t = kare_t if kare_t else t   # ÖLÇÜM-ONLY
         self._bu_kare_tespit = True
-        self._kopru_kaydet(d, t)
+        self._kopru_kaydet(d, t, kare_t)
         self.iz.guncelle(d, t)          # iz YALNIZ kabul edilen kutuyla tazelenir
         return d
 
@@ -313,15 +320,53 @@ class Beyin:
         return max(uygun, key=lambda a: a[4])
 
     # ---------------- T5: BBOX KÖPRÜSÜ (ölü-hesap) ----------------
-    def _kopru_kaydet(self, d, t):
+    def _durus_ara(self, hedef_t):
+        """Geçmişten `hedef_t` anına EN YAKIN duruşu bul.
+
+        Dönüş: (roll, pitch, yaw, bulunan_t) — geçmiş boşsa None.
+        ⚠ EN YAKIN seçilir; kontrol döngüsü ~42 Hz olduğu için çözünürlük
+          ~24 ms. Telafi edilen gecikme ~145 ms, yani oran ~6 — §5.3'ün
+          istediği 5 katın üstünde.
+        """
+        if not self._durus_gecmis:
+            return None
+        en = min(self._durus_gecmis, key=lambda k: abs(k[0] - hedef_t))
+        return (en[1], en[2], en[3], en[0])
+
+    def _kopru_kaydet(self, d, t, kare_t=None):
         """Tespit anında kutunun ATALET yönünü sakla.
 
         ⭐ GİRDİ YALNIZ: bbox pikselleri + KENDİ IMU'muz. Hedefin GPS'i,
-          menzili, hiçbiri yok -> görsel fazda meşru (§10)."""
+          menzili, hiçbiri yok -> görsel fazda meşru (§10).
+
+        ⭐ Ö-N GECİKME TELAFİSİ (IbvsCfg.GECIKME_TELAFI):
+          Kare `kare_t` anında çekildi ama biz onu `t` anında işliyoruz.
+          Arada gövde döndü. Telafi AÇIKKEN yön, KARENİN ÇEKİLDİĞİ anın
+          duruşuyla hesaplanır; köprünün ileri taşıması zaten doğru
+          çalıştığı için sonuç bugüne doğru yansır.
+          KAPALIYKEN davranış bit bit eskisi gibidir.
+        """
         yon = self.b.yonelim()
         oy, op, orl = (math.degrees(yon[2]), math.degrees(yon[1]),
                        math.degrees(yon[0]))
         cx, cy, w, h, conf = d
+
+        self._telafi_px = 0.0
+        if ibvs.IbvsCfg.GECIKME_TELAFI and kare_t and kare_t < t:
+            g = self._durus_ara(kare_t)
+            if g is not None:
+                k_roll, k_pitch, k_yaw, _bt = g
+                # §5.1 MEKANİZMA: telafi nişan noktasını kaç piksel kaydırdı.
+                #   Aynı atalet yönünü İKİ duruşla kadraja yansıtıp farkına
+                #   bakarız. 0 ise özellik ATIL demektir.
+                az0, el0 = ibvs.KAM.piksel_kerteriz(cx, cy, op, orl)
+                az1, el1 = ibvs.KAM.piksel_kerteriz(cx, cy, k_pitch, k_roll)
+                p0 = ibvs.KAM.kerteriz_piksel(az0, el0, op, orl)
+                p1 = ibvs.KAM.kerteriz_piksel(az1, el1, op, orl)
+                if all(v == v for v in p0 + p1):
+                    self._telafi_px = math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+                oy, op, orl = k_yaw, k_pitch, k_roll
+
         az, el = ibvs.KAM.piksel_kerteriz(cx, cy, op, orl)
         self._kopru = {"az": oy + az, "el": el, "w": w, "h": h,
                        "conf": conf, "t": t}
@@ -359,6 +404,12 @@ class Beyin:
         yon = self.b.yonelim()
         own_roll = math.degrees(yon[0]); own_pitch = math.degrees(yon[1])
         own_yaw = math.degrees(yon[2])
+        # ⭐ Ö-N: duruşu zaman damgasıyla sakla (kontrol döngüsü ~42 Hz ->
+        #   250 kayıt ≈ 6 s). Köprü, bayat karenin ÇEKİLDİĞİ anın duruşunu
+        #   buradan çeker. Bu satır özellik KAPALIYKEN de çalışır (sadece
+        #   liste doldurur, davranış değiştirmez) — tampon her zaman hazır
+        #   olsun ki panelden canlı açılış anında geçmiş boş kalmasın.
+        self._durus_gecmis.append((t, own_roll, own_pitch, own_yaw))
         v_olculen = self.b.hiz_vektoru()
 
         if self._zemin_z is None:
@@ -396,6 +447,7 @@ class Beyin:
                      "yerel_aday": self._yerel_aday,
                      "yerel_uygun": self._yerel_uygun,
                      "kopru_kare": self._kopru_say,
+                     "telafi_px": round(self._telafi_px, 1),
                      "bayat_birak": self._bayat_birak_say}
 
         # ---- KALKIS ----

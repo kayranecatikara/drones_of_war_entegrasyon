@@ -1650,3 +1650,102 @@ def test_B63_sahte_gecikme_kapaliyken_kod_yolu_atlanir():
     assert '"sahte_gec_ms"' in kod, \
         "GERCEKLESEN gecikme kosu ozetine yazilmiyor -> §5.1 mekanizma kapisi yok"
 
+
+
+def test_B64_gecikme_telafisi_KAPALIYKEN_BIT_BIT_AYNI():
+    """⭐ Ö-N · VIDEO GECIKMESI TELAFISI (2026-08-28, VARSAYILAN KAPALI)
+
+    GEREKCE (olculdu): gercek donanimda video ~145 ms gec geliyor ve
+    yazilimla dusurulemiyor. Sime enjekte edilince (n=4/kol, donusumlu):
+        sure 24.3 -> 75.8 s (3.12 kat) | isabet 4/4 -> 3/4
+        temas kesintisi 4.0 -> 19.4 s (4.9 kat)
+
+    MEKANIZMA: `_kopru_kaydet` kutunun atalet yonunu SU ANKI durusla
+    hesapliyordu; oysa kare 145 ms ONCE cekilmisti. Telafi, KARENIN
+    CEKILDIGI anin durusunu kullanir (`_durus_gecmis` halka tamponu).
+
+    ⭐ BU BEKCI S5.10'UN ISTEDIGI YAPISAL GARANTIYI SINAR:
+       kapaliyken `_kopru_kaydet` cikitisi, telafi kodu HIC YOKKENKI ile
+       BIT BIT ayni olmalidir. Regresyon testinden guclu olan budur.
+    """
+    import math
+    from dow.gudum import ibvs
+
+    assert ibvs.IbvsCfg.GECIKME_TELAFI is False, \
+        "Ö-N varsayilan ACIK -> taban kolu kirlenir (S6: varsayilani OLCUM belirler)"
+
+    class SahteKopru:
+        """_kopru_kaydet'in ihtiyac duydugu en kucuk Beyin taklidi."""
+        def __init__(self):
+            import collections
+            self._durus_gecmis = collections.deque(maxlen=250)
+            self._telafi_px = 0.0
+            self._kopru = None
+            self.b = self
+        def yonelim(self):
+            return (math.radians(30.0), math.radians(-10.0), math.radians(45.0))
+
+    from dow.ana import Beyin
+    kaydet = Beyin._kopru_kaydet
+    ara = Beyin._durus_ara
+
+    # gecmise, SIMDIKINDEN COK FARKLI bir gecmis durus koy
+    def kur():
+        o = SahteKopru()
+        o._durus_ara = ara.__get__(o)
+        for i in range(60):
+            o._durus_gecmis.append((100.0 + i * 0.024, -40.0, 25.0, 300.0))
+        return o
+
+    d = (1200.0, 400.0, 60.0, 30.0, 0.8)
+    t_simdi, t_kare = 101.44, 101.30      # 140 ms bayat kare
+
+    # 1) KAPALI: kare_t verilse bile gecmis durus KULLANILMAMALI
+    ibvs.IbvsCfg.GECIKME_TELAFI = False
+    a = kur(); kaydet(a, d, t_simdi, t_kare)
+    b = kur(); kaydet(b, d, t_simdi, None)          # kare_t hic yok
+    assert a._kopru == b._kopru, \
+        "KAPALIYKEN kare_t cikti degistiriyor -> bit bit ayni DEGIL"
+    assert a._telafi_px == 0.0, "kapaliyken mekanizma sutunu sifir olmali"
+
+    # 2) ACIK: gecmis durus KULLANILMALI ve mekanizma sutunu SIFIR OLMAMALI
+    ibvs.IbvsCfg.GECIKME_TELAFI = True
+    try:
+        c = kur(); kaydet(c, d, t_simdi, t_kare)
+        assert c._kopru != a._kopru, \
+            "ACIKKEN cikti degismiyor -> ozellik ATIL (S5.1 mekanizma kapisi)"
+        assert c._telafi_px > 1.0, \
+            "telafi_px %.2f -> mekanizma sutunu calismiyoR" % c._telafi_px
+        # 3) kare_t YOKSA acikken bile eski davranis (telafi edecek an yok)
+        e = kur(); kaydet(e, d, t_simdi, None)
+        assert e._kopru == a._kopru, "kare_t yokken telafi uygulanmamali"
+    finally:
+        ibvs.IbvsCfg.GECIKME_TELAFI = False        # sizinti birakma
+
+
+def test_B65_mekanizma_sutunlari_CSV_BASLIGINDA_DA_OLMALI():
+    """⛔ YASANDI 2026-08-28 — bir A/B cifti bu yuzden GECERSIZ oldu.
+
+    `telafi_px` (Ö-N mekanizma sutunu) ana.py'de `tani`ya, kosu.py'de deger
+    kopyalama dongusune eklendi -- ama meta.csv BASLIK listesi araclar/
+    kayit.py'de AYRI duruyor ve oraya eklenmedi. Sonuc: kolon meta.csv'de
+    HIC OLUSMADI, sutun bos kaldi ve S5.1 mekanizma kapisi UYGULANAMADI.
+    Kampanya durduruldu, ilk cift atildi.
+
+    Bu bekci: `tani`ya yazilan her mekanizma sutununun HEM kosu.py'nin
+    kopyalama listesinde HEM kayit.py'nin BASLIK listesinde bulunmasini
+    sinar. Ikisi ayri dosyada oldugu icin biri unutulmaya acik.
+    """
+    kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    kosu = open(os.path.join(kok, "araclar/kosu.py"), encoding="utf-8").read()
+    kayit = open(os.path.join(kok, "araclar/kayit.py"), encoding="utf-8").read()
+
+    # §5.1 mekanizma sutunlari — her yeni ozellik burayA da eklenmeli
+    MEKANIZMA = ["kopru_kare", "telafi_px", "bayat_birak",
+                 "yerel_aday", "yerel_uygun", "det_ms", "det_pencere"]
+    for sut in MEKANIZMA:
+        assert '"%s"' % sut in kosu, \
+            "%s kosu.py kopyalama listesinde YOK -> deger yazilmaz" % sut
+        assert '"%s"' % sut in kayit, \
+            ("%s kayit.py BASLIK listesinde YOK -> sutun meta.csv'de hic "
+             "olusmaz ve mekanizma kapisi uygulanamaz (S5.1)" % sut)

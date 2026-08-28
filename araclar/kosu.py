@@ -912,7 +912,8 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
             for k in ("hedef_hiz", "hedef_yon", "ist_x", "ist_y", "ist_z",
                       "ist_hata_m", "ist_hata_yatay", "ist_hata_dikey",
                       "hedef_menzil_m", "yaw_hata", "v_istek",
-                      "kopru_kare", "bayat_birak", "yerel_aday", "yerel_uygun",
+                      "kopru_kare", "telafi_px",   # ⭐ Ö-N §5.1 mekanizma
+                      "bayat_birak", "yerel_aday", "yerel_uygun",
                       "det_ms", "det_pencere", "red_konum", "red_boyut",
                       "terminal_kabul", "yerel_kayip",
                       "iz_yas", "iz_w",

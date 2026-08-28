@@ -210,6 +210,36 @@ class IbvsCfg:
     #   Anahtar KAPALI, gerekçesi yazılı, manevra açılınca yeniden sınanacak.
     BAYAT_BIRAK   = _b_i("DOW_BAYAT_BIRAK", False)
 
+    # ⭐ Ö-N · VİDEO GECİKMESİ TELAFİSİ (2026-08-28, VARSAYILAN KAPALI)
+    #
+    # SORUN (ölçüldü, docs/GERCEK_SISTEM.md §5.0 + kampanya GECIKME_ETKISI):
+    #   Gerçek donanımda kamera görüntüsü güdüme ~145 ms GEÇ ulaşıyor ve
+    #   yazılımla düşürülemiyor (1800 ölçüm, altı yöntem, hepsi aynı).
+    #   Simde bu gecikme enjekte edilince (n=4/kol, dönüşümlü):
+    #      süre    24.3 -> 75.8 s   (3.12 kat)
+    #      isabet   4/4 ->  3/4
+    #      temas kesintisi 4.0 -> 19.4 s (4.9 kat)
+    #
+    # MEKANİZMA — köprü YANLIŞ ANIN duruşuyla kaydediyor:
+    #   `_kopru_kaydet` kutunun atalet yönünü hesaplarken `b.yonelim()`,
+    #   yani ŞU ANKİ duruşu kullanıyor. Ama o kare 145 ms ÖNCE çekildi.
+    #   Aradaki gövde dönüşü kadar yanlış bir yön kaydediliyor; köprü de
+    #   o yanlış yönü ileri taşıyor. Hata kalıcı hâle geliyor.
+    #
+    # ÇARE: kaydederken KARENİN ÇEKİLDİĞİ ANIN duruşunu kullan. Köprünün
+    #   ileri taşıma kısmı ZATEN DOĞRU — sadece başlangıç noktası yanlıştı.
+    #   Duruş geçmişi halka tamponda tutulur (`Beyin._durus_gecmis`).
+    #
+    # ⭐ TAHMİN YOK: `kare_t` karenin GERÇEK yakalanma anıdır, yakalama
+    #   katmanından gelir. Gecikme sabiti KESTİRİLMEZ.
+    #
+    # ⚠ YARIŞMA KURALI (§10) TEMİZ: girdi yalnız bbox + KENDİ IMU geçmişimiz.
+    #   Hedefin GPS'i, menzili, hiçbiri yok.
+    #
+    # Mekanizma sütunu (§5.1): `telafi_px` — telafinin nişan noktasını
+    #   kadrajda kaç piksel kaydırdığı. Deney kolunda 0 ise özellik ATIL.
+    GECIKME_TELAFI = _b_i("DOW_GECIKME_TELAFI", False)
+
     # ⛔ D2 TAM KERTERİZ — GÜDÜM ÇEVRİMİNDE ELENDİ, ÖLÇÜMDE GİRDİ (2026-08-23)
     #
     #   `piksel_kerteriz` roll döndürmesini TILT eklendikten SONRA uyguluyor;
