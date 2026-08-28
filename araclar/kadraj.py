@@ -6,6 +6,53 @@ import cv2
 
 BOLGE = {'left':0,'top':0,'width':1920,'height':1080}
 
+
+def bolge_tazele(sessiz=False):
+    """Oyun penceresini X'e SORARAK bul ve BOLGE'yi ona göre ayarla.
+
+    ⛔ NEDEN GEREKLİ (2026-08-28, yaşandı ve bir kampanyayı çöpe atacaktı):
+      BOLGE sabit 0,0 idi. Ekran düzeni değişince oyun `0,27` konumuna,
+      GNOME üst çubuğunun ALTINA açıldı. Yakalanan karenin ilk 27 satırı
+      çubuk oldu ve oyun içeriği 27 px kaydı -> `CY=540` varsayımında
+      **2.9° dikey sapma**, `hud_parlak` şeridi yanlış yerden okundu.
+      Kod hata vermedi; yalnız sayısal kontrol yakaladı.
+
+    ⭐ ÇARE: kadraj artık tahmin etmiyor, SORUYOR. Pencere nereye açılırsa
+      açılsın kadraj oraya oturur; ikisi yapısal olarak uyumsuz kalamaz.
+
+    ⚠ GEÇERLİLİK KAPISI: bulunan bölge 1920x1080 DEĞİLSE kabul edilmez ve
+      varsayılan korunur. Sebep: kamera kalibrasyonunun tamamı (F_PX=540.4,
+      CX/CY=960/540, MENZIL_C=997) bu çözünürlüğe bağlı. Farklı boyutta bir
+      pencereyi sessizce yakalamak, tüm geometriyi bozmak demektir.
+
+    Dönüş: (bulundu_mu, açıklama)
+    """
+    global BOLGE
+    try:
+        w = subprocess.check_output(
+            ["xdotool", "search", "--name", "^DronesOfWar"],
+            text=True, timeout=5).split()
+        if not w:
+            return False, "oyun penceresi yok - varsayilan kullaniliyor"
+        g = subprocess.check_output(
+            ["xdotool", "getwindowgeometry", "--shell", w[0]],
+            text=True, timeout=5)
+        d = dict(satir.split("=", 1) for satir in g.strip().splitlines()
+                 if "=" in satir)
+        x, y = int(d["X"]), int(d["Y"])
+        gw, gh = int(d["WIDTH"]), int(d["HEIGHT"])
+    except Exception as e:
+        return False, "pencere okunamadi (%r) - varsayilan" % (e,)
+
+    if (gw, gh) != (1920, 1080):
+        return False, ("pencere %dx%d (1920x1080 DEGIL) -> REDDEDILDI; "
+                       "kamera kalibrasyonu 1920x1080'e bagli" % (gw, gh))
+
+    BOLGE.update({"left": x, "top": y, "width": gw, "height": gh})
+    if not sessiz:
+        print("[KADRAJ] oyun penceresi: +%d+%d %dx%d" % (x, y, gw, gh), flush=True)
+    return True, "+%d+%d %dx%d" % (x, y, gw, gh)
+
 # ⚡ HAFİF KAPI BÖLGESİ — sol alttaki akım/batarya bloğu (oyun_mu'nun ayırıcı
 #   imzası zaten YALNIZ burada). Tam kare 1920x1080 = 2.07 M piksel; bu şerit
 #   240x210 = 50 400 piksel, yani 41 KAT az. Kontrol döngüsü her tikte
@@ -219,6 +266,10 @@ def hazirla(sct, dene=4):
     üst üste böyle düştü ve kurtarma hiç tetiklenmedi — çünkü yanlış yere
     bağlanmıştı. 'E' bu ekranda işe yaramaz; PLAY AGAIN gerekir."""
     import time
+    # ⭐ KADRAJ PENCEREYE OTURTULUR (2026-08-28). Sabit 0,0 varsaymak, oyun
+    #   GNOME çubuğunun altına açılınca 27 px kaymaya ve 2.9° dikey sapmaya
+    #   yol açıyordu. Bkz. bolge_tazele().
+    bolge_tazele()
     for i in range(dene):
         img = np.array(sct.grab(BOLGE))[:,:,:3]
         if ucusta_mi(img):

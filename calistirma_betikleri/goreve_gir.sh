@@ -4,7 +4,8 @@
 # Öğrenilenler (2026-08-21):
 #  * Kenarlıksız tam ekran ŞART — pencere süslemesi kadrajı kırpıp kamera iç
 #    parametrelerini bozuyor ve dedektöre sahte kenar veriyor.
-#  * Pencere 2. ekrana (HDMI-0, 0,0) alınır ki terminal/tarayıcı örtmesin;
+#  * Pencere AOC monitörüne (araclar/ekran.py seçer) alınır; GNOME üst
+#    çubuğu yalnız BİRİNCİL monitörde durduğu için kadraj temiz kalır.
 #    örttüğünde ekran yakalama YANLIŞ pencereyi çeker (bir kez yaşandı).
 #  * fullscreen bayrağı konumu geri alıyor -> önce kaldır, taşı, sonra ekle.
 # =============================================================================
@@ -29,14 +30,26 @@ for i in $(seq 1 30); do
 done
 [ -z "$W" ] && { echo "HATA: pencere yok"; exit 1; }
 
-echo "[2/6] pencere -> 2. ekran, kenarlıksız tam ekran"
+# ⭐ HEDEF EKRAN OTOMATIK SECILIR (2026-08-28). Eskiden sabit "0 0" yaziyordu
+#    (ustteki yorum "HDMI-0, 0,0" diyor -- yazildiginda AOC oradaydi). Ekran
+#    duzeni degisince 0,0 dizustu paneli oldu ve oyun GNOME UST CUBUGUNUN
+#    ALTINA acildi (0,27): kadrajin ilk 27 satiri cubuk oldu, oyun 27 px
+#    kaydi -> CY=540 varsayiminda 2.9 derece dikey sapma. Bir kampanyayi
+#    cope atacakti; sadece sayisal kontrol yakaladi.
+#    Simdi araclar/ekran.py AOC monitorunu (yoksa birincil OLMAYANI) secer.
+#    GNOME cubugu YALNIZ birincilde durur -> sorun kokunden cozulur.
+EKRAN=$(python3 "$KOK/araclar/ekran.py" 2>/dev/null | head -1)
+KONUM=$(echo "$EKRAN" | grep -oE '\+[0-9]+\+[0-9]+' | head -1)
+EX=$(echo "$KONUM" | cut -d+ -f2); EY=$(echo "$KONUM" | cut -d+ -f3)
+EX=${EX:-0}; EY=${EY:-0}
+echo "[2/6] pencere -> ${EKRAN:-0,0}  (kenarliksiz tam ekran)"
 wmctrl -i -r "$W" -b remove,fullscreen 2>/dev/null; sleep 1
-xdotool windowmove "$W" 0 0 2>/dev/null; sleep 1
+xdotool windowmove "$W" "$EX" "$EY" 2>/dev/null; sleep 1
 wmctrl -i -r "$W" -b add,fullscreen 2>/dev/null; sleep 2
 xdotool windowactivate --sync "$W" 2>/dev/null; sleep 1
 
 echo "[3/6] örten pencereleri küçült"
-for ad in "Google Chrome" "gedit"; do
+for ad in "Google Chrome" "gedit" "Visual Studio Code" "Code"; do
   ID=$(xdotool search --name "$ad" 2>/dev/null | tail -1)
   [ -n "$ID" ] && xdotool windowminimize "$ID" 2>/dev/null
 done
@@ -54,12 +67,18 @@ xdotool windowactivate --sync "$W" 2>/dev/null; sleep 1
 #   Care: tiklamayi TEKRARLA ve arada ana menuyu bekle. Fazla tiklama
 #   zararsiz (ana menude 960,890 bos alan).
 echo "[4/6] PRESS FOR START (x2 — taze acilista iki ekran var)"
-xdotool mousemove 960 890 click 1; sleep 5
-xdotool mousemove 960 890 click 1; sleep 6
-echo "[5/6] FLY";            xdotool mousemove 143 475 click 1; sleep 9
+# ⚠ Koordinatlar oyunun KENDI kadrajina gore; ekran ofseti (EX,EY) eklenir.
+xdotool mousemove $((EX+960)) $((EY+890)) click 1; sleep 5
+xdotool mousemove $((EX+960)) $((EY+890)) click 1; sleep 6
+echo "[5/6] FLY";            xdotool mousemove $((EX+143)) $((EY+475)) click 1; sleep 9
 echo "[6/6] E — drone spawn"
 xdotool windowactivate --sync "$W" 2>/dev/null; sleep 1
-xdotool key --window "$W" e; sleep 5
+# ⛔ `--window` ILE GONDERILEN TUS OYUNA ULASMIYOR (2026-08-28 olculdu):
+#    menuler gecildi, gorev acildi ama "Press E to spawn" ekraninda
+#    kalindi ve port acilmadi. UE oyunlari yonlendirilmis tusu degil,
+#    ODAKLI pencereye giden GERCEK tusu isliyor.
+xdotool windowactivate --sync "$W" 2>/dev/null; sleep 1
+xdotool key e
 
 for i in $(seq 1 25); do
   ss -tln | grep -q 12345 && { echo "✅ TCP 12345 AÇIK — göreve girildi"; exit 0; }

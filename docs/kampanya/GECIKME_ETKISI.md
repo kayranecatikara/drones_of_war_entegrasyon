@@ -146,3 +146,85 @@ Aşama 3 — gecikme telafisi (`DOW_GECIKME_TELAFI`, varsayılan KAPALI):
 zaman damgalı duruş halka tamponu + ego-hareket telafisi + ileri kestirim.
 Mekanizma sütunu: `kestirim_hata_px`.
 Kıyas kolu: bu kampanyanın **G** kolu (aynı 133 ms, telafi açık).
+
+---
+
+# ⭐ EK — MERGE SONRASI TEKRAR (2026-08-28, n=4/kol, 8 uçuş)
+
+## Neden tekrarlandı
+
+Yukarıdaki kampanya `main` birleştirilmeden ÖNCE koşuldu. Main 67 commit
+getirdi ve güdüm çekirdeğine dokundu (`ibvs.py` +101, `dedektor.py`,
+`ayarlar.py`, "DEVİR KAPISI KAMERAYA BAĞLANDI"). §5.14: eski bağlamda
+geçerli bulgu yeni bağlamda sessizce yanlış olabilir.
+
+Merge sonrası devir menzili 14.2-14.7 → **15.9 m** çıktı; taban gerçekten
+değişmişti.
+
+## Sonuç — bulgu AYAKTA, üstelik DAHA GÜÇLÜ
+
+| koşu | süre | isabet | tespit% | roll_p90 | kesinti_s | yaş_p90 | gec_ms |
+|---|---|---|---|---|---|---|---|
+| M01_T | 13.3 | 1 | 92.7 | 22.5 | 0.6 | 0.171 | 0.0 |
+| M02_G | 62.9 | 1 | 47.5 | 38.3 | 20.0 | 1.623 | 133.5 |
+| M03_T | 15.8 | 1 | 81.8 | 15.8 | 1.2 | 0.312 | 0.0 |
+| M04_G | 89.7 | 1 | 61.8 | 37.1 | 21.7 | 1.501 | 133.6 |
+| M05_T | 32.8 | 1 | 63.3 | 15.6 | 7.4 | 0.942 | 0.0 |
+| M06_G | 88.6 | **0** | 57.4 | 31.8 | 18.7 | 1.560 | 133.6 |
+| M07_T | 43.2 | 1 | 73.7 | 20.5 | 6.7 | 1.243 | 0.0 |
+| M08_G | 61.7 | 1 | 66.1 | 25.2 | 10.7 | 1.604 | 133.4 |
+
+| ölçüt | T (taban) | G (gecikme) | oran |
+|---|---|---|---|
+| ⭐ **süre (s)** | 24.3 | **75.8** | **3.12 KAT** |
+| ⭐ **isabet** | **4/4** | **3/4** | — |
+| tespit % | 77.8 | 59.6 | 0.77 |
+| \|roll\| p90 (°) | 18.2 | 34.5 | 1.90 |
+| **kesinti süresi (s)** | 4.0 | **19.4** | **4.90 KAT** |
+| kesinti sayısı | 6.5 | 23.0 | 3.54 |
+| kutu yaşı p90 (s) | 0.63 | 1.58 | 2.52 |
+| devir menzili (m) | 15.2 | 14.9 | 0.98 (aynı) |
+
+## İKİ KAMPANYANIN KIYASI
+
+| | merge ÖNCESİ | merge SONRASI |
+|---|---|---|
+| T süre | 14.2 s | 24.3 s |
+| G süre | 33.5 s | **75.8 s** |
+| **oran** | 2.35 kat | **3.12 kat** |
+| **isabet** | 4/4 vs **4/4** | 4/4 vs **3/4** |
+| kesinti (G) | 3.25 s | **19.4 s** |
+
+## ⭐ İKİ YENİ BULGU
+
+### 1 · Dağılımlar artık HİÇ ÖRTÜŞMÜYOR
+
+```
+T = 13.3, 15.8, 32.8, 43.2      (en kötü 43.2)
+G = 61.7, 62.9, 88.6, 89.7      (en iyi  61.7)
+```
+
+**T'nin EN KÖTÜSÜ (43.2 s), G'nin EN İYİSİNDEN (61.7 s) hâlâ hızlı.**
+Merge öncesinde örtüşme vardı (T'nin bir koşusu 49.2 s ile tüm G
+koşularının üstündeydi). Artık ayrım temiz.
+
+### 2 · ⛔ Gecikme artık İSABETİ DE DÜŞÜRÜYOR
+
+Merge öncesi 4/4 vs 4/4'tü — "gecikme vuruşu engellemiyor" demiştim.
+**Yeni tabanda G kolu bir koşuyu kaçırdı (M06_G).** Yani önceki hükmüm
+yeni tabanda geçerli değil.
+
+**Mekanizma:** yeni devir kapısı sürekli görsel temasa daha bağımlı.
+Gecikmeli kolda temas kesintisi **19.4 s** (koşunun dörtte biri) —
+merge öncesinde 3.25 s'ti. Sistem hedefi bulup kaybediyor, bulup
+kaybediyor.
+
+## KARAR
+
+> **GECİKME TELAFİSİ GEREKÇELENDİ — ve artık ACİL.**
+> Merge öncesi "acil değil, isabet kaybı yok" demiştim. **O hüküm
+> çürüdü:** yeni tabanda isabet 4/4 → 3/4 düştü, süre 3.1 kat arttı,
+> görsel temas kesintisi 4.9 kat arttı.
+
+⚠ Bu ölçüm hâlâ **133 ms** ile yapıldı; gerçek 136-151 ms. Ve hedef
+kaçmıyor, GNSS temiz. Yarışma koşullarında etki daha büyük olacak.
