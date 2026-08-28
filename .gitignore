@@ -33,3 +33,6 @@ gizli*
 
 # python sanal ortami (yerel, depoya girmez)
 .venv/
+
+# ENTER ile toplanan HAM egitim/agumantasyon kareleri (ham veri, depoya girmez)
+agumantasyon_icin/
