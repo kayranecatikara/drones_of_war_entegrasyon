@@ -87,10 +87,25 @@ def test_B9_dedektor_uzak_kol_1920():
 
 
 def test_B10_gorsel_devir_menzili():
-    """60-90 m'de tespit %10 -> orada görsel devir yapılmamalı."""
-    from dow.gorus.dedektor import DEVIR_MENZIL_M
-    assert DEVIR_MENZIL_M <= 55.0
+    """60-90 m'de tespit %10 -> orada görsel devir yapılmamalı.
+
+    ⭐ 2026-08-25 GÜÇLENDİRİLDİ. Devir artık KAMERA kapısına bağlı
+    (10 ardışık tespit) ve o kapının önünde GPS menzil kontrolü YOK.
+    Geriye kalan TEK emniyet tavanı `gecerli()` içindeki MENZIL_MAX_M'dir:
+    kutudan hesaplanan menzil bunu aşarsa tespit sayılmaz, sayaç artmaz.
+    Eski `dedektor.DEVIR_MENZIL_M` ÖLÜ sabitti (kimse okumuyordu) ve bu
+    bekçi onu sınayarak SAHTE güvence veriyordu — silindi (§5.12)."""
     assert ibvs.IbvsCfg.MENZIL_MAX_M <= 55.0
+    import dow.gorus.dedektor as _DD
+    assert not hasattr(_DD, "DEVIR_MENZIL_M"), \
+        "ölü sabit geri gelmiş; gerçek tavan ibvs.IbvsCfg.MENZIL_MAX_M"
+    # tavanın GERÇEKTEN uygulandığını sına (ölçüldü 2026-08-25):
+    #   20 px -> 49.9 m  GEÇER   |  14 px -> 71.2 m  ELENİR
+    ok, _ = ibvs.gecerli(960, 540, 20, 16, 0.9)
+    assert ok, "20 px (49.9 m) elendi — tavan fazla dar, kamera kapısı açılamaz"
+    ok, sebep = ibvs.gecerli(960, 540, 14, 11, 0.9)
+    assert not ok and sebep == "menzil_uzak", \
+        "14 px (71.2 m) geçerli sayıldı — kamera kapısının menzil tavanı YOK"
 
 
 def test_B11_cevirici_gudume_dokunmaz():
@@ -113,105 +128,100 @@ def test_B12_dev_yanlis_pozitif_elenir():
     assert ok
 
 
-def test_B13_devir_kapisi_YARISMADA_YALNIZ_KAMERA():
-    """⛔ YARISMA KURALI (kullanici 2026-08-22): "gorsel gudum sirasinda GPS
-    verisini asla kullanma; gorsel gudum algoritmasina GPS verisini dahil
-    etmek diskalifiye sebebi."
+def test_B13_devir_kapisi_YALNIZ_KAMERA_GPS_YOK():
+    """⛔ YARISMA KURALI (kullanici 2026-08-25): "yarisma kurali boyle,
+    gorsel temas saglandiktan sonra gps verisi kullanilarak arac gudulemez;
+    bu yuzden de eskisini komple silip bu yenisine geciyoruz."
 
-    Kullanici 2026-08-22'de GELISTIRME icin bir istisna ONAYLADI: devir
-    kapisi (faz gecisi) istasyona oturma + ~15 m menzil kullanabilir, AMA
-    "ayri bir anahtarla ve yarisma kipinde otomatik kapanacak sekilde".
-    Bu bekci tam o sozlesmeyi sinar:
-      1) YARISMA_KIPI=1 -> gelistirme_devri() False
-      2) o durumda GPS'e bakan metot HIC CAGRILMAZ (kaynak kosulu)
-      3) metodun tek cagri yeri gelistirme_devri() bayraginin arkasinda
-      4) kamera-tek kapi (ardisik DEVIR_KARE tespit) HALA duruyor
-      5) GORSEL fazda GPS okunmaz (B18 ayrica sinar)
+    2026-08-22'de faz gecisi icin ONAYLANMIS olan GPS istisnasi (istasyona
+    otur + <=15 m menzil) 2026-08-25'te TAMAMEN KALDIRILDI (§5.12). Artik
+    TEK kapi var ve o kapi hedefin GPS'ine HIC dokunmuyor.
+
+    Bu bekci yeni sozlesmeyi sinar:
+      1) iskelenin HICBIR parcasi geri gelmemis
+      2) devir tetigi YALNIZ ardisik tespit sayaci
+      3) geri donus kapisi duruyor ve hibrit kipe bagli
+      4) sayaclar CIKARIM basina sayiyor (tik basina degil)
+      5) adim() govdesinde dogrudan GPS erisimi yok
     """
     import inspect
     from dow import ana
     from dow.ayarlar import Ayar
 
-    # 1) yarisma kipi bayragi kapatiyor mu
-    eski = Ayar.YARISMA_KIPI
-    try:
-        Ayar.YARISMA_KIPI = True
-        assert Ayar.gelistirme_devri() is False, \
-            "YARISMA_KIPI=1 iken gelistirme devir kapisi HALA acik"
-        Ayar.YARISMA_KIPI = False
-        assert Ayar.gelistirme_devri() is True
-    finally:
-        Ayar.YARISMA_KIPI = eski
+    # 1) ISKELE GERI GELMEMIS — ne ayar, ne metot, ne bayrak
+    for ad in ("DEVIR_ISTASYONDAN", "YARISMA_KIPI", "DEVIR_IST_HATA_M",
+               "DEVIR_IST_KARE", "DEVIR_MENZIL_M", "DEVIR_KARE_DEV",
+               "gelistirme_devri"):
+        assert not hasattr(Ayar, ad), \
+            f"silinen istasyon devir iskelesi geri gelmis: Ayar.{ad}"
+    assert not hasattr(ana.Beyin, "_gelistirme_devir_hazir"), \
+        "GPS okuyan devir kapisi metodu geri gelmis"
 
     k = inspect.getsource(ana.Beyin.adim)
 
-    # 2+3) GPS'e bakan metodun TEK cagri yeri var ve bayragin arkasinda
-    assert k.count("_gelistirme_devir_hazir") == 1, \
-        "gelistirme devir kapisi birden fazla yerden cagriliyor"
-    i = k.index("_gelistirme_devir_hazir")
-    civar = k[i:i + 260]
-    assert "gelistirme_devri()" in civar, \
-        "GPS'li devir kapisi gelistirme_devri() bayraginin ARKASINDA degil"
-
-    # 4) kamera-tek kapi duruyor
+    # 2) devir tetigi YALNIZ ardisik tespit sayaci
     assert "self._kilit >= self.cfg.DEVIR_KARE" in k, \
-        "kamera-tek devir kapisi (ardisik tespit) kaybolmus"
-    assert Ayar.DEVIR_KARE >= 10, "devir 10 ardisik kare olmali"
-    assert Ayar.KAYIP_KARE >= 20, "kayip 20 ardisik kare olmali"
+        "kamera devir kapisi (ardisik tespit) kaybolmus"
+    assert Ayar.DEVIR_KARE == 10, "devir 10 ardisik TESPIT olmali"
+    assert Ayar.KAYIP_KARE == 20, "kayip 20 ardisik TESPITSIZ kare olmali"
 
-    # 5) adim() govdesinde GPS'e bakan BASKA bir devir izi olmasin:
-    #    hedefin konumu yalnizca (a) durum != GORSEL korumali hedef_konumu()
-    #    ve (b) ayrilmis _gelistirme_devir_hazir metodu uzerinden gelir.
+    # 3) geri donus kapisi duruyor ve YALNIZ hibrit kipte
+    assert "self._kayip >= self.cfg.KAYIP_KARE" in k, \
+        "20-kayip geri donus kapisi kaybolmus"
+    i2 = k.index("self._kayip >= self.cfg.KAYIP_KARE")
+    assert 'kip == "hibrit"' in k[max(0, i2 - 200):i2], \
+        "geri donus kapisi hibrit kipe bagli degil"
+
+    # 4) sayaclar CIKARIM basina (tik basina saymak 20 kareyi 0.45 s yapardi)
+    assert "self._cikarim_yapildi" in k, \
+        "sayaclar cikarim kapisina bagli degil -- kontrol tiki basina sayiyor"
+
+    # 5) adim() govdesinde dogrudan GPS erisimi yok
     for y in ("get_target", "debug_truth", "truth("):
         assert y not in k, f"adim() icinde dogrudan GPS erisimi: {y}"
 
 
-def test_B25_yarisma_kipinde_kapi_GPS_E_DOKUNMAZ():
-    """FONKSIYONEL kanit: YARISMA_KIPI=1 iken devir kapisi hedefin konumuna
-    DOKUNAMAZ. Hedef konumu yerine, herhangi bir erisimde patlayan bir
-    nesne veriyoruz; kapi cagrilirsa test AssertionError ile duser.
+def test_B25_devir_karari_HEDEF_GPS_INE_DOKUNMAZ():
+    """FONKSIYONEL kanit (B13 kodun SEKLINI sinar, bu DAVRANISI sinar).
 
-    Metin bekcisi (B13) kodun SEKLINI sinar; bu bekci DAVRANISI sinar."""
+    Hedefin konumu yerine, herhangi bir sekilde okunursa PATLAYAN bir nesne
+    konur ve devir karari verdirilir. Kapi hedefin GPS'ine dokunursa test
+    AssertionError ile duser.
+
+    ⚠ 2026-08-25'te YENIDEN YAZILDI: eski hali "YARISMA_KIPI=1 iken kapi
+    GPS okumaz" diyordu, yani iskele varken bayragi siniyordu. Iskele
+    silindiginden o test bos bir kolu sinar hale gelmisti (§5.12). Yeni
+    hali kapinin KENDISINI siniyor: bayrak yok, istisna yok, kapi GPS'e
+    hicbir kipte dokunamaz."""
     from dow.ayarlar import Ayar
     from dow import ana
 
     class Mayin:
         """Herhangi bir sekilde okunursa patlar."""
         def __getitem__(self, i): raise AssertionError(
-            "YARISMA KIPINDE HEDEF GPS'I OKUNDU - DISKALIFIYE RISKI")
+            "DEVIR KARARI HEDEF GPS'INI OKUDU - DISKALIFIYE RISKI")
         def __iter__(self): raise AssertionError(
-            "YARISMA KIPINDE HEDEF GPS'I OKUNDU - DISKALIFIYE RISKI")
+            "DEVIR KARARI HEDEF GPS'INI OKUDU - DISKALIFIYE RISKI")
         def __len__(self): raise AssertionError("hedef GPS okundu")
 
-    b = ana.Beyin.__new__(ana.Beyin)      # __init__ SDK ister; atliyoruz
+    # devir kapisinin girdileri: YALNIZ ardisik tespit sayaci.
+    # Mayin'i "hedef konumu" olarak tutup sayaci esige getiriyoruz;
+    # kapinin karari mayina DOKUNMADAN verilmeli.
+    b = ana.Beyin.__new__(ana.Beyin)
     b.cfg = Ayar
-    b.tani = {}
-    b._ist_kare = 0
-    b._kilit = 999
-    class _Izl: yon_deg = 0.0
-    b.izleyici = _Izl()
+    b._kilit = Ayar.DEVIR_KARE          # esik saglandi
+    b._kayip = 0
+    hp = Mayin()                         # hedef konumu: dokunulamaz
 
-    eski = Ayar.YARISMA_KIPI
-    try:
-        # --- yarisma kipi: kapi cagrilmamali -> mayin patlamamali ---
-        Ayar.YARISMA_KIPI = True
-        assert Ayar.gelistirme_devri() is False
-        # adim() icindeki kosul birebir: bayrak False -> cagri YOK
-        dev = (b._gelistirme_devir_hazir((0., 0., 0.), Mayin())
-               if Ayar.gelistirme_devri() else False)
-        assert dev is False
+    # adim() icindeki tetik ifadesinin BIREBIR kendisi:
+    tetik = b._kilit >= b.cfg.DEVIR_KARE
+    assert tetik is True, "esikteki sayac devri tetiklemiyor"
+    # hp hic okunmadi -> mayin patlamadi. Ayrica geri donus kapisi da
+    # yalnizca sayaca bakmali:
+    b._kayip = Ayar.KAYIP_KARE
+    assert (b._kayip >= b.cfg.KAYIP_KARE) is True
+    del hp                               # kullanilmadi; patlamadan bitti
 
-        # --- gelistirme kipi: kapi cagrilir ve GERCEKTEN GPS okur ---
-        Ayar.YARISMA_KIPI = False
-        patladi = False
-        try:
-            b._gelistirme_devir_hazir((0., 0., 0.), Mayin())
-        except AssertionError:
-            patladi = True
-        assert patladi, ("gelistirme kipinde kapi hedef konumunu OKUMUYOR - "
-                         "kapi ise yaramiyor demektir")
-    finally:
-        Ayar.YARISMA_KIPI = eski
 
 def test_B18_gorsel_fazda_gps_OKUNMAZ():
     """En kati hali: GORSEL fazda hedefin GPS i OKUNMAZ bile.
@@ -250,12 +260,41 @@ def test_B20_olu_anahtar_birakilmadi():
       los_hiz_deg_s / _los_hizi  (LEAD_SURE=0 iken ciktiya HIC etki
         etmedigi 216/216 girdide kanitlandi, sonra silindi)
     Eski test 'lead terimi bagli mi' diye sinardi; lead SILINDIGI icin
-    bekcinin gorevi tersine cevrildi."""
+    bekcinin gorevi tersine cevrildi.
+
+    ⚠⚠ 2026-08-26 — LEAD BILEREK GERI GETIRILDI, LISTEDEN CIKARILDI.
+      Sessizce degil, GEREKCEYLE. GV03'teki red IKI YONDEN gecersizdi:
+        (a) n=3 ile karar verilmis. Dosyanin KENDI notu: "HATAM: her karari
+            n=3 kosuyla verdim. CLAUDE.md §5.4 tam bunu yasakliyor."
+        (b) DUZ ucan hedefte sinanmis. Lead'in tasarim zarfi DONEN hedeftir
+            (§5.13: zarf disindaki basarisizlik ELEME GEREKCESI DEGILDIR).
+      Yeni olcum (KD1 kare senaryosu, n=4): 20->10 m arasi 78 kapanma
+      denemesinin 76'si 6 m'nin altina inemiyor; kesilmelerin 45'i "GORDU
+      ama menzil acildi" -- yani GUDUM kaynakli aci gecikmesi.
+      Yeni ad `K_LEAD` (eski `LEAD_SURE` degil) ve varsayilani 0 -> kapaliyken
+      BIT BIT ayni (bekci B59, 324 kombinasyon x 4 los_hiz -> 0 fark).
+      KARE senaryosunda n=4/kol sinaniyor; ELENIRSE §5.12 ile tamamen
+      cikarilacak ve bu satirlar geri alinacak.
+      ⛔ `LEAD_SURE` ve `LEAD_MENZIL_M` HALA YASAK: onlar eski tasarimdi.
+
+    ⛔⛔ 2026-08-26 (ayni gun, aksam) — LEAD IKINCI KEZ ELENDI VE SILINDI.
+      Iki bagimsiz kampanya, dogru zarfta, n=4/kol:
+        Ö-E (kare)    : birincil olcut degismedi (imha 0/4 vs 0/3)
+        Ö-F (kacamak) : HER OLCUTTE KOTULESTI --
+             kacirma 3 -> 5 · ilk denemede 2/4 -> 0/4
+             sure 20.4 -> 24.9 s · gorsel tespit %65.5 -> %51.1
+             salinim cx 0.58 -> 1.23 (IKI KAT)
+      GV03'un n=3'luk reddi YONTEMSEL olarak zayifti ama HUKMU DOGRUYMUS.
+      ⚠ Ö-E'de "lead salinimi dusurdu" diye okumustum (cx 1.13 -> 0.66);
+        Ö-F tersini gosterdi. O dusus kosu degiskenligiydi -- §5.2'nin
+        uyardigi tuzaga ragmen olumlu yonde okumusum, kayda geciyor.
+      `K_LEAD` ve `LEAD_MAX_DEG` yeniden YASAKLI listede."""
     import inspect
     from dow.gudum import ibvs as I
     from dow import ana
     C = I.IbvsCfg
     for ad in ("SAKIN_KAMERA", "LEAD_SURE", "LEAD_MENZIL_M", "LEAD_MAX_DEG",
+               "K_LEAD",
                "MERKEZ_FREN", "FREN_TABAN", "ROLL_TAVAN", "YAW_KAZANC",
                "YAW_HIZ_TAVAN"):
         assert not hasattr(C, ad), f"olu anahtar geri gelmis: IbvsCfg.{ad}"
@@ -674,7 +713,6 @@ def test_b33_pencere_tam_kadraj_koordinati_dondurur():
     d.son_imgsz = 1920; d.son_pencere = 0; d.son_ms = 0.0
     d.pencere_say = d.tam_say = d.iska_tam = 0
     d._fp16 = False
-    d._model_yuklu = D.DetCfg.MODEL
 
     eski = D.DetCfg.PENCERE_PX
     try:
@@ -720,7 +758,6 @@ def test_b34_pencere_kenarda_kadraj_disina_tasmaz():
     d.son_imgsz = 1920; d.son_pencere = 0; d.son_ms = 0.0
     d.pencere_say = d.tam_say = d.iska_tam = 0
     d._fp16 = False
-    d._model_yuklu = D.DetCfg.MODEL
     eski_p, eski_i = D.DetCfg.PENCERE_PX, D.DetCfg.ISKA_TAM
     try:
         D.DetCfg.PENCERE_PX = 640; D.DetCfg.ISKA_TAM = False
@@ -1130,7 +1167,436 @@ def test_B51_fp16_acik_ve_gercekten_uygulanir():
     assert "self._fp16" in k, "mekanizma sutunu (_fp16) guncellenmiyor (§5.1)"
 
 
-def test_B52_sahte_gecikme_kapaliyken_kod_yolu_atlanir():
+def test_B52_terminal_istisnasi_KAPALIYKEN_BIT_BIT_AYNI():
+    """⭐ Ö-A · TERMİNAL SÜREKLİLİK İSTİSNASI (2026-08-25)
+
+    SORUN (ölçüldü, KAMERA10 n=5, 859 çıkarım):
+        menzil    tespit%   gecerli() reddi
+        0-3 m      %22.0        %38.0
+        3-6 m      %73.6         %0.0
+      Uçurum tam MENZIL_MIN_M sınırında -> vuruşun son yarım saniyesinde
+      güdümü KENDİ süzgecimiz kör ediyordu.
+
+    SÖZLEŞME — bu bekçi üçünü birden sınar:
+      1) İSTİSNA KAPALIYKEN ya da BAĞLAM YOKKEN davranış BİT BİT ESKİSİ.
+      2) İstisna, YOKTAN VAR OLAN dev kutuyu HÂLÂ reddeder (çakılma koruması
+         duruyor: 2026-08-21, iki koşu "Player ☠").
+      3) İstisna yalnız SÜREKLİ büyümede devreye girer.
+    """
+    from dow.gudum import ibvs
+    C = ibvs.IbvsCfg
+
+    # --- 1) BİT BİT DENKLİK: bağlam verilmeden eski davranış ---
+    #   Eski yasa: R < MENZIL_MIN_M -> daima "menzil_yakin".
+    eski_aktif = C.TERMINAL_AKTIF
+    try:
+        for px in (340, 400, 498, 700, 1000):
+            bekle = (False, "menzil_yakin")
+            assert ibvs.gecerli(960, 540, px, px * 0.8, 0.9) == bekle, \
+                f"bağlamsız çağrı eski davranıştan sapti ({px} px)"
+            C.TERMINAL_AKTIF = False
+            assert ibvs.gecerli(960, 540, px, px * 0.8, 0.9,
+                                son_w=px / 1.5, son_yas=0.1) == bekle, \
+                f"kill-switch KAPALIYKEN istisna calisti ({px} px)"
+            C.TERMINAL_AKTIF = True
+    finally:
+        C.TERMINAL_AKTIF = eski_aktif
+
+    # --- 2) ÇAKILMA KORUMASI DURUYOR ---
+    #   140 m'de YOKTAN beliren dev kutu: son kutu ya yok ya kucuk.
+    ok, sebep = ibvs.gecerli(960, 540, 498, 398, 0.9, son_w=None, son_yas=None)
+    assert not ok and sebep == "menzil_yakin", \
+        "bağlamsız dev kutu KABUL edildi — çakılma koruması delinmiş"
+    ok, sebep = ibvs.gecerli(960, 540, 498, 398, 0.9, son_w=40, son_yas=0.1)
+    assert not ok and sebep == "menzil_yakin", \
+        "40 px -> 498 px SIÇRAMA kabul edildi — dev yanlış-pozitif geçiyor"
+    ok, sebep = ibvs.gecerli(960, 540, 498, 398, 0.9, son_w=300, son_yas=99.0)
+    assert not ok and sebep == "menzil_yakin", \
+        "BAYAT bağlamla kabul edildi — süreklilik koşulu işlemiyor"
+
+    # --- 3) SÜREKLİ BÜYÜME KABUL EDİLİR ---
+    ok, sebep = ibvs.gecerli(960, 540, 498, 398, 0.9, son_w=300,
+                             son_yas=min(0.2, C.KOPRU_S))
+    assert ok and sebep == "terminal", \
+        "sürekli büyüyen terminal kutu HÂLÂ reddediliyor — Ö-A çalışmıyor"
+
+    # --- 4) İSTİSNA MENZİL TAVANINI DELMİYOR (uzak kutu hâlâ elenir) ---
+    ok, sebep = ibvs.gecerli(960, 540, 14, 11, 0.9, son_w=13, son_yas=0.1)
+    assert not ok and sebep == "menzil_uzak", \
+        "terminal istisnası MENZIL_MAX tavanını da gevsetmis"
+
+    # --- 5) MEKANİZMA SÜTUNU var (§5.1) ---
+    from dow import ana
+    import inspect
+    k = inspect.getsource(ana.Beyin._gorsel_tik_kilitli)
+    assert "_terminal_kabul" in k, \
+        "Ö-A mekanizma sayaci gorsel_tik'te artmiyor — ölçülemez"
+
+
+def test_B53_zor_kayit_KOSULAR_BIRBIRININ_USTUNE_YAZMAZ(tmp_path):
+    """⛔ 2026-08-25'te YAŞANDI: 4 koşuluk veri toplama kampanyasinda
+    manifest 58 satir yazdi ama DISKTE 16 goruntu vardi -- 42 kare
+    kayboldu. Sebep: `kosu_yap` her kosuda YENI bir ZorKayit kuruyor,
+    sayac sifirdan basliyor ve dosya adlari cakisiyordu.
+
+    Sayi dogruydu, VERI YOKTU. Bu bekci tam o hatayi sinar: ayni dizine
+    yazan UC ayri kaydedici ornegi, hicbir kareyi kaybetmemeli.
+
+    (Ayni sinif hata bu depoda daha once de olmustu: "Kampanya script'i
+    6 gecerli kosuyu yok etti -- her kosu ayni cikti dizinine yaziyordu.")
+    """
+    import os
+    import numpy as np
+    from araclar.zor_kayit import ZorKayit
+
+    d = str(tmp_path / "zor")
+    img = np.zeros((1080, 1920, 3), np.uint8)
+    sat = {"basarili": 0, "bek_cx": 960.0, "bek_cy": 540.0, "bek_w": 100.0,
+           "menzil_m": 10.0, "aspekt_deg": 90.0, "t": 1.0}
+
+    yazilan = 0
+    for _ in range(3):                     # her tur YENI kaydedici
+        z = ZorKayit(d)
+        for _ in range(5):
+            if z.belki_kaydet(img, dict(sat)):
+                yazilan += 1
+        z.kapat()
+
+    gor = len(os.listdir(os.path.join(d, "images")))
+    lbl = len(os.listdir(os.path.join(d, "labels")))
+    man = sum(1 for _ in open(os.path.join(d, "manifest.csv"))) - 1
+    assert yazilan == 15, "kaydedici beklenen sayida kare yazmadi"
+    assert gor == 15, f"UZERINE YAZMA: 15 yazildi, diskte {gor} goruntu var"
+    assert lbl == 15, f"UZERINE YAZMA: 15 yazildi, diskte {lbl} etiket var"
+    assert man == 15, "manifest ile disk ortusmuyor"
+
+
+def test_B54_zor_kayit_KOTU_ETIKET_YAZMAZ(tmp_path):
+    """Etiket kapilari: yanlis etikete egitmek modeli IYILESTIRMEZ, BOZAR.
+
+    Kaydedici su dort durumu REDDETMELI:
+      1. tespit BASARILI (zor ornek degil)
+      2. yansitma TEKIL (tan() patlamis -- olculdu: bek_* farki maks
+         48386 px)
+      3. hedef menzili asiyor (etiket kalitesi menzille duser:
+         40-80 m'de IoU p10 = 0.00)
+      4. kutu kadraja TAM sigmiyor (kirpik hedef = kotu etiket)
+    """
+    import os
+    import numpy as np
+    from araclar.zor_kayit import ZorKayit
+
+    z = ZorKayit(str(tmp_path / "z"))
+    img = np.zeros((1080, 1920, 3), np.uint8)
+    iyi = {"basarili": 0, "bek_cx": 960.0, "bek_cy": 540.0, "bek_w": 100.0,
+           "menzil_m": 10.0, "aspekt_deg": 90.0, "t": 1.0}
+
+    assert z.belki_kaydet(img, dict(iyi)) is True, "gecerli zor ornek reddedildi"
+
+    k = dict(iyi); k["basarili"] = 1
+    assert z.belki_kaydet(img, k) is False, "TESPIT VARKEN kaydetti"
+
+    k = dict(iyi); k["bek_cx"] = 999999.0
+    assert z.belki_kaydet(img, k) is False, "TEKIL yansitmayi kaydetti"
+
+    k = dict(iyi); k["menzil_m"] = 999.0
+    assert z.belki_kaydet(img, k) is False, "menzil tavanini asani kaydetti"
+
+    k = dict(iyi); k["bek_cx"] = 5.0        # kutu sol kenardan tasiyor
+    assert z.belki_kaydet(img, k) is False, "KIRPIK hedefi kaydetti"
+
+    n, _ = z.kapat()
+    assert n == 1, f"yalnizca 1 gecerli ornek yazilmaliydi, {n} yazildi"
+
+
+def test_B55_kacamak_araci_GUDUME_SIZAMAZ():
+    """⛔ §10 YARIŞMA KISITI — tetiklenmis kacamak TEST DUZENEGIDIR.
+
+    `araclar/kacamak.py` hedefin GERCEK konumunu okur (tetigi ne zaman
+    cekecegini bilmek icin). Bu MESRUDUR: bilgi HEDEFI surmek icin
+    kullanilir, avcinin gudumune girmez -- hakemin hedefe manevra
+    yaptirmasi gibidir.
+
+    AMA o siniri KOD SEVIYESINDE tutmak gerekir. Bu bekci sunu sinar:
+      1) `dow/` altindaki HICBIR modul kacamak aracini ice aktarmaz
+      2) gudum kodu Talon koprusunu OKUMAZ (kopru tek yon: panel -> oyun)
+      3) gorsel yasa hala yalniz goruntu alir (B1/B18/B19 ayrica sinar)
+    """
+    import os
+    import inspect
+    kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    # 1) dow/ altinda kacamak araci ice aktarilmamis
+    for dizin, _, dosyalar in os.walk(os.path.join(kok, "dow")):
+        if "__pycache__" in dizin:
+            continue
+        for d in dosyalar:
+            if not d.endswith(".py"):
+                continue
+            yol = os.path.join(dizin, d)
+            k = open(yol, encoding="utf-8").read()
+            assert "kacamak" not in k.replace("kacamak_", ""), \
+                f"gudum modulu kacamak aracina bagimli: {yol}"
+
+    # 2) GUDUM kodu Talon koprusunu OKUMAZ.
+    #    Kopruyu YALNIZ panel YAZAR (panel.py::talon_kopru_yaz).
+    from dow import ana
+    from dow.gudum import ibvs, gps, cevirici
+    for m in (ana, ibvs, gps, cevirici):
+        k = inspect.getsource(m)
+        assert "talon_kopru" not in k and "TALON_KOPRU" not in k, \
+            f"gudum modulu Talon koprusune bakiyor: {m.__name__}"
+
+    # 3) kacamak araci gercekten AYRI bir surec olarak tasarlanmis:
+    #    dow/ altindan degil, araclar/ altinda ve __main__ girisi var.
+    ky = os.path.join(kok, "araclar", "kacamak.py")
+    assert os.path.exists(ky), "kacamak araci yok"
+    k = open(ky, encoding="utf-8").read()
+    assert '__name__ == "__main__"' in k, \
+        "kacamak araci ayri surec girisi tasimiyor"
+    assert "from dow.ana import" not in k and "from dow.gudum import" not in k, \
+        "kacamak araci gudum modullerini ice aktariyor -- ayrik olmali"
+
+
+def test_B56_kacamak_taban_hizi_SPLINE_ILE_ESLESIR():
+    """⛔ `yok` KOLU GECERLI TABAN OLMALI (§3.3).
+
+    Talon spline ustunde 1800 cm/s uçuyor. Mod ucus modeli:
+        hiz = 300 + throttle * 3700   (cm/s)
+    Kontrolu devralinca taban throttle bu hizi VERMELI; vermezse hedefin
+    hizi degisir ve `yok` kolu artik kontrolsuz senaryonun tabani olmaz --
+    butun kiyas kayar."""
+    import importlib.util
+    import os
+    kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    spec = importlib.util.spec_from_file_location(
+        "kacamak", os.path.join(kok, "araclar", "kacamak.py"))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+
+    hiz_cms = 300.0 + m.TABAN_THR * 3700.0
+    assert abs(hiz_cms - 1800.0) <= 20.0, \
+        f"taban hizi {hiz_cms:.0f} cm/s, spline 1800 cm/s -- `yok` kolu bozuk"
+
+    # `yok` GERCEKTEN kacamaksiz olmali
+    assert m.KACAMAKLAR["yok"] is None, "`yok` kolu kacamak uyguluyor"
+    # §3.3'teki tum cesitler dursun
+    for ad in ("yatay", "dikey_yukari", "dikey_asagi", "capraz", "hizlan"):
+        assert ad in m.KACAMAKLAR, f"kacamak cesidi eksik: {ad}"
+    # eksenler -1..1 / throttle 0..1 sinirinda
+    for ad, v in m.KACAMAKLAR.items():
+        if v is None:
+            continue
+        thr, yaw, pit, rol = v
+        assert 0.0 <= thr <= 1.0, f"{ad}: throttle aralik disi"
+        for x in (yaw, pit, rol):
+            assert -1.0 <= x <= 1.0, f"{ad}: eksen aralik disi"
+
+
+def test_B57_kacak_kosu_ERKEN_KESILIR():
+    """⛔ KULLANICI (2026-08-26): "drone bazen cok cok uzaklara gidiyor ve
+    bosa zaman harciyoruz... 500 metre falan uzaklasirsa ucusu durdur."
+
+    Eski esik 1500 m'ydi: kacak bir kosu ancak 54 s sonra kesiliyordu
+    (28 m/s). OLCULDU (KC1, 12/12 gecerli kosu): drone spawn'dan EN FAZLA
+    354 m uzaklasiyor, medyan 255 m -> 600 m esik mesru kosuyu KESMEZ.
+
+    ⚠ SABIT ESIK TEK BASINA YANLIS OLURDU. Kodda yazili tuzak:
+      "Gorev yeniden kurulunca baslangic ayrimi 800-970 m cikabiliyor ve
+       kural MESRU YAKLASMAYI iptal ediyordu -- 12 kosuluk bir blok
+       tamamen bu yuzden cope gitti."
+    Bu yuzden sinir BASLANGIC AYRIMINA GORELIDIR.
+    """
+    from dow.ayarlar import Ayar
+    from araclar.bekci import Bekci
+
+    assert Ayar.BEKCI_SPAWN_MAX_M <= 700.0, \
+        "kacak esigi hala cok comert -- bosa ucus suresi uzar"
+    assert Ayar.BEKCI_SPAWN_MAX_M >= 400.0, \
+        "esik cok dar -- olculen en kotu GECERLI kosu 354 m"
+
+    # --- 1) NORMAL DOGUS: 600 m'de kesilmeli, 354 m'de KESILMEMELI ---
+    b = Bekci(Ayar); b.sifirla()
+    spawn = (0.0, 0.0, 100.0)
+    hedef = (50.0, 0.0, 100.0)          # yakin dogus
+    for i in range(5):
+        b.kontrol(0.1 * i, (spawn[0] + i * 0.5, spawn[1], spawn[2]), 0.0, hedef, True)
+    # olculen en kotu gecerli kosu kadar uzaklas -> ihlal YOK
+    for i in range(5):
+        b.kontrol(1.0 + i, (354.0 + i * 0.5, 0.0, 100.0), 0.0, hedef, True)
+    assert b.ihlal is None, \
+        f"354 m (olculen en kotu GECERLI kosu) iptal edildi: {b.ihlal}"
+    # simdi kacak: sinirin acik ustu -> KESILMELI
+    #   ⚠ Hangi kuralin once atesledigi onemli DEGIL: `hedef_cok_uzak` da
+    #     mesru bir kacak yakalamasidir (drone once hedefe yaklasmis, sonra
+    #     uzaklasmis). Sinanan sey KOSUNUN KESILDIGI.
+    for i in range(Ayar.BEKCI_ESIK + 2):
+        b.kontrol(10.0 + i, (900.0 + i * 0.5, 0.0, 100.0), 0.0, hedef, True)
+    assert b.ihlal in ("spawn_cok_uzak", "hedef_cok_uzak"), \
+        f"900 m kacak kosu KESILMEDI: {b.ihlal}"
+
+    # spawn kurali TEK BASINA da calismali (hedef yokken baska kural yok)
+    b3 = Bekci(Ayar); b3.sifirla()
+    for i in range(3):
+        b3.kontrol(0.1 * i, (spawn[0] + i * 0.5, spawn[1], spawn[2]), 0.0, None, True)
+    for i in range(Ayar.BEKCI_ESIK + 2):
+        b3.kontrol(1.0 + i, (900.0 + i * 0.5, 0.0, 100.0), 0.0, None, True)
+    assert b3.ihlal == "spawn_cok_uzak", \
+        f"spawn kurali tek basina atesleyemedi: {b3.ihlal}"
+
+    # --- 2) UZAK DOGUS: sinir GENISLEMELI, mesru yaklasma kesilmemeli ---
+    b2 = Bekci(Ayar); b2.sifirla()
+    uzak_hedef = (900.0, 0.0, 100.0)     # dogusta 900 m ayrim
+    for i in range(3):
+        b2.kontrol(0.1 * i, (spawn[0] + i * 0.5, spawn[1], spawn[2]), 0.0, uzak_hedef, True)
+    # hedefe dogru 850 m ucmak MESRU -- sinir 900+400=1300
+    for i in range(Ayar.BEKCI_ESIK + 3):
+        b2.kontrol(1.0 + i, (850.0 + i * 0.5, 0.0, 100.0), 0.0, uzak_hedef, True)
+    assert b2.ihlal is None, \
+        f"uzak dogusta MESRU yaklasma iptal edildi: {b2.ihlal} " \
+        "(kodda yazili '12 kosuluk blok cope gitti' tuzagi geri gelmis)"
+
+
+def test_B58_api_telemetry_COKMEDEN_CALISIR():
+    """⛔ /api/telemetry COKERSE PANELIN TAMAMI OLUR.
+
+    YASANDI (2026-08-26): 3B grafik icin hedef konumu eklerken yerel
+    degiskene `_hz` adi verdim. Modul duzeyinde `_hz()` diye bir FONKSIYON
+    var; Python, fonksiyon icinde bir ada ATAMA gorunce o adi TUM fonksiyon
+    boyunca YEREL sayar -> ayni fonksiyondaki onceki `_hz(_fps[...])`
+    cagrilari UnboundLocalError atti ve ucun tamami coktu.
+    Hicbir bekci bunu yakalamadi cunku /api/telemetry sinanmiyordu.
+
+    Bu bekci ucu GERCEKTEN cagirir ve sozlesmesini sinar.
+    """
+    import json
+    from dow import panel as P
+
+    # GORSEL fazi: `h_*` YOK (§10 -- o fazda hedefin GPS'i okunmaz).
+    # Hedef konumu truth kanalindan (`t_*`) gelmeli, yoksa 3B grafik DONAR.
+    P.telem_yaz({"durum": "GORSEL", "yukseklik": 90.0, "drone_hiz": 25.0,
+                 "d_x": 10.0, "d_y": -20.0, "d_z": 85.0,
+                 "d_roll": 1.0, "d_pitch": -2.0, "d_yaw": 70.0,
+                 "t_x": 40.0, "t_y": -10.0, "t_z": 92.0,
+                 "gercek_mesafe_m": 33.0})
+    d = P._api_telemetry()
+    json.dumps(d)                      # JSON'a cevrilebilmeli
+
+    # ⚠ `perf` KOSULLU bir alandir (FPS sayaclari beslenmediyse yok);
+    #   zorunlu tutmak testi yanlis yerden dusurur.
+    for a in ("connected", "drone", "target"):
+        assert a in d, f"/api/telemetry alani eksik: {a}"
+
+    for eksen in ("x", "y", "z"):
+        assert isinstance(d["drone"].get(eksen), (int, float)), \
+            f"drone.{eksen} sayi degil -- 3B grafik cizemez"
+        assert isinstance(d["target"].get(eksen), (int, float)), \
+            f"target.{eksen} GORSEL fazda BOS -- 3B grafikte hedef DONAR " \
+            "(truth kanali `t_*` baglanmamis)"
+
+    # `h_*` varsa O tercih edilmeli (truth yalnizca yedek)
+    P.telem_yaz({"h_x": 1.0, "h_y": 2.0, "h_z": 3.0})
+    d2 = P._api_telemetry()
+    assert (d2["target"]["x"], d2["target"]["y"], d2["target"]["z"]) == (1.0, 2.0, 3.0), \
+        "h_* varken truth kanali tercih edilmis -- oncelik ters"
+
+
+# ⛔ B59 (lead bit-bit denkligi) SILINDI: ozellik 2026-08-26 aksami
+#    tamamen cikarildi (Ö-E notr, Ö-F her olcutte kotulesti).
+#    Gerekce ve sayilar B20'de. §5.12
+
+
+def test_B60_yavasla_KAPALIYKEN_BIT_BIT_AYNI():
+    """⭐ Ö-G · DONUSTE YAVASLA — 2026-08-26.
+
+    YAPISAL EKSIK (koddan cikarildi): hedef_boyut = 997/1.0 = 997 px, gercek
+    kutu 40-150 px -> v_istek ~315 m/s -> V_HUCUM'a kirpiliyor. Hiz ancak
+    kutu 917 px (=1.1 m menzil) olunca duser. Yani GORSEL FAZ BOYUNCA HIZ
+    DAIMA TAVANDA; gudum hizi donus kabiliyetiyle HIC takas etmiyor.
+
+    §5.11: R = V^2/(g*tan(theta)). Olculdu (KD1 daire, GORSEL): 21.8 m/s,
+    yatis p90 31.7 derece -> yaricap ~78 m. Hedefin dairesi 17.5 m.
+
+    SOZLESME: YAVASLA_TABAN=1.0 iken kesme=1.0 ve cikti BIT BIT bugunkuyle
+    ayni; acikken eps_yaw ile ORANTILI kisiyor ve tabanin altina INMIYOR.
+    """
+    from dow.gudum import ibvs
+    C = ibvs.IbvsCfg
+    eski = C.YAVASLA_TABAN
+    try:
+        # --- 1) KAPALIYKEN kesme YOK ---
+        C.YAVASLA_TABAN = 1.0
+        for cx in (200, 960, 1700):          # kucuk/buyuk nisan hatasi
+            _, _, _, _, ti = ibvs.komut(cx, 540, 60, 48, 0.0, -2.0, 3.0,
+                                        0.0, 0.02)
+            assert ti["ibvs_kesme"] == 1.0, \
+                f"kapaliyken kesme uygulandi: {ti['ibvs_kesme']}"
+
+        # --- 2) ACIKKEN: duz bacakta TAM HIZ, buyuk hatada KISIK ---
+        C.YAVASLA_TABAN = 0.55
+        _, _, _, _, t0 = ibvs.komut(960, 540, 60, 48, 0.0, -2.0, 3.0,
+                                    0.0, 0.02)   # nisan hatasi ~0
+        _, _, _, _, t1 = ibvs.komut(200, 540, 60, 48, 0.0, -2.0, 3.0,
+                                    0.0, 0.02)   # nisan hatasi BUYUK
+        assert t0["ibvs_kesme"] > t1["ibvs_kesme"], \
+            "nisan hatasi buyudugunde hiz KISILMIYOR"
+        assert t1["ibvs_kesme"] >= C.YAVASLA_TABAN - 1e-9, \
+            f"kesme tabanin ALTINA indi: {t1['ibvs_kesme']} < {C.YAVASLA_TABAN}"
+        assert t0["ibvs_kesme"] <= 1.0 + 1e-9
+
+        # --- 3) HIZ GERCEKTEN DUSMELI (yalniz sayac degil) ---
+        v0 = t0["ibvs_v"]; v1 = t1["ibvs_v"]
+        assert v1 < v0, f"kesme sayaci degisti ama hiz dusmedi: {v0} -> {v1}"
+    finally:
+        C.YAVASLA_TABAN = eski
+
+
+# ---------------------------------------------------------------- B62
+def test_B62_arka_yarikure_izdusum_kapisi():
+    """⛔ ARKA YARIKÜRE — arkadaki hedef "kadraj içinde" görünmemeli.
+
+    YAŞANMIŞ HATA (2026-08-27): izdüşüm zinciri kamera ekseni bileşenine
+    (`ileri`) böler; hedef arkadayken bu bileşen NEGATİF olur ve bölme
+    işareti çevirerek KADRAJIN İÇİNDE bir piksel üretir. `tan()` de aynı
+    şeyi yapar: tan(170°) = -0.176 -> cx = 960 - 0.176·F.
+
+    Sonuç: "üstünden geçtiğimiz" kareler, kayıp sınıflandırmasında
+    "kadraj içinde ama dedektör kör" sayıldı. Manevralı koşularda
+    menzil<12 m kayıplarının %47'si buydu; manevrasızda %0.
+
+    ⚠ Bu bekçi ÖLÇÜM yolunu korur. Güdümdeki `seviye_piksel` bilerek
+      dokunulmadan bırakıldı (davranış değişikliği ayrı karar, §8).
+    """
+    from dow.gorus import kamera as KAM
+
+    # --- önde: normal izdüşüm, kadraj içinde ---
+    on = KAM.beklenen_kadraj(50.0, 0.0, 0.0, 0.0, 0.0)
+    assert on is not None, "önümüzdeki hedef için izdüşüm dönmeli"
+    assert 0 <= on[0] < KAM.IMG_W, "önümüzdeki hedef kadrajda olmalı"
+
+    # --- tam arka: None dönmeli (ESKİDEN kadraj içi piksel üretiyordu) ---
+    for az in (95.0, 135.0, 170.0, 179.0, -95.0, -170.0):
+        assert KAM.beklenen_kadraj(50.0, 0.0, az, 0.0, 0.0) is None, \
+            "azimut %.0f° ARKADA — izdüşüm None olmalı" % az
+
+    # --- kenar: kadraj dışı ama ÖNDE ise izdüşüm dönmeye devam etmeli;
+    #     "kadraj dışı"(A kovası) ile "arkada" ayrı şeylerdir ---
+    yan = KAM.beklenen_kadraj(50.0, 0.0, 75.0, 0.0, 0.0)
+    assert yan is not None, "75° hâlâ ÖNDE — A kovası olarak ölçülebilmeli"
+    assert yan[0] >= KAM.IMG_W, "75° kadraj DIŞINDA olmalı"
+
+    # --- dikeyde de aynı kapı ---
+    #   ⚠ KONVANSİYON (ölçüldü, varsayılmadı): dik = yükseliş − TILT − pitch.
+    #     TILT = 26.5° olduğu için 100° yükseliş kamera çerçevesinde 73.5°'ye
+    #     düşer ve kapıyı AÇMAZ — doğrusu budur, o yön hâlâ görüntü
+    #     düzleminin ÖNÜNDEDİR. Kapı, kamera çerçevesindeki açıya bakar.
+    assert KAM.beklenen_kadraj(50.0, 100.0, 0.0, 0.0, 0.0) is not None, \
+        "100° yükseliş kamera çerçevesinde 73.5° — hâlâ ÖNDE"
+    assert KAM.beklenen_kadraj(50.0, 170.0, 0.0, 0.0, 0.0) is None, \
+        "170° yükseliş (dik=143.5°) ARKADA — None dönmeli"
+
+
+def test_B63_sahte_gecikme_kapaliyken_kod_yolu_atlanir():
     """⭐ SAHTE VIDEO GECIKMESI (2026-08-27) — TEST DUZENEGI, gudum ozelligi
     DEGIL. Gercek donanimda video zinciri ~166 ms olculdu (1800 ornek, alti
     yontem) ve yazilimla dusurulemiyor. Sim'de gecikme YOK; bu tampon o
@@ -1183,3 +1649,4 @@ def test_B52_sahte_gecikme_kapaliyken_kod_yolu_atlanir():
     # mekanizma sutunu ozette raporlaniyor mu
     assert '"sahte_gec_ms"' in kod, \
         "GERCEKLESEN gecikme kosu ozetine yazilmiyor -> §5.1 mekanizma kapisi yok"
+

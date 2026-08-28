@@ -196,12 +196,33 @@ def kerteriz_piksel(azimut_deg, yukselis_deg, own_pitch_deg, own_roll_deg=0.0):
 
 def beklenen_kadraj(menzil_m, yukselis_deg, azimut_deg, own_pitch_deg, own_roll_deg=0.0):
     """TERS yön (yalnız DOĞRULAMA/ölçüm için; güdümde KULLANILMAZ çünkü
-    hedefin GPS'ini gerektirir). (cx, cy, beklenen_kutu_px)"""
+    hedefin GPS'ini gerektirir). (cx, cy, beklenen_kutu_px) veya None.
+
+    ⛔ ARKA YARIKÜRE KAPISI — 2026-08-27, YAŞANMIŞ ANALİZ HATASI.
+
+    `tan()` 90°'de kutuptan geçer ve ötesinde İŞARET DEĞİŞTİREREK küçülür:
+        tan(170°) = -0.176  ->  cx = 960 - 0.176*F  = kadrajın İÇİNDE
+    Yani TAM ARKAMIZDAKİ hedef, "kadrajın ortasında" gibi görünür. Bu
+    izdüşüm ölçüm-only olduğu için güdümü hiç etkilemedi, ama KAYIP
+    SINIFLANDIRMASINI kirletti: hedefin üstünden geçtikten sonraki
+    kareler "kadraj içinde ama dedektör kör" (B kovası) sayıldı.
+
+    ÖLÇÜLDÜ: KM2 kademeli__t2, kare 21 — t=10.7 s, gerçek menzil 6.58 m,
+    izdüşüm (1338, 477) diyordu; KAREYE BAKINCA hedef YOK, çünkü hedef
+    arkada kalmıştı. Bu tek kare, üstüne aday tasarladığım "B kovası
+    59 kare" sayısının şişkin olduğunu gösterdi.
+
+    KAPI: |yat| veya |dik| 85°'yi geçerse hedef görüntü düzleminin
+    ARKASINDADIR; izdüşüm ANLAMSIZDIR ve None döner. 85° seçildi çünkü
+    kameranın yatay yarı-görüş açısı ~60°; 85 ile 90 arasında zaten
+    kadraj dışıdır ama tan() henüz patlamamıştır."""
     dik = yukselis_deg - TILT_DEG - own_pitch_deg
     yat = azimut_deg
     if own_roll_deg:
         r = math.radians(-own_roll_deg); c,s = math.cos(r), math.sin(r)
         yat, dik = yat*c - dik*s, yat*s + dik*c
+    if abs(yat) >= 85.0 or abs(dik) >= 85.0:
+        return None                      # hedef ARKADA — izdüşüm anlamsız
     return (CX + F_PX*math.tan(math.radians(yat)),
             CY - F_PX*math.tan(math.radians(dik)),
             MENZIL_C/max(menzil_m, 1e-6))

@@ -105,6 +105,13 @@ class Ayar:
     #   ⚠ VARSAYILAN KAPALI — açılması ölçümle kararlaşır (§6).
     GORUS_ISP       = _b("DOW_GORUS_ISP", False)
     PANEL_OLCEK     = _f("DOW_PANEL_OLCEK", 0.5)   # JPEG'e giden küçültme
+    # ⭐ BAYAT KUTUYU EKRANA BASMA (2026-08-27, kullanıcı isteği).
+    #   Çıkarım art arda ıskalayınca son kutu ekranda saniyelerce kalıyor ve
+    #   operatöre hedef hâlâ oradaymış gibi görünüyordu. Bu eşikten yaşlı
+    #   kutu PANELE ÇİZİLMEZ. ⛔ YALNIZ GÖSTERİM: güdüm ve kayıt karesi
+    #   etkilenmez (bkz. kosu.py'deki not). Geri dönüş: DOW_PANEL_KUTU_TAZE=0
+    PANEL_KUTU_TAZE  = _b("DOW_PANEL_KUTU_TAZE", True)
+    PANEL_KUTU_YAS_S = _f("DOW_PANEL_KUTU_YAS_S", 0.3)
 
     # ⭐ SAHTE VİDEO GECİKMESİ — TEST DÜZENEĞİ, güdüm özelliği DEĞİL.
     #
@@ -200,41 +207,46 @@ class Ayar:
     #   görsel güdüm üzerinde çalışmayı fiilen bloke ediyor. Dedektörü ekip
     #   arkadaşı düzeltiyor; biz onu beklerken görsel yasayı geliştirebilelim.
     #
-    # GEÇİCİ KURAL: drone istasyona OTURDUKTAN sonra ve hedefe ~15 m
-    #   menzildeyken görsele devret. Bu, hedefe olan menzili GPS'ten okumayı
-    #   gerektirir -> YALNIZ FAZ GEÇİŞİNDE, ayrı anahtarla.
+    # ⛔ İSTASYON DEVİR İSKELESİ SİLİNDİ — 2026-08-25 (§5.12, kullanıcı onayı)
     #
-    # ⛔⛔ KULLANICININ ÜSTÜN KURALI DEĞİŞMEDİ: "görsel güdüm sırasında GPS
-    #   verisini asla kullanma; görsel güdüm algoritmasına GPS verisini dahil
-    #   etmek diskalifiye sebebi." Devir kapısının GPS'e bakması, görsel
-    #   YASANIN GPS'e bakması DEĞİLDİR. Görsel faz başladıktan sonra güdüm
-    #   hedefin GPS'ini okumaz bile (bekçiler B1/B18/B19 bunu sınar).
+    #   Silinenler: YARISMA_KIPI, DEVIR_ISTASYONDAN, DEVIR_IST_HATA_M,
+    #   DEVIR_IST_KARE, DEVIR_MENZIL_M, DEVIR_KARE_DEV, gelistirme_devri(),
+    #   Beyin._gelistirme_devir_hazir(), _ist_kare, _devir_sebep ve bunlara
+    #   bakan tüm log sütunu / tanı anahtarı / panel düğmesi / bekçi.
     #
-    # ⚠ BU KAPI YARIŞMADA KULLANILAMAZ. `YARISMA_KIPI=1` yapısal olarak
-    #   kapatır ve sistem kamera-tek kapıya (ardışık DEVIR_KARE tespit) döner.
-    #   İyi dedektör gelince bu iskele SÖKÜLÜR (§5.12) ve devir daha uzak
-    #   menzilden, yalnız kamerayla yapılır.
-    YARISMA_KIPI       = _b("DOW_YARISMA", False)
-    DEVIR_ISTASYONDAN  = _b("DOW_DEVIR_ISTASYON", True)
-    DEVIR_IST_HATA_M   = _f("DOW_DEVIR_IST_HATA", 8.0)   # oturdu sayılma eşiği
-    DEVIR_IST_KARE     = int(_f("DOW_DEVIR_IST_KARE", 25))  # ardışık (~0.5 s)
-    DEVIR_MENZIL_M     = _f("DOW_DEVIR_MENZIL", 15.0)    # hedefe GPS menzili
-    DEVIR_KARE_DEV     = int(_f("DOW_DEVIR_KARE_DEV", 3))  # görsel yasanın
-    #   elinde bir kutu OLMASI için gereken asgari ardışık tespit. Bu bir GPS
-    #   kapısı değil; kutusuz devretmek görsel fazı doğrudan "köprü" (kör)
-    #   durumuna sokar.
-
-    @classmethod
-    def gelistirme_devri(cls):
-        """Geliştirme devir kapısı ETKİN mi? Yarışma kipinde DAİMA False.
-        ⚠ GPS'e bakan tek faz-geçiş kodu bu bayrağın ARKASINDADIR."""
-        return bool(cls.DEVIR_ISTASYONDAN) and not bool(cls.YARISMA_KIPI)
+    #   NEDEN: o kapı faz geçişi için HEDEFİN GPS'İNİ okuyordu. Kullanıcı
+    #   (2026-08-25): "yarışma kuralı böyle, görsel temas sağlandıktan sonra
+    #   gps verisi kullanılarak araç güdülemez; bu yüzden de eskisini komple
+    #   silip bu yenisine geçiyoruz."
+    #
+    #   YERİNE GEÇEN: KAMERA kapısı — DEVIR_KARE / KAYIP_KARE (yukarıda).
+    #   Ölçüldü (KAMERA10, n=5): imha 5/5, süre medyanı 18.2 -> 10.9 s,
+    #   devir 14.8 -> 7.4 s. Kampanya: docs/kampanya/KAMERA10_DEVIR_KAPISI.md
+    #
+    #   ⭐ KAZANIM: faz geçişi artık GPS'e HİÇ bakmıyor. Yarışma kipi diye
+    #   ayrı bir yol yok — tek yol var ve o yol yarışmada geçerli.
+    #   Bekçi B13 bunu sınar; B25 (mayın testi) gereksizleştiği için silindi.
 
     # ================= BEKÇİ (uçuş sağlık bandı) =================
     BEKCI_AKTIF        = _b("DOW_BEKCI", True)
     BEKCI_ALT_MAX_M    = _f("DOW_B_ALT", 300.0)   # zemine göreli tavan
     BEKCI_MENZIL_MAX_M = _f("DOW_B_MENZIL", 500.0)
-    BEKCI_SPAWN_MAX_M  = _f("DOW_B_SPAWN", 1500.0)
+    # ⭐ 2026-08-26 — 1500 -> 600 (kullanıcı isteği: "drone başlangıç
+    #   konumundan 500 metre falan uzaklaşırsa uçuşu durdur").
+    #   ÖLÇÜLDÜ (KC1, 12/12 geçerli koşu): drone spawn'dan en fazla 354 m
+    #   uzaklaşıyor, medyan 255 m. 1500 m eşiği kaçak bir koşuyu ancak
+    #   54 saniye sonra yakalıyordu (28 m/s) — o süre boşa gidiyordu.
+    #   600 m, en kötü GEÇERLİ koşunun 1.7 katı: meşru koşuyu kesmez.
+    BEKCI_SPAWN_MAX_M  = _f("DOW_B_SPAWN", 600.0)
+    # ⛔ SABİT EŞİK TEK BAŞINA YETMEZ — kodda yazılı tuzak:
+    #   "Görev yeniden kurulunca başlangıç ayrımı 800-970 m çıkabiliyor ve
+    #    kural MEŞRU YAKLAŞMAYI iptal ediyordu — 12 koşuluk bir blok
+    #    tamamen bu yüzden çöpe gitti."
+    #   O yüzden gerçek sınır BAŞLANGIÇ AYRIMINA GÖRELİDİR:
+    #       sınır = max(BEKCI_SPAWN_MAX_M, ilk_ayrım + BEKCI_SPAWN_PAY_M)
+    #   normal doğuş (ayrım 40-100 m) -> 600 m, kaçağı hızlı yakalar
+    #   uzak doğuş  (ayrım 900 m)     -> 1300 m, meşru yaklaşmayı kesmez
+    BEKCI_SPAWN_PAY_M  = _f("DOW_B_SPAWN_PAY", 400.0)
     BEKCI_DONMA_S      = _f("DOW_B_DONMA", 4.0)   # telemetri bu kadar donarsa
     BEKCI_ESIK         = 3                        # ardışık ihlal -> iptal
 

@@ -53,8 +53,10 @@ def yap(dizin, cikti=None, fps=6, olcek=0.6):
                 yat = math.hypot(hx-dx, hy-dy); mz = math.hypot(yat, hz-dz)
                 el = math.degrees(math.atan2(hz-dz, max(yat,1e-6)))
                 az = ((math.degrees(math.atan2(hy-dy,hx-dx)) - yw + 180) % 360) - 180
-                bcx, bcy, bw = KAM.beklenen_kadraj(mz, el, az, p, ro)
-                _, uf, _ = KAM.beklenen_kadraj(mz, 0.0, az, p, ro)
+                _bk = KAM.beklenen_kadraj(mz, el, az, p, ro)
+                _uk = KAM.beklenen_kadraj(mz, 0.0, az, p, ro)
+                if _bk: bcx, bcy, bw = _bk       # None -> hedef ARKADA
+                if _uk: uf = _uk[1]
         if uf is not None and 0 <= uf < KAM.IMG_H:
             cv2.line(im, (0, int(uf)), (KAM.IMG_W, int(uf)), (255, 150, 0), 1)
             cv2.putText(im, "ufuk", (12, int(uf)-8), cv2.FONT_HERSHEY_SIMPLEX,

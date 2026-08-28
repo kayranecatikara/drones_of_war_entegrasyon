@@ -165,9 +165,20 @@ def _api_telemetry():
              "coast": g("takip_coast", -1), "iz_sayisi": g("takip_n", 0),
              "kaynak": g("takip_kaynak", "")}
 
-    hedef = ({"x": t["h_x"], "y": t["h_y"], "z": t.get("h_z"),
+    # ⭐ HEDEF KONUMU — 3B grafik için truth kanalına DÜŞ (2026-08-26).
+    #   `h_*` yalnız GPS okunabildiğinde dolar; GORSEL fazda hp YOKTUR (§10)
+    #   ve grafik orada DONARDI. `t_*` truth kanalıdır, her fazda dolu.
+    #   ⛔ İkisi de YALNIZ EKRANA gider; görsel güdüm hiçbirini görmez.
+    #   ⚠ Değişken adı `_hz` OLAMAZ: modül düzeyindeki `_hz()` fonksiyonunu
+    #     gölgeler ve Python fonksiyonun TAMAMINDA onu yerel sayar ->
+    #     yukarıdaki `_hz(_fps[...])` çağrıları UnboundLocalError atar ve
+    #     /api/telemetry komple çöker. (2026-08-26'da tam bu yaşandı.)
+    _hedx = t.get("h_x") if t.get("h_x") is not None else t.get("t_x")
+    _hedy = t.get("h_y") if t.get("h_y") is not None else t.get("t_y")
+    _hedz = t.get("h_z") if t.get("h_z") is not None else t.get("t_z")
+    hedef = ({"x": _hedx, "y": _hedy, "z": _hedz,
               "speed_ms": None, "speed_kmh": None}
-             if t.get("h_x") is not None else {})
+             if _hedx is not None else {})
     return {
         "connected": True,
         "drone": {"x": g("d_x", 0.0), "y": g("d_y", 0.0), "z": g("d_z", 0.0),
@@ -191,6 +202,9 @@ def _api_telemetry():
         "gudum": {"faz": durum, "bekci": g("bekci", "")},
         "takip": takip,
         "gorev": {"faz": durum, "ist_hata_m": t.get("ist_hata_m")},
+        # kare kaynağı: ok=False ise FPV oyunu DEĞİL başka bir pencereyi
+        # gösteriyor demektir (bkz. kaynak_isaretle)
+        "kaynak_kare": {"ok": _kaynak["ok"], "hud": round(_kaynak["hud"], 3)},
     }
 
 
@@ -224,6 +238,29 @@ def kilit_degerlendir(tespit, W=1920.0, H=1080.0):
     kl = bool(av and kap >= KILIT_PCT)
     _kilit_pencere.append((time.time(), kl))
     return kl, av, 100.0 * kap
+
+
+# =============================================================================
+#  KAYNAK KAPISI — yayınlanan kare GERÇEKTEN oyun mu?
+# -----------------------------------------------------------------------------
+#  ⛔ Yakalama pencereye değil TÜM EKRANA bakıyor (`kadraj.BOLGE` = 0,0,1920x1080).
+#     Oyunun üstüne başka bir pencere gelirse (en tipik hâli: paneli AYNI
+#     monitörde açmak) panel oyunu değil O PENCEREYİ yayınlar ve operatör
+#     bunu fark etmez — FPV canlı görünür ama başka bir şeyi gösterir.
+#     ÖLÇÜLDÜ (2026-08-25): oyun görünürken HUD parlaklığı 0.126, tarayıcı
+#     üstüne gelince 0.001.
+#  Çözüm: kare, `kosu.py` yakalama ipliğinde HUD imzasıyla sınanır; imza yoksa
+#  kare YAYINLANMAZ (son iyi kare durur) ve burada uyarı bayrağı kalkar.
+#  Arayüz bu bayrağı görüp "oyun penceresi kapalı" uyarısı basar.
+# =============================================================================
+_kaynak = {"ok": True, "hud": 0.0, "t": 0.0}
+
+
+def kaynak_isaretle(ok, hud=0.0):
+    """Yakalama ipliği her karede çağırır: kare oyun muydu?"""
+    _kaynak["ok"] = bool(ok)
+    _kaynak["hud"] = float(hud)
+    _kaynak["t"] = time.time()
 
 
 def fps_isaretle(ad):
@@ -405,8 +442,9 @@ body{margin:0;background:var(--bg);color:var(--y);
     <button id=k_gps    onclick="kip('gps')">GPS</button>
     <button id=k_gorsel onclick="kip('gorsel')">Görsel</button>
   </div>
+  <!-- ⚠ §0.1: panelde AYNI ANDA EN FAZLA BİR yeni özellik durur. -->
   <div class=kip>
-    <button id=o_hizli onclick="ozellik('takip')">🎯 TAKİP (kapı yerine)</button>
+    <button id=o_hizli onclick="ozellik('isp')">🧵 Ö-M GÖRÜŞ İŞ PARÇACIĞI</button>
   </div>
   <div class=fps>
     <div><b id=f1>—</b><span>yakalama</span></div>
@@ -457,6 +495,10 @@ function kipGoster(k){
     b.className = (ad===k) ? ('on '+snf) : '';
   }
 }
+// ⚠ §0.1: panelde sınanan özellik YOK; düğme de yok. Yeni özellik
+//   eklenince bu iki işlev ona bağlanır (git tarihçesi: Ö-I / Ö-J).
+//   ⛔ ozellikGoster'in ESKİ hâli silinen düğmeyi arıyordu; düğme
+//      yokken getElementById null döner ve telemetri döngüsü ÇÖKERDİ.
 async function ozellik(a){
   const r=await (await fetch('/ozellik',{method:'POST',
                  body:JSON.stringify({ad:a})})).json();
@@ -464,8 +506,9 @@ async function ozellik(a){
 }
 function ozellikGoster(v){
   const b=document.getElementById('o_hizli');
+  if(!b) return;                      // düğme yoksa sessizce geç
   b.className = v ? 'on v' : '';
-  b.textContent = v ? '🎯 TAKİP: AÇIK' : '🎯 TAKİP: kapalı';
+  b.textContent = v ? '🧵 Ö-M İŞ PARÇACIĞI: AÇIK' : '🧵 Ö-M İŞ PARÇACIĞI: kapalı';
 }
 function fps(el,v,tav){
   document.getElementById(el).innerHTML =
@@ -493,6 +536,73 @@ async function tik(){
 setInterval(tik,220);
 setInterval(()=>{document.getElementById('z').src='/zoom?'+(son++)},150);
 </script>"""
+
+
+
+# =============================================================================
+#  TALON KÖPRÜSÜ — panelden HEDEF İHA'yı sürmek için dosya kanalı
+# -----------------------------------------------------------------------------
+#  ⛔ Resmî SDK (TCP 12345) Talon'a KOMUT VEREMEZ — yalnızca `get_target_*`
+#     okur; bütün `set_*` çağrıları avcı drone'a aittir. Bu yüzden komutlar
+#     dosya üzerinden oyundaki UE4SS moduna (TalonWebControl) aktarılır:
+#         panel  ->  /tmp/talon_kopru.txt  ->  (Z: sürücüsü)  ->  oyun
+#     Proton önekinin Z: sürücüsü tüm Linux dosya sistemini gördüğü için
+#     oyun tarafı aynı dosyayı `Z:\tmp\talon_kopru.txt` olarak okur.
+#
+#  BİÇİM (tek satır):  <aktif> <throttle> <yaw> <pitch> <roll> <sayaç>
+#     aktif    0/1    : serbest uçuş açık mı
+#     throttle 0..1   : ileri hız (oyun tarafı 300..4000 cm/s'ye eşler)
+#     yaw      -1..1  : burun sola / sağa
+#     pitch    -1..1  : alçal / tırman
+#     roll     -1..1  : sola / sağa yatış (koordineli dönüş de üretir)
+#  ⛔ 7. ALAN (kip) SİLİNDİ (2026-08-27, §5.12 — kullanıcı kararı): kare ve
+#     daire desenleri hem gerçekçi değildi hem de oyun tarafında hedefin
+#     parçalarını koparıyordu. Mod tarafındaki karşılığı da çıkarıldı
+#     (`dow/ue4ss_modlari/.../main.lua` 267 -> 175 satır). Elle kumanda
+#     (eski kip 0) DURUYOR — `araclar/manevra.py` onu kullanıyor.
+#     sayaç           : her yazmada artar; oyun tarafı bununla arayüzün
+#                       donup donmadığını anlar (bayatlarsa eksenler sıfırlanır)
+#
+#  Yazma ATOMİK: önce .tmp, sonra os.replace — oyun yarım satır okumaz.
+# =============================================================================
+TALON_KOPRU_YOL = os.environ.get("DOW_TALON_KOPRU", "/tmp/talon_kopru.txt")
+_talon_sayac = 0
+_talon_kilit = threading.Lock()
+
+
+def talon_kopru_yaz(d):
+    """Panelden gelen eksen komutlarını köprü dosyasına yazar. True/False döner."""
+    global _talon_sayac
+
+    def _eksen(x, alt, ust, varsayilan=0.0):
+        try:
+            v = float(x)
+        except Exception:
+            return varsayilan
+        if v != v:                       # NaN
+            return varsayilan
+        return max(alt, min(ust, v))
+
+    aktif = 1 if d.get("aktif") else 0
+    thr = _eksen(d.get("throttle", 0.0), 0.0, 1.0)
+    yaw = _eksen(d.get("yaw", 0.0), -1.0, 1.0)
+    pit = _eksen(d.get("pitch", 0.0), -1.0, 1.0)
+    rol = _eksen(d.get("roll", 0.0), -1.0, 1.0)
+    with _talon_kilit:
+        _talon_sayac += 1
+        satir = "%d %.3f %.3f %.3f %.3f %d\n" % (
+            aktif, thr, yaw, pit, rol, _talon_sayac)
+        gecici = TALON_KOPRU_YOL + ".tmp"
+        try:
+            with open(gecici, "w") as f:
+                f.write(satir)
+            os.replace(gecici, TALON_KOPRU_YOL)
+            return True
+        except Exception as e:
+            print("[panel] Talon köprüsü yazılamadı (%s): %s" % (TALON_KOPRU_YOL, e),
+                  flush=True)
+            return False
+
 
 
 class _H(BaseHTTPRequestHandler):
@@ -629,6 +739,16 @@ class _H(BaseHTTPRequestHandler):
                 {"ok": False,
                  "msg": "'%s' bu sistemde yok — uçuşu kosu.py yönetir" % cmd
                  }).encode(), "application/json")
+        if self.path == "/api/talon":
+            # HEDEF İHA elle kontrol — eksenleri köprü dosyasına yaz.
+            n = int(self.headers.get("Content-Length", 0))
+            try:
+                d = json.loads(self.rfile.read(n) or b"{}")
+            except Exception:
+                d = {}
+            ok = talon_kopru_yaz(d)
+            return self._gonder(json.dumps({"ok": ok}).encode(),
+                                "application/json")
         if self.path in ("/api/manuel", "/api/tune"):
             # Manuel RC ve canlı kaydırıcılar bizde YOK (ayarları yapay zekâ
             # değiştirir — panel tasarım kararı). Sessizce yutulur ki arayüz
@@ -658,18 +778,21 @@ class _H(BaseHTTPRequestHandler):
                              "application/json", 400)
             return
         if self.path == "/ozellik":
-            # 🎯 TAKİP — yerellik kapısı YERİNE HybridSort + kilitli kimlik.
-            #   Uçuş sırasında canlı açılır/kapanır (§6): kullanıcı farkı
-            #   anında görsün. Kampanya A/B'si yine env + tam restart (§4).
+            # 🧵 Ö-M GÖRÜŞ İŞ PARÇACIĞI — çıkarımı kontrol döngüsünden ayır.
+            #   ÖLÇÜLDÜ: çıkarım kontrol döngüsünün ~%26'sını yiyor
+            #   (9.1 Hz × 29 ms); tik_hz 44.3'te tavanlı. Kodun kendi notu
+            #   çıkarımı 16 Hz'e çıkarmanın tik_hz'i 22.3'e düşürüp isabeti
+            #   1 -> 0 yaptığını kaydediyor — tavan bir SEMPTOM.
+            #   İki yol da her tikte aynı bayrağı okur, canlı geçiş güvenli.
             n = int(self.headers.get("Content-Length", 0))
             try:
                 self.rfile.read(n)
-                from dow.gorus.tracker import TakipCfg
-                acik = not TakipCfg.AKTIF
-                TakipCfg.AKTIF = acik
+                from dow.ayarlar import Ayar
+                acik = not Ayar.GORUS_ISP
+                Ayar.GORUS_ISP = acik
                 telem_yaz({"_hizli": int(acik)})
-                print("[panel] TAKİP -> %s" % ("AÇIK" if acik else "kapalı"),
-                      flush=True)
+                print("[panel] Ö-M GÖRÜŞ İŞ PARÇACIĞI -> %s"
+                      % ("AÇIK" if acik else "kapalı"), flush=True)
                 self._gonder(json.dumps({"ok": True, "acik": int(acik)}).encode(),
                              "application/json")
             except Exception as e:

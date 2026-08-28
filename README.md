@@ -24,9 +24,9 @@ KALKIŞ  →  ISTASYON  →  GÖRSEL
 uygulanır — `ibvs.komut()` imzasında hedef konumu YOKTUR ve `tests/test_dow.py`
 bunu bekçiyle sınar (B1, B18, B40).
 
-**Dedektör:** `talon_v3.pt` (YOLO11s, imgsz uyarlanabilir 960/1920, fp32).
-`talon_v5.pt` da depoda — daha yeni ama **bu sistemde daha kötü**, sebebi
-aşağıda.
+**Dedektör:** `talon_v3.pt` (YOLO11s, imgsz uyarlanabilir 960/1920, fp16).
+Depoda **tek model** vardır ve çalışma anında değişmez — `talon_v5` ölçümle
+elenip 2026-08-27'de sistemden tamamen çıkarıldı (sebebi aşağıda).
 
 **Panel:** `http://127.0.0.1:8801` — yer kontrol istasyonu, canlı FPV +
 overlay + telemetri + yarışma kilit ölçütü.
@@ -39,8 +39,9 @@ Bu depodaki her sayı taze uçuştan gelir; yöntem `CLAUDE.md`'de yazılı
 (tek değişken, dönüşümlü A/B, mekanizma kapısı, geçerlilik eşi, n≥4).
 
 ### ⭐ Model seçimi — yeni model her zaman iyi değil
+*(v5 bu ölçümden sonra elendi; 2026-08-27'de koddan tamamen çıkarıldı.)*
 
-| | **talon_v3** | talon_v5 |
+| | **talon_v3** | talon_v5 (elendi) |
 |---|---|---|
 | imha | **7/7** | 2/6 |
 | süre medyanı | **17.3 s** | 129.4 s |
@@ -136,21 +137,21 @@ chmod +x calistirma/umu/umu-run
 
 ```bash
 # 1) oyunu aç + göreve gir (~2 dk)
-DISPLAY=:0 python3 araclar/sim.py
+DISPLAY=:1 python3 araclar/sim.py
 
 # 2) panel
 xdg-open http://127.0.0.1:8801
 
 # 3) uçuş
 echo -n hibrit > .gudum_kipi
-DISPLAY=:0 DOW_GORSEL=1 DOW_KIP=hibrit python3 araclar/kosu.py DENEME 4 150
+DISPLAY=:1 DOW_GORSEL=1 DOW_KIP=hibrit python3 araclar/kosu.py DENEME 4 150
 
 # 4) sonuç
 python3 araclar/gorsel_ozet.py logs/DENEME
 python3 araclar/video.py logs/DENEME/k01 logs/deneme.mp4 5
 ```
 
-Testler: `python3 -m pytest tests/test_dow.py -q` → **49 bekçi**.
+Testler: `python3 -m pytest tests/test_dow.py -q` → **60 bekçi**.
 
 ---
 
@@ -181,10 +182,10 @@ sürümlerin dışına çıkma, çıkman gerekirse önce bana sor.
 ## 1. Depoyu çek
 git clone https://github.com/kayranecatikara/drones_of_war_entegrasyon.git
 cd drones_of_war_entegrasyon
-Depo `talon_v3.pt` ve `talon_v5.pt` modellerini İÇERİR, ayrıca indirme yok.
-VARSAYILAN MODEL `talon_v3` OLMALI — v5 daha yeni ama bu sistemde ölçülmüş
-olarak daha kötü (imha 2/6 vs 7/7). `dow/gorus/dedektor.py` içindeki
-`MODEL_YOLU` satırının `talon_v3` dediğini DOĞRULA.
+Depo `talon_v3.pt` modelini İÇERİR, ayrıca indirme yok. Model TEK yerden
+seçilir: `dow/gorus/dedektor.py` içindeki `MODEL_YOLU`. Çalışma anında model
+değiştiren kapı 2026-08-27'de SİLİNDİ — iki ayrı varsayılan tanımlıydı ve
+elenen modeli sessizce geri yüklüyordu.
 
 ## 2. Ön koşulları doğrula (kurmadan ÖNCE)
 - Ubuntu 22.04+ (glibc >= 2.35):  ldd --version
@@ -251,15 +252,15 @@ Sonuç: calistirma/umu/umu-run ve calistirma/umu/umu_run.py olmalı.
   kullanma, ileride asset adları değişebilir.
 
 ## 8. Doğrula
-python3 -m pytest tests/test_dow.py -q      # 49 bekçi GEÇMELİ
+python3 -m pytest tests/test_dow.py -q      # 60 bekçi GEÇMELİ
 python3 -c "import sys;sys.path.insert(0,'.');
 from dow.gorus.dedektor import MODEL_YOLU; print(MODEL_YOLU)"   # talon_v3.pt
 
 ## 9. İlk uçuş
-DISPLAY=:0 python3 araclar/sim.py           # oyunu açar, göreve girer (~2 dk)
+DISPLAY=:1 python3 araclar/sim.py           # oyunu açar, göreve girer (~2 dk)
 Ayrı terminalde panel: http://127.0.0.1:8801
 echo -n hibrit > .gudum_kipi
-DISPLAY=:0 DOW_GORSEL=1 DOW_KIP=hibrit python3 araclar/kosu.py DENEME 2 150
+DISPLAY=:1 DOW_GORSEL=1 DOW_KIP=hibrit python3 araclar/kosu.py DENEME 2 150
 
 Beklenen: hedef ~15-35 saniyede imha, en yakın 0.4-0.9 m.
 Olmuyorsa `logs/DENEME/ozet.csv`'deki `imha`, `devir_s`, `en_yakin_m`

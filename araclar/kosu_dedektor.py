@@ -35,7 +35,9 @@ try:
         if not ucusta_mi(img): oyunu_one_al(); time.sleep(0.4); continue
         rr,pp,yy=d.get_drone_rotation()
         elev=math.degrees(math.asin(max(-1,min(1,dz/R))))
-        bcx,bcy,bp = KAM.beklenen_kadraj(R, elev, hy, pp, rr)
+        _bk = KAM.beklenen_kadraj(R, elev, hy, pp, rr)
+        if _bk is None: continue          # hedef ARKADA — izdüşüm anlamsız
+        bcx,bcy,bp = _bk
         rgb=img[:,:,::-1]
         for iz in (960,1920):
             r=m.predict(rgb,imgsz=iz,conf=0.10,verbose=False)[0]

@@ -23,6 +23,24 @@ export DXVK_STATE_CACHE_PATH="$KOK/calistirma/shadercache"
 export VKD3D_SHADER_CACHE_PATH="$KOK/calistirma/shadercache"
 mkdir -p "$WINEPREFIX" "$__GL_SHADER_DISK_CACHE_PATH"
 
+# ⭐ UE4SS (2026-08-26) — hedef İHA'yı elle/betikle sürebilmek için.
+#   `dwmapi.dll` UE4SS'in proxy'sidir: oyun onu yükleyince UE4SS devreye
+#   girer ve ue4ss/Mods altındaki modları çalıştırır. Wine varsayılan olarak
+#   KENDİ dwmapi'sini yükler, o yüzden "native önce, sonra builtin" demek
+#   ZORUNLU — bu satır olmadan mod yükleyici SESSİZCE hiç çalışmaz
+#   (oyun modsuz da sorunsuz açılır, hata vermez).
+#   Yüklendiğini anlamanın tek yolu: ue4ss/UE4SS.log zaman damgası.
+export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-dwmapi=n,b}"
+#   ⚠ ÖLÇÜLDÜ 2026-08-26: Proton, gelen WINEDLLOVERRIDES'i KENDİ listesiyle
+#     EZİYOR (süreç ortamında yalnız Proton'un kendi girdileri görüldü).
+#     Bu yüzden üç yol birden kuruluyor:
+#       1. WINEDLLOVERRIDES        (Proton dışı yollar için)
+#       2. PROTON_DLL_OVERRIDES    (Proton bunu KENDİ listesine EKLER)
+#       3. önek kayıt defteri      (calistirma/prefix/pfx/user.reg ->
+#          AppDefaults\DronesOfWar-Win64-Shipping.exe\DllOverrides)
+#     Üçüncüsü env'den bağımsız ve kalıcıdır; asıl güvence odur.
+export PROTON_DLL_OVERRIDES="${PROTON_DLL_OVERRIDES:-dwmapi=n,b}"
+
 # Pencere modunda aç: ekran yakalama ve iki-ekran çalışma için şart.
 # (Tam ekran, X11'de yakalamayı ve alt+tab'ı zorlaştırır.)
 ARGS="${ARGS:--fullscreen -ResX=1920 -ResY=1080}"

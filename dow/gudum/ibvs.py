@@ -93,6 +93,7 @@ class IbvsCfg:
 
     # --- yaw ---
     K_YAW         = 1.0     # tam düzeltme (Gazebo'dan AYNEN)
+
     YAW_RATE_MAX  = 120.0   # °/s. Araç 214 yapabiliyor AMA hızlı yaw
                             # görüntüyü bulandırıp dedektörü kırar -> KORUNDU.
     YAW_OLU_BAND  = 1.0     # °; altında yaw komutu güncellenmez
@@ -297,6 +298,56 @@ class IbvsCfg:
     YEREL_KURTAR  = 5
 
     # --- geçerlilik ---
+    # ⛔ LEAD (kestirim payı) İKİNCİ KEZ ELENDİ — 2026-08-26, §5.12 ile SİLİNDİ.
+    #   Ö-E (kare, n=4/3)  : birincil ölçüt değişmedi (imha 0/4 vs 0/3)
+    #   Ö-F (kaçamak, n=4/4): HER ÖLÇÜTTE KÖTÜLEŞTİ —
+    #        kaçırma 3 -> 5 · ilk denemede 2/4 -> 0/4 · süre 20.4 -> 24.9 s
+    #        görsel tespit %65.5 -> %51.1 · salınım cx 0.58 -> 1.23
+    #   GV03'ün (2026-08-22, n=3) hükmü DOĞRUYMUŞ; o red yöntemsel olarak
+    #   zayıftı ama sonucu tuttu. Bu kez doğru zarfta ve n=4/kol ölçüldü.
+    #   ⚠ Ö-E'de "lead salınımı düşürdü" diye okumuştum (cx 1.13 -> 0.66);
+    #     Ö-F tersini gösterdi (0.58 -> 1.23). O düşüş koşu değişkenliğiymiş.
+    #   Bekçi B20 `LEAD_*` adlarını yeniden YASAKLI listeye aldı.
+
+    # ⭐ Ö-G · DÖNÜŞTE YAVAŞLA — 2026-08-26
+    #
+    # YAPISAL EKSİK (koddan çıkarıldı, 2026-08-26):
+    #   hedef_boyut = MENZIL_C/HUCUM_MENZIL = 997/1.0 = 997 px
+    #   hata = 997 - kutu (tipik 40-150 px) -> v_istek = 0.35*900 ~ 315 m/s
+    #   -> V_HUCUM'a (28) kırpılıyor. Hız ancak kutu 917 px olunca düşer,
+    #      bu da 1.1 m menzil demek. YANİ GÖRSEL FAZ BOYUNCA HIZ DAİMA
+    #      TAVANDA. Güdüm hızı dönüş kabiliyetiyle HİÇ takas etmiyor.
+    #
+    # NEDEN ÖNEMLİ (§5.11 — "salınım sandığın şey fizik olabilir"):
+    #   R = V^2/(g·tan θ). Ölçüldü (KD1 daire, GORSEL fazı): hız 21.8 m/s,
+    #   yatış p90 31.7° -> dönüş yarıçapı ~78 m. Hedefin dairesi 17.5 m.
+    #   Hızı 0.55 katına indirmek yarıçapı 0.30 katına indirir (~24 m).
+    #
+    # YASA: nişan hatası büyükken hızı kıs, düz bacakta tam hız.
+    #   kesme = 1 - (1 - YAVASLA_TABAN) * min(1, |eps_yaw| / YAVASLA_ACI)
+    #   v = v * kesme
+    #   eps_yaw=0   -> kesme=1.00 (düz bacakta TAM HIZ)
+    #   eps_yaw>=25 -> kesme=YAVASLA_TABAN
+    #
+    # ⚠ §5.13 TASARIM ZARFI: bu bir "yayda yavaşla, düz kesimde hızlan"
+    #   çevrimidir. `daire`de düz kesim YOKTUR -> çevrimin ikinci yarısı
+    #   gerçekleşemez ve araç KALICI yavaş kalır (§5.10'daki Ö11 tuzağı).
+    #   Bu yüzden KAZANIM `kare`de ölçülür, REGRESYON `daire` ve `taban`da.
+    #
+    # ⚠ YAVASLA_TABAN = 1.0 VARSAYILAN -> hiç kısma yok, BİT BİT aynı.
+    # Açma: DOW_YAVASLA=0.55  (kapatma: 1.0)
+    YAVASLA_TABAN = _fi("DOW_YAVASLA", 1.0)    # hızın alt katsayısı
+    YAVASLA_ACI   = _fi("DOW_YAVASLA_ACI", 25.0)   # tam etki açısı (°)
+    # ⭐ ÖLÜ BANT — Ö-G'nin ölçülmüş kusurunun çaresi (2026-08-26 gecesi).
+    #   Ö-G'de kesme karelerin %83.7'sinde uygulandı (medyan 0.909): yasa
+    #   "keskin köşede yavaşla" değil "neredeyse her zaman biraz yavaşla"
+    #   olarak çalıştı. Görüş +22 puan kazandı ama kapanma öldü
+    #   (en yakın 5.12 -> 5.87 m, dört çiftin dördünde kontrol önde).
+    #   Ölü bant: nişan hatası bu eşiğin ALTINDAYKEN kesme HİÇ uygulanmaz,
+    #   böylece düz bacakta TAM HIZ korunur.
+    #   0 = ölü bant yok (Ö-G'deki davranış).
+    YAVASLA_OLU   = _fi("DOW_YAVASLA_OLU", 0.0)    # ölü bant (°)
+
     CONF_MIN      = 0.40    # ÖLÇÜLDÜ (dow/gorus/dedektor.py)
     BOYUT_MIN_PX  = 8.0     # px; bundan küçük kutu güvenilmez
     MENZIL_MAX_M  = 50.0    # m; ötesinde görsel devir YOK (tespit %10)
@@ -304,6 +355,33 @@ class IbvsCfg:
                             # 997/3 = 332 px'lik kutu demek; hedef bu boyuta
                             # ancak TEMAS anında ulaşır. Dedektör 140 m'de
                             # bu boyutta kutular üretiyordu (ölçüldü).
+
+    # ⭐ Ö-A · TERMİNAL SÜREKLİLİK İSTİSNASI (2026-08-25)
+    #
+    # SORUN (ölçüldü, KAMERA10 n=5, 859 çıkarım):
+    #     menzil    tespit%   gecerli() reddi
+    #     0-3 m      %22.0        %38.0
+    #     3-6 m      %73.6         %0.0
+    #   Uçurum tam MENZIL_MIN_M sınırında. Yani vuruşun son yarım
+    #   saniyesinde güdümü KENDİ SÜZGECİMİZ kör ediyor. Yo-yo'yu tetikleyen
+    #   üç seriden biri (k01 @ 24.6 s, 2.1 m) doğrudan bu.
+    #
+    # NEDEN SÜZGEÇ SİLİNMİYOR: sebebi meşru. Dedektör 140 m'de dev
+    #   yanlış-pozitif üretiyor, kutudan hesaplanan menzil 1.3 m çıkıyor,
+    #   güdüm "temas" sanıp tam hücum veriyor ve araç yere çakılıyor
+    #   (2026-08-21, iki koşu, "Player ☠"). Silmek o çakılmayı geri getirir.
+    #
+    # AYIRT EDİCİ FİZİK: dev yanlış-pozitif YOKTAN var olur; gerçek hedef
+    #   BÜYÜYEREK gelir. 140 m'de aniden beliren 400 px sahtedir; 200 px'ten
+    #   400 px'e büyüyen gerçektir. İstisna bu sürekliliği arar:
+    #     (a) son KABUL EDİLEN kutu taze mi        (yaş <= KOPRU_S)
+    #     (b) yeni kutu ondan en fazla kaç kat büyük (<= TERMINAL_BUYUME)
+    #   İkisi de sağlanmazsa eski davranış AYNEN geçerli.
+    #
+    # ⛔ GPS YOK: koşulun iki girdisi de piksel/zaman (§10 temiz).
+    # Geri dönüş: DOW_TERMINAL=0
+    TERMINAL_AKTIF   = _b_i("DOW_TERMINAL", True)
+    TERMINAL_BUYUME  = _fi("DOW_TERMINAL_BUYUME", 2.0)   # kat
 
 
 def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
@@ -355,6 +433,18 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     v_istek = cfg.K_FWD * hata_px + hiz_I
     v = _kirp(v_istek, cfg.V_MIN, cfg.V_HUCUM)
 
+    # ⭐ Ö-G DÖNÜŞTE YAVAŞLA (bkz. IbvsCfg.YAVASLA_TABAN).
+    #   YAVASLA_TABAN=1.0 iken kesme=1.0 ve yasa BİT BİT bugünküyle aynı.
+    _kesme = 1.0
+    if cfg.YAVASLA_TABAN < 1.0:
+        # ölü bant: eşiğin altındaki nişan hatasında HİÇ kısma yok
+        _fazla = max(0.0, abs(eps_yaw) - cfg.YAVASLA_OLU)
+        _genis = max(1e-6, cfg.YAVASLA_ACI - cfg.YAVASLA_OLU)
+        _oran = min(1.0, _fazla / _genis)
+        _kesme = 1.0 - (1.0 - cfg.YAVASLA_TABAN) * _oran
+        v = v * _kesme
+    tani["ibvs_kesme"] = round(_kesme, 3)      # §5.1 mekanizma sütunu
+
     tani["ibvs_hata_px"] = hata_px
     tani["ibvs_v"] = v
 
@@ -399,7 +489,7 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     return (vx, vy), vz_ned, yaw_hedef, hiz_I, tani
 
 
-def gecerli(cx, cy, w, h, conf, cfg=IbvsCfg):
+def gecerli(cx, cy, w, h, conf, cfg=IbvsCfg, son_w=None, son_yas=None):
     """Bu tespit güdüme girebilir mi? (§5.1 mekanizma kapısı için ayrı tutuldu)
 
     ⭐ GÜVEN EŞİĞİ TAKİPÇİ AÇIKKEN DEĞİŞİR (2026-08-24).
@@ -434,6 +524,15 @@ def gecerli(cx, cy, w, h, conf, cfg=IbvsCfg):
     if boyut < cfg.BOYUT_MIN_PX: return False, "boyut"
     R = KAM.menzil(boyut)
     if R is None or R > cfg.MENZIL_MAX_M: return False, "menzil_uzak"
-    if R < cfg.MENZIL_MIN_M: return False, "menzil_yakin"   # dev yanlış-pozitif
+    if R < cfg.MENZIL_MIN_M:
+        # ⭐ Ö-A TERMİNAL SÜREKLİLİK İSTİSNASI — bkz. IbvsCfg.TERMINAL_AKTIF.
+        #   son_w / son_yas verilmezse (None) davranış ESKİSİYLE BİT BİT AYNI;
+        #   bekçi B52 bunu sınar.
+        _surekli = (cfg.TERMINAL_AKTIF and son_w and son_yas is not None
+                    and son_yas <= cfg.KOPRU_S
+                    and boyut <= cfg.TERMINAL_BUYUME * son_w)
+        if not _surekli:
+            return False, "menzil_yakin"                # dev yanlış-pozitif
+        return True, "terminal"     # §5.1 mekanizma: istisna DEVREYE GİRDİ
     if not (0 <= cx < KAM.IMG_W and 0 <= cy < KAM.IMG_H): return False, "kadraj"
     return True, ""

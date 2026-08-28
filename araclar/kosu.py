@@ -137,6 +137,7 @@ def _gorus_isi(det):
     kontrolü 40.3 -> 22.3 Hz'e düşürüyor ve araç istasyonu tutamıyor."""
     sct = mss.mss()
     son_det = 0.0
+    _tespit_t = 0.0
     son_gt = 0.0                       # görsel güdüm çıkarımı zamanlayıcısı
     dt_yak = 1.0 / max(1.0, Ayar.PANEL_YAKALA_HZ)
     # ⭐ SAHTE GECİKME (test düzeneği, bkz. Ayar.SAHTE_GECIKME_MS).
@@ -198,8 +199,36 @@ def _gorus_isi(det):
                 _gorus["tespit"] = tespit
                 _gorus["tespit_t"] = t
             son_tespit = _gorus["tespit"]
+            _tespit_t  = _gorus["tespit_t"]
         PANEL.fps_isaretle("yakala")
-        PANEL.kare_koy(img, son_tespit, olcek=Ayar.PANEL_OLCEK)
+        # ⛔ KAYNAK KAPISI (2026-08-25): yakalama TÜM EKRANA bakıyor; oyunun
+        #   üstüne pencere gelirse panel oyunu değil ONU yayınlar ve operatör
+        #   fark etmez. HUD imzası yoksa kareyi YAYINLAMA — son iyi kare
+        #   ekranda kalsın, arayüz de uyarı bassın. Eşik `ucusta_mi_hud` ile
+        #   AYNI (0.05); ölçüldü: oyun 0.126, üstü kapalıyken 0.001.
+        #   ⚠ Güdüm bundan ETKİLENMEZ: kontrol döngüsü kareyi `_gorus["img"]`
+        #     üzerinden ayrıca okur, `kare_koy` yalnız paneli besler.
+        _kare_oyun = pk > 0.05
+        PANEL.kaynak_isaretle(_kare_oyun, pk)
+        # ⭐ BAYAT KUTUYU EKRANA BASMA (2026-08-27, kullanıcı isteği):
+        #   *"son algıladığı kare birkaç saniye daha ekranda kalıyor, onu
+        #   görmek istemiyorum, detection yanlış mı algılıyor diye
+        #   düşünüyorum."* Haklı: çıkarım ART ARDA ıskalayınca kutu
+        #   silinmiyordu ve operatöre SANKİ hedef hâlâ oradaymış gibi
+        #   görünüyordu — panel, dedektörün bilmediği bir şeyi iddia ediyordu.
+        #   ⛔ YALNIZ GÖSTERİM: `kare_koy` sadece paneli/MJPEG'i besler.
+        #     Güdüm kareyi `_gorus["img"]`den ayrıca okur; kayıt kareleri
+        #     (`kayit.py`) HAM yazılır, kutu videoya sonradan CSV'den çizilir.
+        #     Yani bu kapı ne güdümü ne de kanıtı değiştirir.
+        #   ⚠ "TESPİT YAŞAR" mantığı (yukarıda) BOZULMADI: kutu güdüm için
+        #     bir sonraki çıkarıma kadar geçerli kalmaya devam ediyor; burada
+        #     yalnız EKRANA basılıp basılmayacağına karar veriliyor.
+        if _kare_oyun:
+            _kutu = son_tespit
+            if (Ayar.PANEL_KUTU_TAZE and _kutu is not None
+                    and (t - _tespit_t) > Ayar.PANEL_KUTU_YAS_S):
+                _kutu = None
+            PANEL.kare_koy(img, _kutu, olcek=Ayar.PANEL_OLCEK)
         kalan = dt_yak - (time.time() - t)
         if kalan > 0:
             time.sleep(kalan)
@@ -336,6 +365,16 @@ def _truth_aspekt(beyin, dp, hp):
     if not hp or not dp: return out
     dx, dy = hp[0] - dp[0], hp[1] - dp[1]
     out["menzil_m"] = round(math.hypot(dx, dy), 1)
+    # ⭐ 3B MENZİL (2026-08-26) — KAÇIRMA TESPİTİ İÇİN ZORUNLU.
+    #   `menzil_m` YATAYDIR (dz yok). Kaçırma, "en yakın geçiş noktası"nın
+    #   yerel minimumlarından bulunuyor; hedefin tam üstünden/altından geçen
+    #   bir drone yatayda YAKIN görünür ve ıska KAÇIRILIR. 3B menzil şart.
+    #   ⛔ ÖLÇÜM-ONLY: güdüm bu sütunu görmez (§10; bekçi B1/B18/B19).
+    out["menzil3_m"] = round(math.dist(dp, hp), 1)
+    # kapanma işareti için hedefin gidiş yönüne izdüşüm: + = biz GERİDEYİZ
+    #   (henüz geçmedik), - = hedefi GEÇTİK. Yerel minimum bulmanın yanında
+    #   ikinci, bağımsız bir "geçti mi" kanıtı.
+    out["dz_m"] = round(hp[2] - dp[2], 1)
     try:
         out["drone_roll"] = round(math.degrees(beyin.b.yonelim()[0]), 1)
     except Exception:
@@ -366,12 +405,20 @@ class CikarimKaydi:
     ⚠ ÖLÇÜM-ONLY: truth sütunları (bek_*) analiz içindir, güdüme GİRMEZ.
     """
     ALANLAR = ["t", "kare_t", "basarili", "durum",
-               "vis_cx", "vis_cy", "vis_w", "vis_conf",
+               # ⭐ `vis_h` EKLENDİ (2026-08-27): kutu YÜKSEKLİĞİ olmadan
+               #   "kutu boyutu gerçek menzille tutarlı mı" çaprazlaması
+               #   YAPILAMIYOR. Güdüm `max(w,h)` kullanıyor; yalnız genişlikle
+               #   bakınca hedef YATIKKEN sahte bir sapma çıkıyor ve iki kez
+               #   (2026-08-26 ve 08-27) bu yüzden hüküm kurulamadı.
+               #   ⛔ ÖLÇÜM-ONLY: yeni sütun, hiçbir güdüm kodu okumuyor.
+               "vis_cx", "vis_cy", "vis_w", "vis_h", "vis_conf",
                "bek_cx", "bek_cy", "bek_w",
                "yerel_aday", "yerel_uygun", "red_konum", "red_boyut",
+               "terminal_kabul", "kesme", "ibvs_v", "olcum_hiz", "olcum_vz",
                "iz_yas", "iz_w", "det_ms", "det_pencere",
                "takip_id", "takip_kaynak", "takip_coast", "takip_n",
-               "menzil_m", "aspekt_deg", "hedef_roll", "drone_roll"]
+               "menzil_m", "menzil3_m", "dz_m",
+               "aspekt_deg", "hedef_roll", "drone_roll"]
 
     def __init__(self, dizin):
         os.makedirs(dizin, exist_ok=True)
@@ -408,6 +455,20 @@ def _gecmis_beklenen(halka, t_hedef):
     elev = math.degrees(math.atan2(hp[2] - dp[2], max(yat, 1e-6)))
     ker = math.degrees(math.atan2(hp[1] - dp[1], hp[0] - dp[0]))
     az = (ker - yon[2] + 180.0) % 360.0 - 180.0
+    # ⛔ ARKA YARIKÜRE KAPISI — 2026-08-27, YAŞANMIŞ ANALİZ HATASI.
+    #   İzdüşüm zinciri `ileri` bileşenine BÖLER; hedef arkadayken `ileri`
+    #   NEGATİF olur ve bölme işareti çevirerek KADRAJ İÇİ bir piksel
+    #   üretir. Yani "üstünden geçtiğimiz" hedef, kadrajın ortasında
+    #   duruyormuş gibi loglanır.
+    #   ÖLÇÜLDÜ: KM2 kademeli__t2 kare 21 (t=10.7 s, menzil 6.58 m) ->
+    #   bek=(1338,477) diyordu; KAREYE BAKINCA hedef YOKTU, arkada
+    #   kalmıştı. Bu, "kadraj içinde ama dedektör kör" (B) kovasını
+    #   şişiriyordu ve aday tasarımım o şişkin sayıya dayanıyordu.
+    #   ⚠ BU KAPI YALNIZ ÖLÇÜM YOLUNDA (CSV sütunları). Güdümdeki
+    #     `seviye_piksel` AYNI kusuru taşır ama ORAYA DOKUNULMADI —
+    #     güdüm davranışı değişikliği ayrı karar (§8).
+    if abs(az) >= 85.0:
+        return None
     # ⭐ TAM ZİNCİR (Gazebo'nun `los_seviye`inin tersi). ÖLÇÜLDÜ 2026-08-23,
     #   4146 eşleşmiş karede tespit edilen kutuya uyum:
     #     yaklaşık zincir: sapma medyan 33.1 px (p90 109.4)
@@ -457,6 +518,21 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
     os.makedirs(dizin, exist_ok=True)
     kayit = Kayit(dizin, Ayar.KAYIT_ARALIK) if Ayar.KAYIT_AKTIF else None
     ckayit = CikarimKaydi(dizin) if Ayar.KAYIT_AKTIF else None
+    # ⭐ TERMİNAL KAYDI — DÖNGÜ HIZINDA (2026-08-28). ÖLÇÜM-ONLY.
+    #   NEDEN: `cikarim.csv` ÇIKARIM hızında yazılıyor (ölçüldü: terminalde
+    #   101 ms aralık). Terminal kapanma 4.8 m/s olduğu için iki kayıt
+    #   arasında araç 0.49 m yol alıyor ve "en yakın menzil" ±0.24 m
+    #   yanılabiliyor. Iska-vuruş farkı 0.16 m — yani BELİRSİZLİĞİN İÇİNDE
+    #   ve o ölçütle vuranı vuramayandan ayıramıyorum (§5.3: örnekleme
+    #   hızı, ölçtüğü şeyin değişim hızının 5 katı olmalı).
+    #   Kontrol döngüsü ZATEN 45-49 Hz'te gerçek menzili biliyor; burada
+    #   yalnız o sayıyı bir listeye alıyoruz. Güdüme HİÇBİR şey vermiyoruz.
+    _term_kayit = []          # (t, R, dz, yatay, elev)
+    # ⭐ ZOR ÖRNEK KAYDEDİCİ (DOW_ZOR_KAYIT=1) — bkz. araclar/zor_kayit.py
+    #   Iskalanan ama hedefin KADRAJDA olduğu kareleri etiketiyle diske yazar.
+    #   VARSAYILAN KAPALI: normal koşuya disk/CPU yükü bindirmez.
+    from araclar.zor_kayit import kur as _zor_kur
+    _zor = _zor_kur()
     bekci = Bekci(); bekci.sifirla()
     beyin.spawn_sifirla()
     if not beyin.b.canli():
@@ -536,6 +612,12 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                   "yerel_uygun": cti.get("yerel_uygun"),
                   "red_konum": cti.get("red_konum"),
                   "red_boyut": cti.get("red_boyut"),
+                  "terminal_kabul": cti.get("terminal_kabul"),
+                  "kesme": cti.get("ibvs_kesme"),
+                  # ⚠ ÖLÇÜM-ONLY: komut vs gerçekleşen hız, 20 Hz (§5.3)
+                  "ibvs_v": cti.get("ibvs_v"),
+                  "olcum_hiz": cti.get("olcum_hiz"),
+                  "olcum_vz": cti.get("olcum_vz"),
                   "takip_id": cti.get("takip_id"),
                   "takip_kaynak": cti.get("takip_kaynak"),
                   "takip_coast": cti.get("takip_coast"),
@@ -548,6 +630,7 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                 _c.update({"vis_cx": round(ctespit[0], 1),
                            "vis_cy": round(ctespit[1], 1),
                            "vis_w": round(ctespit[2], 1),
+                           "vis_h": round(ctespit[3], 1),
                            "vis_conf": round(ctespit[4], 3)})
             _bg = _gecmis_beklenen(_halka, ckare_t if ckare_t else ct)
             if _bg:
@@ -618,7 +701,28 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                 PANEL.fps_isaretle("dedektor")
                 # ⭐ HER ÇIKARIMI YAZ (ölçüm-only, güdüme dokunmaz)
                 if ckayit is not None:
-                    ckayit.yaz(_cikarim_satiri(t, tespit, beyin.tani, kare_t))
+                    _csat = _cikarim_satiri(t, tespit, beyin.tani, kare_t)
+                    ckayit.yaz(_csat)
+                    # ⭐⭐ ZOR ÖRNEK KAYDI (DOW_ZOR_KAYIT=1) — kullanıcı fikri
+                    #   2026-08-25: "hangi anlarda Talon kadrajda olmasına
+                    #   rağmen detection modeli onu tespit edemiyorsa o
+                    #   kareleri çekelim ve veri seti oluşturalım."
+                    #
+                    #   ⛔ NEDEN TAM BURADA: etiket, dedektörün GÖRDÜĞÜ
+                    #   karenin KENDİSİYLE ve AYNI ANIN geometrisiyle
+                    #   eşleşmeli. Kaydedilmiş kareyi sonradan telemetriyle
+                    #   eşleştirme denendi ve ETİKETLER BOZUK ÇIKTI
+                    #   (kontak sayfasında "7 m" kutusu boş göğe düştü):
+                    #   meta.csv 1 Hz ve oradaki bek_* son TESPİTİN anına
+                    #   göre hesaplanıyor, karenin anına göre değil.
+                    #   Burada eşleştirme hatası YAPISAL OLARAK imkânsız.
+                    #
+                    #   ⛔ GÜDÜME DOKUNMAZ: yalnız diske yazar. Hedefin
+                    #   GPS'i burada VERİ SETİ ETİKETİ için okunuyor —
+                    #   güdüm yoluna girmiyor (§10; bekçi B18/B19 ayrıca
+                    #   görsel fazda GPS'in güdüme ulaşmadığını sınar).
+                    if _zor is not None:
+                        _zor.belki_kaydet(img, _csat)
             else:
                 beyin._cikarim_yapildi = False
                 tespit = beyin._son_tespit
@@ -673,6 +777,11 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                     _temas_ivme = _iv; _temas_menzil = _R; _temas_t = t - t0
                     _temas_geri = _geri
             _v_onceki = _vv
+            # ⭐ ÖLÇÜM-ONLY: yalnız YAKINDA kaydet (dosya şişmesin), döngü hızında
+            if _R < 6.0:
+                _term_kayit.append((round(t - t0, 4), round(_R, 4),
+                                    round(_gdz, 4), round(_gyat, 4),
+                                    round(_gelev, 2)))
             _halka.append((t, dp, (math.degrees(_yon[0]), math.degrees(_yon[1]),
                                    math.degrees(_yon[2])), _hp))
         if beyin.durum == "GORSEL":
@@ -750,6 +859,16 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                 tel["mesafe_m"] = round(math.dist(dp, hp), 2)
             if np.isfinite(_R):
                 tel["gercek_mesafe_m"] = round(float(_R), 2)
+            # ⭐ 3B KONUM GRAFİĞİ İÇİN HEDEF KONUMU (2026-08-26, kullanıcı isteği)
+            #   ⛔ §10: `h_*` YALNIZ hp varken yazılır ve GORSEL fazda hp YOKTUR
+            #     (o fazda hedefin GPS'i okunmaz) -> grafik orada DONARDI.
+            #     Bu yüzden truth kanalı kullanılıyor: her fazda dolu.
+            #   ⛔ Statüsü `gercek_mesafe_m` ile AYNI: YALNIZ EKRANA gider.
+            #     Görsel güdüm (`Beyin._gorsel_tik_kilitli`) bu alanların
+            #     hiçbirini görmez — girdisi yalnız görüntüdür (B1/B18/B19).
+            if _tr:
+                tel["t_x"], tel["t_y"], tel["t_z"] = [round(float(v), 2)
+                                                      for v in _hp]
             if tespit:
                 tel["vis_cx"], tel["vis_cy"] = round(tespit[0], 1), round(tespit[1], 1)
                 tel["vis_w"], tel["vis_h"] = round(tespit[2], 1), round(tespit[3], 1)
@@ -794,11 +913,12 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                       "ist_hata_m", "ist_hata_yatay", "ist_hata_dikey",
                       "hedef_menzil_m", "yaw_hata", "v_istek",
                       "kopru_kare", "bayat_birak", "yerel_aday", "yerel_uygun",
-                      "det_ms", "det_pencere", "red_konum", "red_boyut", "yerel_kayip",
+                      "det_ms", "det_pencere", "red_konum", "red_boyut",
+                      "terminal_kabul", "yerel_kayip",
                       "iz_yas", "iz_w",
                       "takip_id", "takip_kaynak", "takip_coast", "takip_n",
                       "ibvs_nisan_elev", "ibvs_vz_kirpildi", "ibvs_e_cy",
-                      "ibvs_vz_yukari"):
+                      "ibvs_vz_yukari", "ibvs_v", "olcum_hiz", "olcum_vz"):
                 if k in ti: sat[k] = round(ti[k], 2) if isinstance(ti[k], float) else ti[k]
             if tespit:
                 sat.update({"vis_cx": round(tespit[0], 1), "vis_cy": round(tespit[1], 1),
@@ -867,6 +987,20 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                                      #   yüzünden ~19 Hz, nominal 50 DEĞİL.
     if kayit: kayit.kapat()
     if ckayit: ckayit.kapat()
+    # ⭐ ÖLÇÜM-ONLY: terminal kaydını diske yaz (yalnız R<6 m kareler)
+    if Ayar.KAYIT_AKTIF and _term_kayit:
+        try:
+            import csv as _csv
+            with open(os.path.join(dizin, "terminal.csv"), "w", newline="") as _tf:
+                _w = _csv.writer(_tf)
+                _w.writerow(["t", "R_m", "dz_m", "yatay_m", "elev_deg"])
+                _w.writerows(_term_kayit)
+        except Exception:
+            pass
+    if _zor is not None:
+        _n, _at = _zor.kapat()
+        print("  [ZOR ÖRNEK] %d kare yazıldı -> %s" % (_n, _zor.dizin), flush=True)
+        print("  [ZOR ÖRNEK] atılan: %s" % _at, flush=True)
     beyin.b.komut(beyin.cev._vz_cubuk(0.0), 0.0, 0.0, 0.0, True)
     a = np.array(ist_hatalar) if ist_hatalar else np.array([np.nan])
     with _gorus_kilit:
@@ -902,7 +1036,10 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
         "gorsel_tik": gorsel_tik_say,
         "gorsel_s": round(gorsel_tik_say / max(1e-6, _tik_hz), 1),
         "gorsel_tespit_yuzde": round(100.0 * tespit_say / max(1, gorsel_tik_say), 1),
-        "devir_sebep": beyin._devir_sebep or "-",
+        # ⭐ §5.1 MEKANİZMA SÜTUNU (Ö-A): terminal süreklilik istisnasıyla
+        #   kabul edilen kutu sayısı. DENEY kolunda 0 ise o koşu fiilen
+        #   KONTROL koşusudur -> VERİ NOKTASI DEĞİL (bkz. kol_kiyas --mek).
+        "terminal_kabul": int(getattr(beyin, "_terminal_kabul", 0)),
         # --- SALINIM (§4) ---
         "cx_donus_s": round(_g_cx_don / max(1e-6, _g_cx_n / _tik_hz), 2)
                       if _g_cx_n > 5 else float("nan"),
