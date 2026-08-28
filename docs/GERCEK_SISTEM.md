@@ -22,6 +22,79 @@ Her satır işaretlidir:
 | 🔢TÜRETİLDİ | ölçülen/belgelenen sayılardan hesaplandı |
 | ❓AÇIK | henüz bilinmiyor |
 
+
+---
+
+## 0.5 · ⚠⚠ 2026-08-26 ÖLÇÜM RAPORU — ÖNCEKİ SAYILARIN DÜZELTMESİ
+
+`Kamera_Olcum_Raporu.pdf` (ölçüm ekibi, Windows, 26 Ağustos 2026) bu
+belgedeki bazı sayıları ÇÜRÜTTÜ. Aşağısı esastır:
+
+| büyüklük | bu belgede yazan (ESKİ) | ⭐ÖLÇÜLEN (GEÇERLİ) |
+|---|---|---|
+| kaynak standardı | PAL | **NTSC** (29.2 fps sayılarak ölçüldü) |
+| çalışılan kare | 720x576 @25 | **640x480 @29.2** |
+| fx | 187.4 (türetilmişti) | **171.3 px** (ölçüldü, 8 aralık, 0.41 px saçılma) |
+| FOV | 125° (belge) | **122 ± 6°** — belge DOĞRULANDI |
+| MENZIL_C | ~345 px·m | **314 px·m** |
+| tilt | 25° (belge) / 26.5° (sim) | **22 ± 2°** — İKİSİ DE YÜKSEK |
+| lens projeksiyonu | "varil distorsiyonlu" sanılıyordu | **DELİK-İĞNE** (k1 = 0.006 ± 0.034, sıfırdan ayırt edilemiyor) |
+
+⭐ **En önemli iki düzeltme:**
+
+1. **Lens merkezde REKTİLİNEER.** `kamera.py`'nin delik-iğne modeli
+   ÇALIŞIYOR. Benim "fisheye olabilir, 11° hata verir" uyarım
+   ÇÜRÜDÜ — en azından kadrajın orta %28'inde.
+   ⚠ Ama kenarlar HİÇ ÖLÇÜLMEDİ; çarpıklık ağırlıklı olarak orada olur.
+
+2. **TILT yazılımda 3-4° FAZLA.** `TILT_DEG = 26.5` ölçüm aralığının
+   (22 ± 2°) dışında. Doküman 25° de dışında.
+
+⛔ **BU SAYILAR DOĞRUDAN KODA GİRİLMEZ** (ölçüm raporunun kendi uyarısı).
+   Sim davranışının bozulmadığı kanıtlanmadan değişiklik yapılmaz.
+
+### Hâlâ ölçülmemiş olanlar
+
+- **fy, cy** → `fx/fy` oranı BİLİNMİYOR (piksel kare mi?)
+- uçtan uca gecikme (⭐ AYRI OLARAK ~200 ms ölçüldü, §5)
+- kare varış düzeni
+- RF bozulması / açık alan ham kaydı
+- kadraj KENARLARINDA çarpıklık
+
+**Belirsizliği bitiren yol:** satranç tahtası kalibrasyonu — masa
+büyüklüğünde yer yeter, kadrajın %100'ünü kapsar, tilt hassasiyeti
+±3° yerine ~0.1°, ve `fx, fy, cx, cy` + çarpıklık katsayılarını
+birlikte verir. Betikler ve desen ölçüm klasöründe hazır.
+
+### 🔢 640x480'e göre hedef piksel tablosu (C = 314 px·m)
+
+| menzil | kutu genişliği |
+|---|---|
+| 50 m | 6.3 px |
+| 30 m | 10.5 px |
+| 20 m | 15.7 px |
+| 15 m | 20.9 px |
+| **10 m** (istasyon eğik menzili) | **31.4 px** |
+| 4 m | 78.5 px |
+
+→ §3.5'teki hüküm DEĞİŞMEDİ: güvenilir tespit ~20 m ve içerisi,
+   istasyon menzilinde (10 m, 31 px) rahat çalışır.
+
+### NTSC / çözünürlük seçimi
+
+Kamera NTSC yayınlıyor — bu bir SEÇİM DEĞİL, TESPİT (kamera ayarlarına
+müdahalemiz yok). İyi tarafı: 30 fps > PAL'ın 25'i, tazelik lehimize.
+Kötü tarafı: NTSC'de renk tonu kayabilir → eğitimde **hue jitter**
+artırımı ile kapatılır.
+
+⛔ Linux'ta kart 720x576@25 seçeneği de sunuyor — **KULLANILMAZ.**
+   Kaynak NTSC iken 576 satır istemek, kartın 480 satırı yeniden
+   örneklemesi demektir (sahte satır + hareket artefaktı).
+   Doğrusu: **640x480** (4:3 NTSC'nin KARE PİKSELLİ biçimi) ya da
+   **720x480** (BT.601, PAR 0.889 → piksel kare DEĞİL).
+   Ölçüm 640x480'de yapıldı; kare piksel ihtimali yüksek ama
+   `fy` ölçülmeden kesin değil.
+
 ---
 
 ## 1 · SİSTEM MİMARİSİ
@@ -83,10 +156,20 @@ Gerçekte iki ayrı radyo bağlantısı var ve ikisi de gecikme ekliyor.
 
 ### 2.2 · Yer tarafı ⭐ÖLÇÜLDÜ (`logs/olcum_kamera/`)
 
+⭐ **TEK PARÇA CİHAZ.** Ayrı bir VRX + ayrı bir yakalama kartı YOK.
+USB'ye takılan **tek bir 5.8 GHz alıcı** var; içinde hem alıcı hem
+sayısallaştırıcı bulunuyor ve bilgisayara standart bir USB kamera (UVC)
+gibi görünüyor. Sürücü gerektirmiyor.
+
 ```
 ID 534d:0021 MacroSilicon MS210x Video Grabber [EasierCAP]
    → /dev/video2   ("USB Video", Bus 008)
 ```
+
+⚠ Bu isim (`MS210x` / `EasierCAP`) cihazın **içindeki yonganın** kimliğidir,
+ayrı bir ürün değildir. Bu sınıf USB VRX'lerin çoğu MacroSilicon yongası
+kullanır ve USB tanımlayıcısında böyle görünür. **Fiziksel olarak elimizde
+tek bir dongle var.**
 
 ⚠ `/dev/video0` **laptop'un kendi web kamerasıdır**
 (`13d3:56a2 IMC Networks USB2.0 HD UVC WebCam`).
@@ -266,7 +349,68 @@ USB'den DMA ile geliyor. **Bu tavanlar sahada bedava başarımı yere bırakır.
 
 ## 5 · ⛔ GECİKME — sistemin en büyük sorunu
 
-### 5.1 · ⭐ÖLÇÜLDÜ: ~200 ms
+### 5.0 · ⭐⭐ 2026-08-27 — KESİN ÖLÇÜM (n=900, üç kol, dönüşümlü)
+
+`araclar/olcum/07_otomatik.py` · ArUco işaret yöntemi · `logs/gecikme/SONUC.txt`
+
+**İKİ KAMPANYA, ALTI YÖNTEM, 1800 ÖLÇÜM.**
+
+| kol | yöntem | n | medyan |
+|---|---|---|---|
+| **A** | taban, düz `cv2.read()` YUYV | 300 | **166 ms** |
+| B | `BUFFERSIZE=1` (sürücü kabul etti: `geri okunan 1.0`) | 300 | 165 ms |
+| C | boşaltma (drain) — kuyruktaki bayat kareleri at | 300 | 166 ms |
+| D | **ffmpeg borusu** (`-fflags nobuffer -flags low_delay`) | 300 | 165 ms |
+| E | **gst-launch borusu** (`io-mode=2`, `sync=false`) | 300 | 167 ms |
+| F | **natif MJPG 640×480** | 300 | 165 ms |
+
+> ⛔⛔ **HÜKÜM: YAZILIM TARAFINDA ALINACAK YOL KALMADI.**
+> Altı yöntemin hepsi **1-2 ms** içinde aynı. Sürücü tamponu, kullanıcı
+> tarafı boşaltma, OpenCV'yi tamamen atlayan iki ayrı harici boru hattı,
+> ve sıkıştırılmış aktarım — **hiçbiri hiçbir şey değiştirmedi.**
+
+#### ⛔ ÇÜRÜYEN HİPOTEZ — USB aktarım süresi
+
+"640×480 YUYV = 614 KB/kare, USB 2.0'da ~18 ms sürer; MJPG'ye geçince
+~50 KB olur ve ~15 ms kazanırız" diye tahmin edilmişti. **ÇÜRÜDÜ:**
+MJPG kolu (F) tabanla aynı çıktı (165 vs 166 ms).
+
+Bunun anlamı: **darboğaz aktarımdan ÖNCE**, cihazın kendi
+sayısallaştırıcısında/tamponunda. Yükü küçültmek beklemeyi kısaltmıyor,
+çünkü bekleme iletimde değil.
+
+Bu, §6'daki ön teşhisi (kare varış düzeni: kuyruk sığ, %0 anlık kare)
+bağımsız olarak **doğruluyor**. İki farklı yöntem aynı sonuca vardı.
+
+**Dağılım dar** (%10-%90 arası yalnız ~30 ms): gecikme kararlı ve
+sabit — rastgele takılma değil, **yapısal**.
+
+#### 🔢 Kalan 166 ms nerede
+
+| adım | tahmin | dayanak |
+|---|---|---|
+| kamera pozlama + kompozit kodlama | 10-20 ms | tipik analog FPV kamera |
+| NTSC kare bütünlenmesi | ~33 ms | 29.97 fps, yapısal, kaçınılmaz |
+| **VRX dongle iç tamponu** | **~90 ms** | ⭐ **kalan pay — baskın kalem** |
+| monitör + pencere yöneticisi | 20-25 ms | güdüm bunu ÖDEMEZ |
+
+**Güdümün gerçekte ödediği: ~140 ms.**
+Tam döngü: 140 + YOLO(~15) + komut 40 Hz(25) + link(10+7) ≈ **200 ms**.
+
+#### Sıradaki seçenekler — ikisi KAPANDI, biri kaldı
+
+| yol | durum |
+|---|---|
+| Yazılım/sürücü/boru hattı ayarları | ⛔ **TÜKENDİ** — 6 yöntem, 1800 ölçüm, fark yok |
+| Başka VRX donanımı | ⛔ **YOK** — yarışmada donanım değiştirilemiyor |
+| ⭐ **Gecikme telafisi** (50 Hz telemetriyle ileri kestirim) | ✅ **TEK KALAN YOL** |
+
+⭐ Telemetri **50 Hz ve taze**, video **140 ms bayat**. Kareyi işlerken
+kullanılacak duruş "şu anki" değil, **kare çekildiği andaki** duruş
+olmalı; sonra o kerteriz taze telemetriyle bugüne taşınmalı. Mevcut
+"köprü" mekanizması (`kerteriz_piksel`) bunun tohumu.
+
+### 5.1 · İLK (kaba) ÖLÇÜM: ~200 ms — elle, kronometreyle
 
 Kronometre yöntemi (ekranda milisaniyeli kronometre → kamera ona bakıyor →
 yakalanan karedeki sayı ile canlı sayı karşılaştırıldı):
@@ -292,8 +436,8 @@ olduğu için bu, menzilin YARISI kadar hata demektir.
 | 1 | kamera pozlama + okuma + kompozit kodlama | 10-20 ms | veri sayfası bilinmiyor |
 | 2 | VTX modülasyon + RF + VRX demodülasyon | **< 1 ms** | analog anlıktır |
 | 3 | PAL kare bütünlenmesi | **20-40 ms** | yapısal, kaçınılmaz (25 fps) |
-| 4 | **MS210x sayısallaştırma + iç tampon** | **40-120 ms** | ⭐ en büyük şüpheli |
-| 5 | **V4L2 sürücü kuyruğu** (varsayılan 4 tampon) | **0-160 ms** | ⭐ BEDAVA düzeltilebilir |
+| 4 | **VRX dongle sayısallaştırma + iç tampon** | **~90 ms** | ⭐ ÖLÇÜLDÜ: BASKIN KALEM |
+| 5 | V4L2 sürücü kuyruğu | **~0 ms** | ⛔ ÖLÇÜLDÜ (§5.0): katkısı YOK |
 | 6 | OpenCV grab + renk çevrimi | 3-8 ms | |
 | 7 | ekrana basma (monitör + pencere yöneticisi) | **16-40 ms** | ⚠ GÜDÜM BUNU ÖDEMEZ |
 
@@ -322,6 +466,67 @@ Orta değerler toplamı ~196 ms — ölçülen 200 ms ile tutarlı.
    4. o kerterizi bugüne kadar taze telemetriyle ileri taşı
 
    Mevcut "köprü" mekanizmanız (`kerteriz_piksel`) bunun tohumu.
+
+---
+
+## 5.5 · ⭐ AŞAMA 1 — bayatlığın gerçek bedeli (2026-08-27, çevrimdışı)
+
+`araclar/olcum/08_bayatlik_olc.py` · 7 koşu, 657 ardışık kutu çifti
+
+**Soru:** kareyi 145 ms geç işlersek hedef kadrajda ne kadar kaymış olur?
+**Yöntem:** model değil DOĞRUDAN ölçüm — ardışık iki tespit arasında
+kutunun kaç piksel kaydığına bakıldı, 145 ms'e ölçeklendi. Sonuçlar
+AÇI olarak verildi (çözünürlükten bağımsız).
+
+| | medyan | %90 | %95 | en kötü |
+|---|---|---|---|---|
+| yatay | **0.30°** | 1.17° | 1.76° | 6.43° |
+| dikey | **0.97°** | 2.59° | 3.38° | 8.09° |
+
+Gerçek kamerada (640×480, fx=171.3): yatay medyan **0.9 px**, %90 3.5 px.
+
+**Hedefin kendi boyutuyla kıyas** (asıl anlamlı ölçü):
+
+| menzil | n | %90 kayma (px) | kutu genişliği (px) | oran |
+|---|---|---|---|---|
+| 0-5 m | 38 | 13.8 | 125.6 | **0.11** |
+| 5-8 m | 48 | 5.5 | 48.3 | **0.11** |
+| 8-15 m | 250 | 3.7 | 27.3 | **0.13** |
+| 15-25 m | 274 | 2.7 | 15.7 | 0.17 |
+| 25-60 m | 47 | 3.7 | 7.4 | 0.50 |
+
+⭐ **Angajman bandında (0-15 m) bayat kutu, hedefin kendi genişliğinin
+yalnız %11-13'ü kadar kayıyor.** Yani 145 ms eski bir kutu hâlâ hedefin
+İÇİNİ gösteriyor.
+
+### ⛔ ÇÜRÜYEN KENDİ HÜKMÜM
+
+"118 °/s dönüş × 0.145 s = **16.5° nişan hatası**, 5 m'de 1.4 m ıska"
+demiştim. **ÇOK KARAMSARDI.** 118 °/s aracın *yapabildiği* azami dönüş;
+gerçekte ölçülen yatış hızı medyan **3 °/s**, %90 **16 °/s**. Yani
+145 ms'de yatış değişimi medyan 0.4°, %90 2.3°.
+
+### ⚠ AMA BU SORUYU KAPATMIYOR — üç sınır
+
+1. **Kapalı çevrim etkisi ölçülemedi.** Bu loglar gecikmesiz simden.
+   Döngüye 145 ms girince araç SALINABİLİR (gecikmeli geri besleme),
+   salınım da kaymayı büyütür. Bu geri besleme etkisi çevrimdışı
+   analizde **görünmez**.
+2. **Örnekleme yetersiz (§5.3).** `cikarim.csv` 9.2 Hz (108 ms), ölçülen
+   pencere 145 ms → oran 1.3, §5.3'ün istediği 5 kat değil. Hızlı
+   geçişler görünmüyor → sayı ALT SINIR.
+3. **Geçerlilik eşi (§5.2).** Δ yalnız kutu İKİ karede de varken
+   hesaplandı; tespitin koptuğu %45'lik kısım elendi ve onlar
+   muhtemelen en hareketli anlar → yine ALT SINIR.
+
+### Bundan çıkan karar
+
+Gecikme telafisi **acil değil, ama gerekli olup olmadığı bilinmiyor.**
+Doğru sıradaki soru "telafiyi nasıl yazarız" değil:
+
+> **"145 ms gecikme, kapalı çevrimde gerçekten zarar veriyor mu?"**
+
+Cevabı yalnız sime gecikme enjekte edip uçmak verir (§5.6).
 
 ---
 

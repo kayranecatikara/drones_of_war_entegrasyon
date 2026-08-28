@@ -106,6 +106,23 @@ class Ayar:
     GORUS_ISP       = _b("DOW_GORUS_ISP", False)
     PANEL_OLCEK     = _f("DOW_PANEL_OLCEK", 0.5)   # JPEG'e giden küçültme
 
+    # ⭐ SAHTE VİDEO GECİKMESİ — TEST DÜZENEĞİ, güdüm özelliği DEĞİL.
+    #
+    # NEDEN VAR: gerçek donanımda video zinciri ÖLÇÜLDÜ (2026-08-27,
+    #   1800 örnek, altı farklı yöntem): ~166 ms, ve yazılımla
+    #   düşürülemiyor (bkz. docs/GERCEK_SISTEM.md §5.0). Güdümün ödediği
+    #   pay ~145 ms. Simde bu gecikme YOK — yani sim, gerçekten daha kolay
+    #   bir problem çözüyor ve ölçtüğümüz her şey iyimser.
+    #
+    # NE YAPAR: yakalanan kareyi bu kadar milisaniye BEKLETİR, sonra
+    #   güdüme verir. Kare zaman damgası (`kare_t`) DÜRÜST kalır —
+    #   yani `vis_yas` ölçütü gecikmeyi görür (§5.1 mekanizma kapısı),
+    #   ama güdüm telafi ALMAZ (`kare_t` güdüme girmiyor, ana.py:119).
+    #
+    # ⚠ 0 iken kod yolu TAMAMEN atlanır: taban kolu bugünküyle BİT BİT
+    #   aynı kalır (tests/test_dow.py B52 bunu sınar).
+    SAHTE_GECIKME_MS = _f("DOW_SAHTE_GECIKME_MS", 0.0)
+
     # ================= KALKIŞ =================
     KALKIS_ALT_M   = _f("DOW_KALKIS_ALT", 45.0)   # zemine göreli
     KALKIS_VZ      = _f("DOW_KALKIS_VZ", 12.0)

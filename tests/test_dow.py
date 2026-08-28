@@ -1128,3 +1128,58 @@ def test_B51_fp16_acik_ve_gercekten_uygulanir():
     assert "ab.fp16" in k and ("half()" in k or "ab.half" in k), \
         "fp16 AutoBackend'e uygulanmiyor -> predict(half=) sessizce yok sayilir"
     assert "self._fp16" in k, "mekanizma sutunu (_fp16) guncellenmiyor (§5.1)"
+
+
+def test_B52_sahte_gecikme_kapaliyken_kod_yolu_atlanir():
+    """⭐ SAHTE VIDEO GECIKMESI (2026-08-27) — TEST DUZENEGI, gudum ozelligi
+    DEGIL. Gercek donanimda video zinciri ~166 ms olculdu (1800 ornek, alti
+    yontem) ve yazilimla dusurulemiyor. Sim'de gecikme YOK; bu tampon o
+    farki simde taklit eder.
+
+    BU BEKCI UC SEYI SINAR:
+
+    1) VARSAYILAN KAPALI. Taban kolu bugunkuyle bit bit ayni kalmali.
+    2) KAPALIYKEN TAMPON HIC KURULMAZ — `_gorus_isi` icinde
+       `_tampon = ... if _gec_ms > 0 else None`, yani 0 iken kod yolu
+       tamamen atlanir (yalnizca "hizli don" degil, NESNE BILE YOK).
+    3) ⛔ EN YAKIN kare secilir, "yasi >= gecikme olan en yeni" DEGIL.
+       Birim test bu hatayi yakalamisti: yakalama 15 Hz (66.7 ms/kare)
+       oldugu icin ">=" kurali 145 ms istenirken 200 ms uyguluyordu —
+       deney kolu gercek gecikmeden %38 daha zorlu olurdu ve "gecikme
+       zararli" diye YANLIS hukum cikabilirdi.
+    """
+    import collections
+    from dow.ayarlar import Ayar
+
+    # 1) varsayilan kapali
+    assert float(Ayar.SAHTE_GECIKME_MS) == 0.0, \
+        "sahte gecikme varsayilan olarak ACIK -> taban kolu kirlenir"
+
+    kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    kod = open(os.path.join(kok, "araclar/kosu.py"), encoding="utf-8").read()
+
+    # 2) kapaliyken nesne kurulmuyor
+    assert "if _gec_ms > 0 else None" in kod, \
+        "gecikme 0 iken tampon yine de kuruluyor -> taban kolu bit bit ayni degil"
+
+    # 3) en yakin kare kurali + mekanizma sutunu
+    bas = kod.index("class _GecikmeTampon:")
+    son = kod.index("def _gorus_isi(det):")
+    ns = {"collections": collections}
+    exec(kod[bas:son], ns)
+    T = ns["_GecikmeTampon"]
+
+    t = T(0.145)
+    for i in range(40):                     # 15 Hz yakalama
+        img, _ = t.koy_al("K%02d" % i, i * (1.0 / 15.0))
+    ort = t.ozet()[0]
+    kararli = t.yaslar[10:]
+    ort_kararli = sum(kararli) / len(kararli)
+    assert 100.0 < ort_kararli < 170.0, \
+        ("gerceklesen gecikme %.0f ms - istenen 145'ten cok uzak "
+         "(en yakin kare kurali bozulmus olabilir)" % ort_kararli)
+    assert ort > 0.0, "mekanizma sutunu (ozet) sifir donuyor (§5.1)"
+
+    # mekanizma sutunu ozette raporlaniyor mu
+    assert '"sahte_gec_ms"' in kod, \
+        "GERCEKLESEN gecikme kosu ozetine yazilmiyor -> §5.1 mekanizma kapisi yok"

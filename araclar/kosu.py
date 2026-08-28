@@ -28,6 +28,7 @@ import threading
 import time
 
 import numpy as np
+import collections
 import mss
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -83,6 +84,49 @@ _gorus = {"img": None, "t": 0.0, "n": 0, "tespit": None,
           "beyin": None, "bekleyen": []}
 
 
+class _GecikmeTampon:
+    """Kareyi N ms BEKLETİR — gerçek video zincirini simde taklit eder.
+
+    NASIL: yakalanan her kare (zaman, görüntü) olarak kuyruğa girer.
+    Dışarı, YAŞI >= gecikme olan EN YENİ kare verilir. Yani sistem her
+    zaman "gecikme kadar eski" bir dünyayı görür — tıpkı gerçek analog
+    zincirde olduğu gibi.
+
+    ⚠ İlk `gecikme` kadar süre boyunca kuyrukta yeterince eski kare
+      yoktur; o sırada EN ESKİ kare verilir (kalkış fazı, güdüm zaten
+      görsel değil).
+
+    ⛔ HEDEF YAŞA **EN YAKIN** KARE SEÇİLİR, "yaşı >= gecikme olan en yeni"
+      DEĞİL. Birim test bu hatayı yakaladı (2026-08-27): yakalama 15 Hz
+      (66.7 ms/kare) olduğu için ">=" kuralı hep bir kare fazla geriye
+      gidiyordu ve 145 ms istenirken **200 ms** uyguluyordu. Yani deney
+      kolu, ölçtüğümüz gerçek gecikmeden %38 daha zorlu bir koşulu
+      sınayacaktı ve "gecikme zararlı" diye YANLIŞ hüküm çıkabilirdi.
+      "En yakın" kuralında yaş 145 ± 33 ms salınır, ORTALAMASI 145'tir.
+
+    Dönüş: (görüntü, o karenin GERÇEK yakalanma anı).
+    """
+
+    def __init__(self, gecikme_s):
+        self.gecikme = float(gecikme_s)
+        self.kuyruk = collections.deque(maxlen=64)
+        self.yaslar = []                 # §5.1 mekanizma: GERÇEKLEŞEN yaş
+
+    def koy_al(self, img, t):
+        self.kuyruk.append((t, img))
+        hedef = t - self.gecikme
+        secili = min(self.kuyruk, key=lambda k: abs(k[0] - hedef))
+        self.yaslar.append((t - secili[0]) * 1000.0)
+        return secili[1], secili[0]
+
+    def ozet(self):
+        """Gerçekleşen gecikme (ms): ortalama, en az, en çok."""
+        if not self.yaslar:
+            return (0.0, 0.0, 0.0)
+        v = self.yaslar
+        return (sum(v) / len(v), min(v), max(v))
+
+
 def _gorus_isi(det):
     """Ekranı sabit hızda kopyala, dedektörü koştur, panele bas.
 
@@ -95,10 +139,24 @@ def _gorus_isi(det):
     son_det = 0.0
     son_gt = 0.0                       # görsel güdüm çıkarımı zamanlayıcısı
     dt_yak = 1.0 / max(1.0, Ayar.PANEL_YAKALA_HZ)
+    # ⭐ SAHTE GECİKME (test düzeneği, bkz. Ayar.SAHTE_GECIKME_MS).
+    #   0 ise tampon HİÇ KURULMAZ ve kod yolu tamamen atlanır.
+    _gec_ms = float(Ayar.SAHTE_GECIKME_MS)
+    _tampon = _GecikmeTampon(_gec_ms / 1000.0) if _gec_ms > 0 else None
+    if _tampon is not None:
+        print("[SAHTE GECİKME] %.0f ms istendi — kareler bekletiliyor" % _gec_ms,
+              flush=True)
+    with _gorus_kilit:
+        _gorus["tampon"] = _tampon
     while not _gorus_dur.is_set():
         t = time.time()
         img = grab_bgr(sct)                     # sürekli BGR (ultralytics BGR bekler)
         pk = hud_parlak(img[850:1060, 80:320])   # kanal sırasından bağımsız
+        # ⚠ HUD kapısı TAZE kareden okunur (uçuş/spawn denetimi, güdüm değil).
+        #   Güdüme giden kare aşağıda geciktirilir.
+        kare_t = t
+        if _tampon is not None:
+            img, kare_t = _tampon.koy_al(img, t)
         # Görsel güdüm AÇIKKEN dedektörü BURADA koşturmayız — kontrol döngüsü
         # zaten koşturuyor; iki YOLO = oyunu aç bırakan hatanın ta kendisi.
         det_kostu = (det is not None and Ayar.DEDEKTOR_GOSTER
@@ -117,7 +175,7 @@ def _gorus_isi(det):
         _g_tespit = None
         if _g_kostu:
             son_gt = t
-            _g_tespit = _beyin.gorsel_tik(img, t, t)
+            _g_tespit = _beyin.gorsel_tik(img, t, kare_t)
             PANEL.fps_isaretle("dedektor")
             PANEL.tespit_isaretle(_g_tespit is not None)
         with _gorus_kilit:
@@ -130,7 +188,7 @@ def _gorus_isi(det):
             if _g_kostu:
                 # tani ANLIK GÖRÜNTÜSÜ — kontrol döngüsü CSV satırını kurar
                 _gorus["bekleyen"].append((t, _g_tespit, dict(_beyin.tani)))
-            _gorus["img"] = img; _gorus["t"] = t; _gorus["n"] += 1
+            _gorus["img"] = img; _gorus["t"] = kare_t; _gorus["n"] += 1
             _gorus["hud"] = pk
             # ⛔ TESPİT YAŞAR: yakalama 15 Hz, çıkarım 5 Hz. Çıkarımın
             #   koşmadığı karelerde kutuyu SİLMEK, kayıt karelerinin 2/3'ünü
@@ -811,6 +869,10 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
     if ckayit: ckayit.kapat()
     beyin.b.komut(beyin.cev._vz_cubuk(0.0), 0.0, 0.0, 0.0, True)
     a = np.array(ist_hatalar) if ist_hatalar else np.array([np.nan])
+    with _gorus_kilit:
+        _tmp = _gorus.get("tampon")
+    _sahte_gec_ort = _tmp.ozet()[0] if _tmp is not None else 0.0
+
     return {
         "sure": round(_sure_ger, 1), "tik": n, "tik_hz": round(_tik_hz, 1),
         "ihlal": ihlal or "-",
@@ -831,6 +893,12 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
         "drone_yasadi": int(ihlal not in ("drone_yok",)),
         "devir_s": round(devir_t, 1) if devir_t else -1,
         "devir_menzil": round(devir_menzil, 1) if devir_menzil else -1,
+        # §5.1 MEKANİZMA SÜTUNU — sahte gecikme GERÇEKTEN uygulandı mı.
+        #   İstenen değil, GERÇEKLEŞEN yaş yazılır. Yakalama 15 Hz olduğu
+        #   için gerçekleşen değer 66.7 ms'nin katlarına yuvarlanır
+        #   (145 istenince 133 uygulanır). Deney kolunda bu sütun 0 ise
+        #   o koşu VERİ NOKTASI DEĞİL, GEÇERSİZ koşudur.
+        "sahte_gec_ms": round(_sahte_gec_ort, 1),
         "gorsel_tik": gorsel_tik_say,
         "gorsel_s": round(gorsel_tik_say / max(1e-6, _tik_hz), 1),
         "gorsel_tespit_yuzde": round(100.0 * tespit_say / max(1, gorsel_tik_say), 1),
