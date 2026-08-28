@@ -35,9 +35,28 @@ if KOK not in sys.path:
     sys.path.insert(0, KOK)
 
 KOL_ADI = {"K": "KAPALI — bugünkü hal (görsel temas -> doğrudan vuruş)",
-           "A": "AÇIK   — kilit fazı: mesafe tut, 5 s kilit biriktir, sonra vuruş",
-           "V1": "SERT regülatör — KFWD .35 · IMAX 8 · VMIN 0 · VMAX 28 · SLEW yok",
-           "V2": "YUMUŞAK regülatör — KFWD .10 · IMAX 22 · VMIN 12 · VMAX 33 · SLEW 20"}
+           "A": "AÇIK   — kilit fazı: mesafe tut, 5 s kilit biriktir, sonra vuruş"}
+
+
+def kol_adlari(dizin):
+    """⛔ ETİKETLER KAMPANYA KAYDINDAN OKUNUR, KODA GÖMÜLMEZ.
+    Betik artık KOL1/KOL2 ile dışarıdan besleniyor; sabit yazılmış bir
+    açıklama bir sonraki kampanyada YANLIŞ raporlar (2026-08-28'de tam bu
+    olacaktı: KREG24'te V1=sert idi, KAZ24'te V1=K0.10)."""
+    ad = dict(KOL_ADI)
+    yol = os.path.join(KOK, dizin + ".kampanya.log")
+    if not os.path.exists(yol):
+        yol = os.path.join(os.path.dirname(os.path.join(KOK, dizin)),
+                           os.path.basename(dizin) + ".kampanya.log")
+    try:
+        for satir in open(yol):
+            s = satir.strip()
+            for kol, on in (("V1", "V1 ->"), ("V2", "V2 ->")):
+                if s.startswith(on):
+                    ad[kol] = s.split("->", 1)[1].strip()
+    except Exception:
+        pass
+    return ad
 
 
 def _f(r, k, v=None):
@@ -99,6 +118,7 @@ def main():
                      if os.path.isdir(d)) if x]
     if not R:
         print("⛔ koşu yok: %s" % a.dizin); return
+    ADLAR = kol_adlari(a.dizin)
 
     print("=" * 84)
     print("  KİLİT FAZI KAMPANYASI — %s   (n=%d)" % (a.dizin, len(R)))
@@ -150,7 +170,7 @@ def main():
             if not g:
                 continue
             n = len(g)
-            print("\n   %s  n=%d   %s" % (kol, n, KOL_ADI.get(kol, "")))
+            print("\n   %s  n=%d   %s" % (kol, n, ADLAR.get(kol, "")))
             if n < 4:
                 print("     ⚠ n<4 — ARA VERİ, hüküm cümlesi kurulmaz (§5.4)")
             kl = sum(x["kilit"] for x in g)

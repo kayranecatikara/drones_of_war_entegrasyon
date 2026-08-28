@@ -1196,7 +1196,8 @@ def test_B52_terminal_istisnasi_KAPALIYKEN_BIT_BIT_AYNI():
                 f"bağlamsız çağrı eski davranıştan sapti ({px} px)"
             C.TERMINAL_AKTIF = False
             assert ibvs.gecerli(960, 540, px, px * 0.8, 0.9,
-                                son_w=px / 1.5, son_yas=0.1) == bekle, \
+                                son_w=ibvs.olcu(px / 1.5, px * 0.8 / 1.5)[0],
+                                son_yas=0.1) == bekle, \
                 f"kill-switch KAPALIYKEN istisna calisti ({px} px)"
             C.TERMINAL_AKTIF = True
     finally:
@@ -1204,18 +1205,27 @@ def test_B52_terminal_istisnasi_KAPALIYKEN_BIT_BIT_AYNI():
 
     # --- 2) ÇAKILMA KORUMASI DURUYOR ---
     #   140 m'de YOKTAN beliren dev kutu: son kutu ya yok ya kucuk.
+    # ⛔ `son_w` BIR OLCUDUR, HAM GENISLIK DEGIL. `gecerli()` yeni kutunun
+    #   OLCUSUNU (max ya da kosegen) onunla kiyasliyor; ham genislik yazmak
+    #   kosegen kipinde ~%6'lik sahte bir buyume yaratir ve Ö-A istisnasi
+    #   calismaz gorunur (2026-08-28'de tam bu oldu). Uretimde de ana.py
+    #   `ibvs.olcu(...)` ile besliyor — test onunla AYNI dili konusmali.
+    def _o(w, h):
+        return ibvs.olcu(w, h)[0]
     ok, sebep = ibvs.gecerli(960, 540, 498, 398, 0.9, son_w=None, son_yas=None)
     assert not ok and sebep == "menzil_yakin", \
         "bağlamsız dev kutu KABUL edildi — çakılma koruması delinmiş"
-    ok, sebep = ibvs.gecerli(960, 540, 498, 398, 0.9, son_w=40, son_yas=0.1)
+    ok, sebep = ibvs.gecerli(960, 540, 498, 398, 0.9,
+                             son_w=_o(40, 32), son_yas=0.1)
     assert not ok and sebep == "menzil_yakin", \
         "40 px -> 498 px SIÇRAMA kabul edildi — dev yanlış-pozitif geçiyor"
-    ok, sebep = ibvs.gecerli(960, 540, 498, 398, 0.9, son_w=300, son_yas=99.0)
+    ok, sebep = ibvs.gecerli(960, 540, 498, 398, 0.9,
+                             son_w=_o(300, 240), son_yas=99.0)
     assert not ok and sebep == "menzil_yakin", \
         "BAYAT bağlamla kabul edildi — süreklilik koşulu işlemiyor"
 
     # --- 3) SÜREKLİ BÜYÜME KABUL EDİLİR ---
-    ok, sebep = ibvs.gecerli(960, 540, 498, 398, 0.9, son_w=300,
+    ok, sebep = ibvs.gecerli(960, 540, 498, 398, 0.9, son_w=_o(300, 240),
                              son_yas=min(0.2, C.KOPRU_S))
     assert ok and sebep == "terminal", \
         "sürekli büyüyen terminal kutu HÂLÂ reddediliyor — Ö-A çalışmıyor"
@@ -1626,13 +1636,15 @@ def test_B63_kilit_fazi_KAPALIYKEN_BIT_BIT_AYNI():
                                         0.0, 0.02, denge_boyut_px=None)
         assert t_eski["ibvs_hata_px"] == t_ayni["ibvs_hata_px"]
         assert t_eski["ibvs_v"] == t_ayni["ibvs_v"]
+        # ⚠ SABİTİ KODA GÖMME: menzil ölçüsü "max"/"kosegen" olabilir ve
+        #   her birinin KENDİ sabiti var. Doğru kıyas O ANKİ ölçünün sabiti.
         assert abs(t_eski["ibvs_denge_px"]
-                   - ibvs.KAM.MENZIL_C / ibvs.IbvsCfg.HUCUM_MENZIL_M) < 1e-9
+                   - ibvs.olcu(1.0, 0.0)[1] / ibvs.IbvsCfg.HUCUM_MENZIL_M) < 1e-9
 
     # 2) denge_boyut_px verilince GERCEKTEN degisiyor (mekanizma kapisi §5.1)
     _, _, _, _, t_kilit = ibvs.komut(960, 540, 140.0, 56.0, 0.0, -2.0, 3.0,
                                      0.0, 0.02,
-                                     denge_boyut_px=ibvs.KAM.MENZIL_C / 6.0)
+                                     denge_boyut_px=ibvs.olcu(1.0, 0.0)[1] / 6.0)
     _, _, _, _, t_term = ibvs.komut(960, 540, 140.0, 56.0, 0.0, -2.0, 3.0,
                                     0.0, 0.02)
     assert t_kilit["ibvs_v"] < t_term["ibvs_v"], \
@@ -1883,3 +1895,61 @@ def test_B70_regulator_ANTIWINDUP_ve_GPS_ALMAZ():
     assert I_doymus < Ayar.KILIT_I_MAX - 1e-9, \
         f"anti-windup calismadi, I tavana yapisti: {I_doymus}"
     assert r.doyum > 100, "doyum sayaci islememis (mekanizma sutunu §5.1)"
+
+
+# ===================================================================== B71
+#  MENZİL ÖLÇÜSÜ: max(w,h) vs KÖŞEGEN (2026-08-28)
+# =============================================================================
+
+def test_B71_menzil_olcusu_max_iken_BIT_BIT_AYNI_kosegen_YATISA_DAYANIKLI():
+    """(a) KILL-SWITCH: MENZIL_OLCU="max" iken davranis BIREBIR eskisi.
+       (b) TEK KAYNAK: komut() ve gecerli() AYNI olcuyu kullanmali; yoksa
+           menzil kapisi ile gudum birbirini tutmaz.
+       (c) TASARIM IDDIASI: kosegen, DUZ ucusta max ile ayni menzili verir
+           (tek degisken korunur) ama hedef YATIKKEN daha az sisirir.
+
+    OLCULEN ORANLAR (KREG24+KILIT16, 12750 tespit karesi), olcu x R:
+       yatis duz   max 951  kosegen 1005      yatis >32  max 845  kosegen 985
+    """
+    import math
+    from dow.gudum import ibvs
+    from dow.gorus import kamera as KAM
+    C = ibvs.IbvsCfg
+    eski = C.MENZIL_OLCU
+    try:
+        # --- (a) "max" -> eski davranis ---
+        C.MENZIL_OLCU = "max"
+        for w, h in ((100.0, 34.0), (60.0, 20.0), (300.0, 160.0)):
+            b, c = ibvs.olcu(w, h)
+            assert b == max(w, h) and c == KAM.MENZIL_C
+            _, _, _, _, ti = ibvs.komut(960, 540, w, h, 0.0, -2.0, 3.0, 0.0, 0.02)
+            assert abs(ti["ibvs_boyut_px"] - max(w, h)) < 1e-9
+            assert abs(ti["ibvs_menzil_m"] - KAM.MENZIL_C / max(w, h)) < 1e-9
+
+        # --- (b) gecerli() ayni olcuyu kullaniyor mu ---
+        import inspect
+        src = inspect.getsource(ibvs.gecerli)
+        assert "olcu(w, h, cfg)" in src, "gecerli() kendi olcusunu hesapliyor"
+
+        # --- (c) DUZ ucusta iki olcu AYNI menzili vermeli ---
+        R_ger = 10.0
+        w_duz, h_duz = 951.0 / R_ger, 320.0 / R_ger      # olculen oranlar
+        C.MENZIL_OLCU = "max"
+        b1, c1 = ibvs.olcu(w_duz, h_duz); r_max = c1 / b1
+        C.MENZIL_OLCU = "kosegen"
+        b2, c2 = ibvs.olcu(w_duz, h_duz); r_kos = c2 / b2
+        assert abs(r_max - r_kos) / r_max < 0.02, \
+            f"duz ucusta iki olcu ayrisiyor: {r_max:.2f} vs {r_kos:.2f}"
+
+        # --- (c2) YATIKTA kosegen DAHA AZ sismeli ---
+        w_yat, h_yat = 845.0 / R_ger, 468.0 / R_ger      # >32 derece
+        C.MENZIL_OLCU = "max"
+        b3, c3 = ibvs.olcu(w_yat, h_yat); sis_max = (c3 / b3) / R_ger
+        C.MENZIL_OLCU = "kosegen"
+        b4, c4 = ibvs.olcu(w_yat, h_yat); sis_kos = (c4 / b4) / R_ger
+        assert sis_kos < sis_max, \
+            f"kosegen sismeyi azaltmiyor: {sis_kos:.3f} >= {sis_max:.3f}"
+        assert sis_max - sis_kos > 0.05, \
+            f"kazanim onemsiz: {sis_max:.3f} -> {sis_kos:.3f}"
+    finally:
+        C.MENZIL_OLCU = eski

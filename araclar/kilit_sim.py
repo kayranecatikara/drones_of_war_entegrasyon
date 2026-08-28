@@ -212,12 +212,25 @@ def main():
              denge_px=MENZIL_C / 6.0, k_fwd=0.10, i_max=22.0,
              v_min=12.0, v_max=33.0, asimetrik=(fr, gz), antiwindup=True)
 
-    print("\n  [5] DENGE MESAFESİ TARAMASI (en iyi regülatörle)")
+    print("\n  [5] ⭐ KAZANÇ TARAMASI — yumuşaklığı SLEW sağlar, kazanç YETKİ verir")
+    print("      (uçuşta ölçüldü: K=0.10 ile uzaktayken komut 25.2, kapanma +0.6 m/s)")
+    for kf in (0.10, 0.18, 0.25, 0.35, 0.50):
+        dene("K=%.2f + I22 + vmin12 + vmax33 + slew20" % kf,
+             denge_px=MENZIL_C / 7.0, k_fwd=kf, i_max=22.0,
+             v_min=12.0, v_max=33.0, slew=20.0, antiwindup=True)
+
+    print("\n  [6] SLEW × KAZANÇ ETKİLEŞİMİ (K=0.35 sabit)")
+    for sl in (0.0001, 10.0, 20.0, 40.0, 80.0):
+        dene("K=0.35 · slew %5.0f m/s²" % sl,
+             denge_px=MENZIL_C / 7.0, k_fwd=0.35, i_max=22.0,
+             v_min=12.0, v_max=33.0, slew=sl, antiwindup=True)
+
+    print("\n  [7] DENGE MESAFESİ TARAMASI (K=0.35 · slew 20)")
     for m in (5.0, 6.0, 7.0, 8.0, 9.0):
         dene("denge %.1f m (kutu %3.0f px, gerçek ~%.1f m)"
              % (m, MENZIL_C / m, KUTU_C / (MENZIL_C / m)),
-             denge_px=MENZIL_C / m, k_fwd=0.10, i_max=22.0,
-             v_min=12.0, v_max=33.0, asimetrik=(6.0, 34.0), antiwindup=True)
+             denge_px=MENZIL_C / m, k_fwd=0.35, i_max=22.0,
+             v_min=12.0, v_max=33.0, slew=20.0, antiwindup=True)
 
 
 if __name__ == "__main__":

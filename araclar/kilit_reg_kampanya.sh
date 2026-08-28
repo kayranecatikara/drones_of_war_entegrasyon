@@ -30,21 +30,33 @@ IFS="," read -ra SEN_LISTE <<< "$SENARYOLAR"
 echo -n hibrit > .gudum_kipi
 mkdir -p "logs/$AD"
 
-V1_ENV=(DOW_KILIT_KFWD=0.35 DOW_KILIT_IMAX=8 DOW_KILIT_VMIN=0 DOW_KILIT_VMAX=28 DOW_KILIT_SLEW=0)
-V2_ENV=(DOW_KILIT_KFWD=0.10 DOW_KILIT_IMAX=22 DOW_KILIT_VMIN=12 DOW_KILIT_VMAX=33 DOW_KILIT_SLEW=20)
+# Kol tanimlari DISARIDAN verilebilir (KOL1/KOL2 ortam degiskeni, bosluklu).
+# Verilmezse varsayilan: sert (V1) vs yumusak (V2) regulator kiyasi.
+if [ -n "${KOL1:-}" ]; then read -ra V1_ENV <<< "$KOL1"; else
+  V1_ENV=(DOW_KILIT_KFWD=0.35 DOW_KILIT_IMAX=8 DOW_KILIT_VMIN=0 DOW_KILIT_VMAX=28 DOW_KILIT_SLEW=0)
+fi
+if [ -n "${KOL2:-}" ]; then read -ra V2_ENV <<< "$KOL2"; else
+  V2_ENV=(DOW_KILIT_KFWD=0.10 DOW_KILIT_IMAX=22 DOW_KILIT_VMIN=12 DOW_KILIT_VMAX=33 DOW_KILIT_SLEW=20)
+fi
 
 # ---- UCUS ONCESI KAPI: iki kol gercekten farkli mi cozuluyor? ----
-python3 - "${V1_ENV[@]}" "${V2_ENV[@]}" <<'PYEOF' || exit 1
+python3 - "${#V1_ENV[@]}" "${V1_ENV[@]}" "${V2_ENV[@]}" <<'PYEOF' || exit 1
 import os, subprocess, sys
 def oku(kv):
     e = dict(os.environ)
     for x in kv: k, v = x.split("=", 1); e[k] = v
+    # ⚠ KAPI, DENENEN HER AYARI BASMALI. 2026-08-28'de kosegen deneyinde
+    #   bu liste MENZIL_OLCU'yu icermiyordu ve kapi iki kolu AYNI sanip
+    #   kampanyayi bloke edecekti (ya da daha kotusu, fark gormeden gecirecekti).
     c = ("import sys;sys.path.insert(0,'.');from dow.ayarlar import Ayar as A;"
-         "print('KFWD=%.2f IMAX=%.0f VMIN=%.0f VMAX=%.0f SLEW=%.0f MENZIL=%.1f BOYUT%%=%.1f'"
+         "from dow.gudum.ibvs import IbvsCfg as I;"
+         "print('KFWD=%.2f IMAX=%.0f VMIN=%.0f VMAX=%.0f SLEW=%.0f MENZIL=%.1f "
+         "BOYUT%%=%.1f OLCU=%s'"
          "%(A.KILIT_K_FWD,A.KILIT_I_MAX,A.KILIT_V_MIN,A.KILIT_V_MAX,A.KILIT_SLEW,"
-         "A.KILIT_MENZIL_M,A.KILIT_BOYUT_YUZDE))")
+         "A.KILIT_MENZIL_M,A.KILIT_BOYUT_YUZDE,I.MENZIL_OLCU))")
     return subprocess.check_output([sys.executable, "-c", c], env=e).decode().strip()
-v1, v2 = oku(sys.argv[1:6]), oku(sys.argv[6:11])
+_n = int(sys.argv[1])
+v1, v2 = oku(sys.argv[2:2 + _n]), oku(sys.argv[2 + _n:])
 print("    V1 -> %s" % v1); print("    V2 -> %s" % v2)
 if v1 == v2:
     print("⛔⛔ IKI KOL AYNI COZULUYOR — kampanya BASLATILMADI."); sys.exit(1)

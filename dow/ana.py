@@ -163,7 +163,14 @@ class Beyin:
             cx, cy, w, h, conf = d
             # O-A: terminal sureklilik istisnasi icin SON KABUL EDILEN
             #   kutunun genisligi ve yasi gecilir. Ikisi de PIKSEL/ZAMAN (S10).
-            _sw = self._son_tespit[2] if self._son_tespit else None
+            # ⛔ ELMAYLA ELMA: `gecerli()` yeni kutunun ÖLÇÜSÜNÜ (max ya da
+            #   köşegen) `son_w` ile kıyaslıyor. Buraya son kutunun ham
+            #   GENİŞLİĞİNİ vermek, köşegen ölçüsüne geçince kıyası bozar:
+            #   köşegen genişlikten ~%6 büyüktür, büyüme kapısı sahte
+            #   olarak takılır ve Ö-A terminal istisnası ÇALIŞMAZ.
+            #   (2026-08-28'de tam bu oldu; bekçi B52 yakaladı.)
+            _sw = (ibvs.olcu(self._son_tespit[2], self._son_tespit[3])[0]
+                   if self._son_tespit else None)
             _sy = (t - self._son_tespit_t) if self._son_tespit else None
             ok, _sebep = ibvs.gecerli(cx, cy, w, h, conf, son_w=_sw, son_yas=_sy)
             if ok:
@@ -559,7 +566,11 @@ class Beyin:
                 if self.faz == "KILIT":
                     # AYARDAN PIKSELE cevrim BURADA, tek seferde. Iki sabitin
                     # bolumu; canli hicbir olcum girmiyor (S10 temiz).
-                    _dpx = ibvs.KAM.MENZIL_C / max(0.1, self.cfg.KILIT_MENZIL_M)
+                    # ⚠ Denge kutusu, O ANKİ MENZİL ÖLÇÜSÜNÜN sabitiyle
+                    #   kurulmalı; yoksa köşegene geçince denge noktası
+                    #   sessizce kayar (aynı metre, farklı piksel).
+                    _dpx = (ibvs.olcu(1.0, 0.0)[1]
+                            / max(0.1, self.cfg.KILIT_MENZIL_M))
                     _reg = self.kilit_reg
             (vx, vy), vz_ned, yaw_hedef, self.hiz_I, ti = ibvs.komut(
                 cx, cy, w, h, own_yaw, own_pitch, own_roll, self.hiz_I, dt,

@@ -98,6 +98,41 @@ class IbvsCfg:
                             # görüntüyü bulandırıp dedektörü kırar -> KORUNDU.
     YAW_OLU_BAND  = 1.0     # °; altında yaw komutu güncellenmez
 
+    # ⭐ MENZİL ÖLÇÜSÜ: "max" (kutunun uzun ekseni) | "kosegen" (köşegen)
+    #
+    # NEDEN SORU: menzil, benzer üçgenlerden `R = C/ölçü` ile çıkıyor ve bu
+    #   ölçünün MENZİLDEN BAŞKA HİÇBİR ŞEYE bağlı olmaması gerekiyor. Ama
+    #   hedef YATTIĞINDA kanat açıklığının kadraja izdüşümü kısalıyor.
+    #   ÖLÇÜLDÜ (KREG24+KILIT16, 12750 tespit karesi) — ölçü×R sabit KALMALI:
+    #        yatış      max(w,h)·R    köşegen·R
+    #        düz            951          1005
+    #        8-20°          913 (-4%)     974 (-3%)
+    #        20-32°         847 (-11%)    911 (-9%)
+    #        >32°           845 (-11%)    985 (-2%)   <- köşegen ÇOK daha iyi
+    #   Yani hedef sert yatışa girdiğinde `max(w,h)` menzili %18 şişiriyor;
+    #   güdüm "daha uzaktayım" sanıp tam gaz veriyor. Köşegende şişme %7.
+    #
+    # ⚠ DAHA ÖNCE DENENDİ VE GERİ ALINDI (kullanıcı, 2026-08-27): "menzil
+    #   ölçüsünün köşegene geçilmesinin çok bir etkisi yokmuş". O ölçüm DÜZ
+    #   uçuştaydı ve orada gerçekten fark YOK (yukarıdaki ilk satır). Fark
+    #   yalnız YATIKTA çıkıyor; bu yüzden bu kez `kademeli` senaryosunda,
+    #   yani tasarım zarfının içinde sınanıyor (§5.13).
+    #
+    # ⭐⭐ VARSAYILAN "kosegen" YAPILDI — 2026-08-28, KULLANICI ONAYIYLA.
+    #   KAMPANYA KOS24 (24 uçuş, n=6/kol/senaryo, dönüşümlü, tek değişken):
+    #     kademeli   KİLİT 0/6 -> 6/6 · KİLİTLİ VURUŞ 0/6 -> 6/6
+    #                erken temas 6 -> 0 · en iyi 10 s 1.73 s -> 5.97 s
+    #                vuruş sınıfı ŞANS 6/6 -> KONTROLLÜ 5/6
+    #     duz        KİLİT 6/6 = 6/6 · KİLİTLİ VURUŞ 6/6 = 6/6  (BOZULMA YOK)
+    #   Mekanizma sütunu (algılanan/gerçek menzil), hedefin yatışına göre:
+    #     yatış <8°   max 1.039   köşegen 1.052
+    #     yatış >32°  max 1.149   köşegen 1.055   <- şişmenin 2/3'ü kesildi
+    #   Bağımsız ikinci araç (araclar/kilit_olcu.py, ham cikarim.csv'den
+    #   şartname ölçütünü sıfırdan uygulayan) BİREBİR aynı sonucu verdi.
+    #
+    # ⛔ GERİ DÖNÜŞ: DOW_MENZIL_OLCU=max  (davranış bit bit eski hâl, bekçi B71)
+    MENZIL_OLCU   = os.environ.get("DOW_MENZIL_OLCU", "kosegen").strip().lower()
+
     #   ⭐ 4.0'a YÜKSELTİLDİ — ama YALNIZ K_CY 0.014'e düşürüldüğü için.
     #     Tek başına 4.0 (K_CY 0.06 ile) B8'de KAYBETMİŞTİ; ikisi birlikte
     #     kanalı oransal yapıyor. Bkz. K_CY notu.
@@ -384,6 +419,15 @@ class IbvsCfg:
     TERMINAL_BUYUME  = _fi("DOW_TERMINAL_BUYUME", 2.0)   # kat
 
 
+def olcu(w, h, cfg=IbvsCfg):
+    """Kutudan MENZİL ÖLÇÜSÜ ve ona ait sabit. TEK KAYNAK — `komut` ve
+    `gecerli` ikisi de burayı kullanır, yoksa biri max biri köşegen
+    hesaplayıp menzil kapısı ile güdüm birbirini tutmaz."""
+    if cfg.MENZIL_OLCU == "kosegen":
+        return math.hypot(w, h), KAM.MENZIL_C_KOSEGEN
+    return max(w, h), KAM.MENZIL_C
+
+
 def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
           hiz_I, dt, cfg=IbvsCfg, own_vz=0.0, denge_boyut_px=None,
           reg=None):
@@ -420,8 +464,8 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
     tani = {}
 
     # --- 1) MENZİL: kutu boyutundan (benzer üçgenler, p = C/R) ---
-    boyut = max(w, h)                      # köşegen yerine en büyük eksen
-    R = KAM.menzil(boyut) if boyut > 0 else None
+    boyut, _C = olcu(w, h, cfg)
+    R = (_C / boyut) if boyut > 0 else None
     tani["ibvs_boyut_px"] = boyut
     tani["ibvs_menzil_m"] = R if R else -1
 
@@ -444,7 +488,7 @@ def komut(cx, cy, w, h, own_yaw_deg, own_pitch_deg, own_roll_deg,
 
     # --- 5) HIZ: kutu boyutu hatası üzerinden PI ---
     # Denge kutusu = TEMAS kutusu -> hata hep pozitif, hız tavanda oturur.
-    hedef_boyut = (KAM.MENZIL_C / cfg.HUCUM_MENZIL_M if denge_boyut_px is None
+    hedef_boyut = (_C / cfg.HUCUM_MENZIL_M if denge_boyut_px is None
                    else max(1.0, float(denge_boyut_px)))
     hata_px = hedef_boyut - boyut
     if reg is None:
@@ -551,9 +595,9 @@ def gecerli(cx, cy, w, h, conf, cfg=IbvsCfg, son_w=None, son_yas=None):
     except Exception:
         pass
     if conf < esik: return False, "conf"
-    boyut = max(w, h)
+    boyut, _C = olcu(w, h, cfg)
     if boyut < cfg.BOYUT_MIN_PX: return False, "boyut"
-    R = KAM.menzil(boyut)
+    R = (_C / boyut) if boyut > 0 else None
     if R is None or R > cfg.MENZIL_MAX_M: return False, "menzil_uzak"
     if R < cfg.MENZIL_MIN_M:
         # ⭐ Ö-A TERMİNAL SÜREKLİLİK İSTİSNASI — bkz. IbvsCfg.TERMINAL_AKTIF.

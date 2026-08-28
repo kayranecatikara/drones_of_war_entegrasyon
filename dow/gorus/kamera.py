@@ -58,6 +58,16 @@ CX, CY = IMG_W/2.0, IMG_H/2.0
 TILT_DEG = 26.50        # ölçüldü; kamera ekseninin burna göre YUKARI açısı
 F_PX     = 540.4        # ölçüldü; fx = fy (kare piksel)
 MENZIL_C = 997.0        # px·m; R = MENZIL_C / kutu_genisligi
+# ⭐ KÖŞEGEN ÖLÇÜSÜ İÇİN AYRI SABİT (2026-08-28) — bkz. IbvsCfg.MENZIL_OLCU.
+#   TÜRETME (§0.2): sabit, DÜZ UÇUŞTA algılanan menzili DEĞİŞTİRMEYECEK
+#   şekilde seçildi; böylece iki ölçü arasındaki TEK fark YATIŞA
+#   DUYARLILIK olur (§4 tek değişken).
+#     ölçüldü (KREG24+KILIT16, |yatış|<8°):  max(w,h)·R = 951   köşegen·R = 1005
+#     C_köşegen = 997 · 1005/951 = 1053.6
+#   Sonuç — algılanan/gerçek menzil oranı:
+#     yatış  düz    max(w,h) 1.048x   köşegen 1.048x   (BİREBİR aynı)
+#     yatış >32°    max(w,h) 1.180x   köşegen 1.070x   (şişme %18 -> %7)
+MENZIL_C_KOSEGEN = 1053.6
 KANAT_M  = 1.718        # Talon kanat açıklığı (belge)
 
 HFOV_DEG = 2*math.degrees(math.atan(CX/F_PX))
