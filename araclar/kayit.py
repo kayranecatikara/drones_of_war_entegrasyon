@@ -55,6 +55,7 @@ class Kayit:
         # §5.1 MEKANİZMA SÜTUNLARI — özellik gerçekten devreye girdi mi?
         # Deney kolunda bunlar sıfırsa o koşu veri noktası değil, GEÇERSİZ.
         "kopru_kare", "telafi_px",   # ⭐ Ö-N §5.1 mekanizma sütunu
+        "yedek_kare", "yedek_leke", "yedek_px",   # ⭐ Ö-K §5.1
         "bayat_birak", "yerel_aday", "yerel_uygun",
         "ibvs_nisan_elev", "ibvs_vz_kirpildi", "ibvs_e_cy", "ibvs_vz_yukari",
     ]

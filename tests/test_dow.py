@@ -1749,3 +1749,200 @@ def test_B65_mekanizma_sutunlari_CSV_BASLIGINDA_DA_OLMALI():
         assert '"%s"' % sut in kayit, \
             ("%s kayit.py BASLIK listesinde YOK -> sutun meta.csv'de hic "
              "olusmaz ve mekanizma kapisi uygulanamaz (S5.1)" % sut)
+
+
+# ==============================================================================
+# Ö-K · YEDEK DEDEKTÖR (Kayra önerisi, 2026-08-28)
+# ==============================================================================
+
+def _ok_kare(lekeler, boy=(480, 720)):
+    """Turuncu lekelerden yapay BGR kare. lekeler: [(cx, cy, w, h), ...]"""
+    import numpy as np
+    im = np.zeros((boy[0], boy[1], 3), dtype=np.uint8)
+    im[:, :] = (200, 180, 160)                     # dogal olmayan ama NOTR zemin
+    for cx, cy, w, h in lekeler:
+        x0, y0 = int(cx - w / 2), int(cy - h / 2)
+        im[max(y0, 0):y0 + h, max(x0, 0):x0 + w] = (20, 60, 235)   # BGR turuncu
+    return im
+
+
+def test_B66_yedek_KAPALIYKEN_kopruye_DOKUNMAZ():
+    """⭐ §5.10 YAPISAL GARANTI — kill-switch kapaliyken bit bit ayni.
+
+    Ö-K, kesintide koprunun YONUNU tazeler. Kapaliyken kopru sozlugu
+    HIC DEGISMEMELI; degisirse taban kolu kirlenir ve A/B anlamsizlasir.
+    """
+    import math
+    from dow.gorus import yedek
+    from dow.ana import Beyin
+
+    assert yedek.YedekCfg.AKTIF is False, \
+        "Ö-K varsayilan ACIK -> taban kolu kirlenir (S6: varsayilani OLCUM belirler)"
+
+    class Sahte:
+        def __init__(self):
+            self._kopru = {"az": 10.0, "el": 5.0, "w": 60.0, "h": 30.0,
+                           "conf": 0.8, "t": 100.0}
+            self._yedek_say = 0; self._yedek_leke = 0; self._yedek_px = 0.0
+            self.b = self
+        def yonelim(self):
+            return (0.0, 0.0, 0.0)
+
+    s = Sahte()
+    once = dict(s._kopru)
+    Beyin._yedek_dene(s, _ok_kare([(360, 240, 60, 24)]), 100.1)
+    assert s._kopru == once, "KAPALIYKEN kopru degisti -> bit bit ayni DEGIL"
+    assert s._yedek_say == 0 and s._yedek_px == 0.0, \
+        "kapaliyken mekanizma sutunlari sifir olmali"
+
+
+def test_B67_yedek_KUTU_BOYUTUNA_ve_OMRE_ASLA_DOKUNMAZ():
+    """⛔ EN KRITIK BEKCI. Yedek YALNIZ yon yazar.
+
+    NEDEN w/h: menzil kutu boyutundan cikiyor (`ibvs.komut` -> KAM.menzil).
+      Yedegin gurultulu siluetini boyuta yazmak menzili -> hizi -> hucumu
+      bozardi. Kayra'nin 1. maddesi de zaten "son kutu boyutu DONDURULSUN".
+    NEDEN t: kopru omru SON GERCEK YOLO tespitinden sayilir. Yedek `t`yi
+      tazeleseydi yanlis bir kilit SONSUZA KADAR yasardi (kendi kendini
+      besleyen surukienme -- gercek kayitta olculdu: 410 karenin %22'si).
+    """
+    import math
+    from dow.gorus import yedek
+    from dow.ana import Beyin
+
+    class Sahte:
+        def __init__(self):
+            self._kopru = {"az": 0.0, "el": 0.0, "w": 60.0, "h": 30.0,
+                           "conf": 0.77, "t": 100.0}
+            self._yedek_say = 0; self._yedek_leke = 0; self._yedek_px = 0.0
+            self.b = self
+        def yonelim(self):
+            return (0.0, 0.0, 0.0)
+        def _kopru_kutu(self, oy, op, orl, t):
+            return (360.0, 240.0, 60.0, 30.0, 0.77)   # kadraj ortasi
+
+    yedek.YedekCfg.AKTIF = True
+    try:
+        s = Sahte()
+        # hedef koprunun ongordugu yerin 40 px SAGINDA
+        im = _ok_kare([(400, 240, 56, 22)])
+        Beyin._yedek_dene(s, im, 100.1)
+        assert s._yedek_say == 1, \
+            "yedek hic calismadi -> S5.1 mekanizma kapisi (leke=%d)" % s._yedek_leke
+        assert s._yedek_px > 5.0, "yedek_px %.1f -> yon tazelenmemis" % s._yedek_px
+        assert s._kopru["w"] == 60.0 and s._kopru["h"] == 30.0, \
+            "yedek KUTU BOYUTUNU degistirdi -> menzil bozulur"
+        assert s._kopru["t"] == 100.0, \
+            "yedek KOPRU OMRUNU tazeledi -> yanlis kilit sonsuza kadar yasar"
+        assert s._kopru["conf"] == 0.77, "yedek GUVEN skoru uydurdu"
+        assert s._kopru["az"] != 0.0, "yon tazelenmedi -> ozellik ATIL"
+    finally:
+        yedek.YedekCfg.AKTIF = False
+
+
+def test_B68_yedek_CIPA_BAYATSA_KOSMAZ():
+    """Kopru KOPRU_S'ten eskiyse yedek CALISMAZ.
+
+    Sebep: cipa bayatsa konum kapisi yanlis yere kurulur ve yedek cop bir
+    lekeye kilitlenip surukienir. Gercek kayitta olculdu: kendi ciktisina
+    dayanan kapi 410 karenin 91'inde (%22) catiya kilitlendi, en uzun olay
+    2.3 s / 510 px. Cipa daima YOLO'dan gelir, yedegin kendisinden DEGIL.
+    """
+    from dow.gorus import yedek
+    from dow.gudum import ibvs
+    from dow.ana import Beyin
+
+    class Sahte:
+        def __init__(self):
+            self._kopru = {"az": 0.0, "el": 0.0, "w": 60.0, "h": 30.0,
+                           "conf": 0.8, "t": 100.0}
+            self._yedek_say = 0; self._yedek_leke = 0; self._yedek_px = 0.0
+            self.b = self
+        def yonelim(self):
+            return (0.0, 0.0, 0.0)
+        def _kopru_kutu(self, oy, op, orl, t):
+            return (360.0, 240.0, 60.0, 30.0, 0.8)
+
+    yedek.YedekCfg.AKTIF = True
+    try:
+        s = Sahte()
+        im = _ok_kare([(400, 240, 56, 22)])
+        # KOPRU_S = 1.0 -> 2.5 s bayat
+        Beyin._yedek_dene(s, im, 100.0 + ibvs.IbvsCfg.KOPRU_S + 1.5)
+        assert s._yedek_say == 0, "cipa bayatken yedek kostu -> surukienme riski"
+    finally:
+        yedek.YedekCfg.AKTIF = False
+
+
+def test_B69_yedek_KAPILAR_olculen_esiklerle_calisiyor():
+    """`yedek.bul` uc kapisinin her biri AYRI AYRI sinanir.
+
+    Esikler gercek analog kayittan olculdu (dow/gorus/yedek.py basligi):
+      konum kapisi R=200 px          -> nisan dogrulugu %87.4
+      kume kutusu / beklenen [0.4, 2.5] -> kabul %90.2
+    """
+    from dow.gorus import yedek
+
+    ref = (360.0, 240.0, 60.0)          # kopru: merkez + beklenen genislik
+
+    # 1) TEK leke, tam yerinde -> bulunur
+    b = yedek.bul(_ok_kare([(360, 240, 56, 22)]), ref)
+    assert b is not None, "tek temiz leke bulunamadi"
+    assert abs(b[0] - 360) < 8 and abs(b[1] - 240) < 8, "merkez kaymis: %s" % (b,)
+
+    # 2) KONUM KAPISI: uzaktaki cop leke ORTALAMAYA GIRMEMELI
+    #    (Kayra'nin ham 'tum lekelerin ortalamasi' onerisi burada 57.6 px sapiyordu)
+    im = _ok_kare([(360, 240, 56, 22), (80, 60, 50, 50)])
+    b2 = yedek.bul(im, ref)
+    assert b2 is not None and abs(b2[0] - 360) < 15, \
+        "uzak cop leke nisan noktasini cekti: %s (konum kapisi calismiyor)" % (b2,)
+
+    # 3) KUME BOYUT KAPISI: kapinin ICINDE ama kumeyi cok buyuten leke -> RED
+    im3 = _ok_kare([(360, 240, 56, 22), (500, 240, 60, 60)])
+    assert yedek.bul(im3, ref) is None, \
+        "kume beklenen boyutun cok ustunde oldugu halde kabul edildi"
+
+    # 4) PARCALANMA: ucak govde+kanat diye bolunmusse BIRLESTIRILMELI
+    #    (tek tek boyut kapisi uygulansaydi %72 -> %48 kayip olurdu)
+    #    ⚠ parcalar ARALIKLI cizilir; bitisik cizilirse bagli bilesen
+    #      zaten tek leke sayar ve test kendi kendini kandirir.
+    im4 = _ok_kare([(332, 240, 16, 10), (360, 240, 12, 20), (388, 240, 16, 10)])
+    b4 = yedek.bul(im4, ref)
+    assert b4 is not None, "parcalanmis hedef reddedildi -> boyut kapisi TEK TEK"
+    assert b4[2] == 3, "parcalar birlestirilmedi (leke=%s)" % (b4[2],)
+    assert abs(b4[0] - 360) < 8, "birlesik merkez kaymis: %s" % (b4,)
+
+    # 5) HIC leke yok -> None (bu durumda kopru dokunulmadan kalir)
+    import numpy as np
+    assert yedek.bul(np.zeros((480, 720, 3), dtype=np.uint8), ref) is None
+
+
+def test_B70_yedek_mekanizma_sutunlari_CSV_BASLIGINDA_DA_OLMALI():
+    """B65'in Ö-K icin tekrari — ayni hata iki kez yasanmasin."""
+    kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    kosu = open(os.path.join(kok, "araclar/kosu.py"), encoding="utf-8").read()
+    kayit = open(os.path.join(kok, "araclar/kayit.py"), encoding="utf-8").read()
+    for sut in ("yedek_kare", "yedek_leke", "yedek_px"):
+        assert '"%s"' % sut in kosu, "%s kosu.py listesinde YOK" % sut
+        assert '"%s"' % sut in kayit, "%s kayit.py BASLIK listesinde YOK" % sut
+
+
+def test_B71_yedek_ROI_ofseti_TAM_KADRAJ_koordinati_dondurur():
+    """ROI hizlandirmasi sonucu DEGISTIRMEMELI (S5.10 yapisal denklik).
+
+    `bul` gecikme kisiti yuzunden yalnizca kapinin cevresini tarar
+    (1920x1080'de 12.71 ms -> 0.99 ms, 13 KAT). Ama cikti DAIMA tam kadraj
+    koordinatinda olmali; ofset unutulursa gudum kadrajin SOL UST kosesine
+    nisan alir ve hata SESSIZDIR (kutu yine "bulunmus" gorunur).
+
+    GERCEK KAYITTA DOGRULANDI: ROI oncesi/sonrasi ucu de bit bit ayni
+    (%88.9 kapsama / %91.4 isabet / %81.2 toplam).
+    """
+    from dow.gorus import yedek
+
+    # hedef kadrajin SAG ALT bolgesinde -> ROI ofseti buyuk
+    for hx, hy in ((620, 400), (60, 60), (360, 240)):
+        b = yedek.bul(_ok_kare([(hx, hy, 40, 18)]), (float(hx), float(hy), 44.0))
+        assert b is not None, "temiz hedef (%d,%d) bulunamadi" % (hx, hy)
+        assert abs(b[0] - hx) < 10 and abs(b[1] - hy) < 10, \
+            "ROI ofseti uygulanmamis: hedef (%d,%d) -> donen %s" % (hx, hy, b[:2])

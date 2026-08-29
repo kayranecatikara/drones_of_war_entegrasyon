@@ -913,6 +913,7 @@ def kosu_yap(beyin, sct, dizin, sure, det=None, panel_ac=True):
                       "ist_hata_m", "ist_hata_yatay", "ist_hata_dikey",
                       "hedef_menzil_m", "yaw_hata", "v_istek",
                       "kopru_kare", "telafi_px",   # ⭐ Ö-N §5.1 mekanizma
+                      "yedek_kare", "yedek_leke", "yedek_px",   # ⭐ Ö-K §5.1
                       "bayat_birak", "yerel_aday", "yerel_uygun",
                       "det_ms", "det_pencere", "red_konum", "red_boyut",
                       "terminal_kabul", "yerel_kayip",

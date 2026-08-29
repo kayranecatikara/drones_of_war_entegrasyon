@@ -29,6 +29,7 @@ from dow.gudum.cevirici import HizCubukCevirici
 from dow.gudum import gps as GPS
 from dow.gorus.iz import Iz, IzCfg
 from dow.gorus.tracker import TalonTracker, TargetLock, TakipCfg
+from dow.gorus import yedek
 from dow.gudum import ibvs
 from dow.fusion.gnss_filtre import GNSSDuzeltici
 
@@ -50,6 +51,13 @@ class Beyin:
         #   ⚠ Kendi IMU'muz — §10 temiz, hedefe dair hiçbir veri yok.
         self._durus_gecmis = collections.deque(maxlen=250)
         self._telafi_px = 0.0                # §5.1 mekanizma sütunu
+        # ⭐ Ö-K YEDEK DEDEKTÖR — §5.1 mekanizma sütunları.
+        #   yedek_kare = yedeğin köprü yönünü kaç kez tazelediği (0 -> ATIL)
+        #   yedek_leke = son çağrıda kapıdan geçen leke sayısı
+        #   yedek_px   = yedeğin nişan noktasını kaç piksel kaydırdığı
+        self._yedek_say = 0
+        self._yedek_leke = 0
+        self._yedek_px = 0.0
         self._red_konum = 0; self._red_boyut = 0   # ÖLÇÜM-ONLY (kapı teşhisi)
         self._terminal_kabul = 0   # §5.1 Ö-A mekanizma sütunu: terminal
                                    # süreklilik istisnasıyla kaç kutu geçti
@@ -103,6 +111,8 @@ class Beyin:
         self._kopru_say = 0            # §5.1 mekanizma sütunu
         self._bayat_birak_say = 0      # §5.1 mekanizma sütunu (B)
         self._terminal_kabul = 0       # §5.1 mekanizma sütunu (Ö-A)
+        self._yedek_say = 0            # §5.1 mekanizma sütunu (Ö-K)
+        self._yedek_leke = 0; self._yedek_px = 0.0
         self._kilit = 0; self._kayip = 0
         self.hiz_I = 0.0
         self.izleyici.sifirla()
@@ -149,6 +159,7 @@ class Beyin:
         self._det_ms = self.det.son_ms
         self._det_pencere = self.det.son_pencere
         if d is None:
+            self._yedek_dene(img_rgb, t)     # Ö-K: YOLO boş -> yedek dener
             return None
         cx, cy, w, h, conf = d
         # ⭐ Ö-A: terminal süreklilik istisnası için SON KABUL EDİLEN kutunun
@@ -157,6 +168,7 @@ class Beyin:
         _sy = (t - self._son_tespit_t) if self._son_tespit else None
         ok, _sebep = ibvs.gecerli(cx, cy, w, h, conf, son_w=_sw, son_yas=_sy)
         if not ok:
+            self._yedek_dene(img_rgb, t)     # Ö-K: kutu kapıdan geçmedi
             return None
         if _sebep == "terminal":
             self._terminal_kabul += 1     # §5.1 MEKANİZMA SÜTUNU
@@ -371,6 +383,56 @@ class Beyin:
         self._kopru = {"az": oy + az, "el": el, "w": w, "h": h,
                        "conf": conf, "t": t}
 
+    # ---------------- Ö-K: YEDEK DEDEKTÖR ----------------
+    def _yedek_dene(self, img_bgr, t):
+        """YOLO kesintisinde köprünün YÖNÜNÜ taze bir renk/kontrast ölçümüyle
+        tazele. Ayrıntılı gerekçe ve ölçümler: `dow/gorus/yedek.py` başlığı.
+
+        ⚠ PARAMETRE BGR'DİR. Çağıran `_gorsel_tik_kilitli`'nin argümanı
+          tarihsel olarak `img_rgb` adını taşıyor ama boru hattı 2026-08-25
+          KANAL kampanyasından beri BGR veriyor (`araclar/kadraj.py::grab_bgr`).
+          Renk maskesi kanal sırasına duyarlı olduğu için bu ad tuzağı
+          burada açıkça notlanıyor.
+
+        ⭐ NE YAZAR, NE YAZMAZ — yapısal güvenlik:
+          YAZAR   : köprünün `az` / `el` alanları (yön)
+          YAZMAZ  : `t` (ömür), `w`/`h` (boyut), `conf` (güven)
+          Sonuç: (1) boyut kesinti boyunca DONDURULMUŞ kalır, yani menzil
+          yedeğin gürültülü siluetinden ETKİLENMEZ; (2) köprü yine SON GERÇEK
+          YOLO tespitinden KOPRU_S sonra düşer — yanlış bir kilit sonsuza
+          kadar yaşayamaz.
+
+        ⭐ GİRDİ YALNIZ: görüntü + köprü (kendi IMU'muzla telafi edilmiş).
+          Hedefin GPS'i/menzili yok -> görsel fazda meşru (§10).
+        """
+        self._yedek_leke = 0
+        self._yedek_px = 0.0
+        if not yedek.YedekCfg.AKTIF:
+            return
+        k = self._kopru
+        if not k or ibvs.IbvsCfg.KOPRU_S <= 0:
+            return
+        if (t - k["t"]) > ibvs.IbvsCfg.KOPRU_S:
+            return                      # çıpa bayat -> yedek KOŞMAZ (sürüklenme)
+        yon = self.b.yonelim()
+        oy, op, orl = (math.degrees(yon[2]), math.degrees(yon[1]),
+                       math.degrees(yon[0]))
+        ref = self._kopru_kutu(oy, op, orl, t)
+        if ref is None:
+            return                      # köprü kadraj dışına düştü
+        b = yedek.bul(img_bgr, (ref[0], ref[1], max(ref[2], ref[3])))
+        if b is None:
+            return
+        ncx, ncy, leke = b
+        az, el = ibvs.KAM.piksel_kerteriz(ncx, ncy, op, orl)
+        if az != az or el != el:        # NaN koruması (kadraj kenarı)
+            return
+        self._yedek_leke = leke
+        self._yedek_px = math.hypot(ncx - ref[0], ncy - ref[1])
+        self._yedek_say += 1
+        k["az"] = oy + az
+        k["el"] = el
+
     def _kopru_kutu(self, own_yaw, own_pitch, own_roll, t):
         """Saklanan atalet yönünü BUGÜNKÜ duruşumuzla kadraja geri yansıt.
 
@@ -448,6 +510,11 @@ class Beyin:
                      "yerel_uygun": self._yerel_uygun,
                      "kopru_kare": self._kopru_say,
                      "telafi_px": round(self._telafi_px, 1),
+                     # §5.1 Ö-K MEKANİZMA SÜTUNLARI — yedek_kare=0 olan bir
+                     # DENEY koşusu veri noktası değil, GEÇERSİZ koşudur.
+                     "yedek_kare": self._yedek_say,
+                     "yedek_leke": self._yedek_leke,
+                     "yedek_px": round(self._yedek_px, 1),
                      "bayat_birak": self._bayat_birak_say}
 
         # ---- KALKIS ----
